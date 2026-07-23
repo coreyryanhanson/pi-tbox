@@ -1,11 +1,13 @@
 # Manager MVP — `pi-tbox` design
 
-> **Status: DRAFT.** This records the brainstorming decisions for the
-> user-facing manager extension (`pi-tbox`). The `pi-tool-masking` library
-> API (§5 of `design.md`) is frozen **except for one prerequisite addition
-> — see "Development prerequisite" below**; this doc consumes it. The MVP
-> ships the full 8-point surface below (scope expanded from the earlier
-> list+toggle proposal — see "MVP scope" at the end).
+> **Status: APPROVED.** This is the finalized design for the
+> user-facing manager extension (`pi-tbox`), reviewed against the
+> `pi-tool-masking` library code and tests and the pi extension docs.
+> The `pi-tool-masking` library API (§5 of `design.md`) is frozen
+> **except for one prerequisite addition — see "Development prerequisite"
+> below**; this doc consumes it. The MVP ships the full 8-point surface
+> below (scope expanded from the earlier list+toggle proposal — see "MVP
+> scope" at the end).
 >
 > **Development prerequisite.** Before any `pi-tbox` code is written, the
 > library must export a typed registry-enumeration accessor:
@@ -151,6 +153,29 @@ can drift, `focus` won't.
 toolset, or a single tool. One label, clean allowlist. Multi-unit focus
 deferred.
 
+**Focus exit is re-actuation, not a mode flip.** `/tbox focus off` does
+more than flip inclusion→exclusion: while in focus, tbox writes
+`{ enabled: false }` entries for every non-allowlist toolset (the
+library's `_applyDisable`). Restore honors a persisted entry regardless
+of mode — an entry always wins (§4.5) — so flipping the mode bit alone
+leaves those toolsets stuck off. The `ExtensionAPI` surface exposes
+only `appendEntry`, no `removeEntry`/clear, so tbox cannot delete the
+focus-era entries either. The exit path must therefore **re-actuate**:
+for every registered toolset, call `enable()`/`disable()` to drive it
+back to `spec.defaultEnabled`, overwriting the focus-era entries with
+the default's `{ enabled }`. "Restore defaults" means each toolset
+returns to `spec.defaultEnabled` (the library never remembers
+pre-focus state — confirmed in code). This is a confirmed implementation
+requirement, not a TBD.
+
+**Curation re-walks the `requires` graph; keep it in one place.** The
+both-direction closure above needs the `requires` graph from registry
+specs. The library does not export a graph helper — the forward/reverse
+walks live privately in `_enableToolset`/`_disableDependents` — so tbox
+re-implements them. This is consistent with the design split (curation is
+tbox-owned "user intent"), but the duplicated logic must live in one
+shared helper inside tbox, not be inlined per command.
+
 ### 3. Developer mode + default guards
 
 Developer mode (`/tbox dev on`) lifts three guards:
@@ -173,9 +198,9 @@ building them would expand the frozen library for speculation. The work
 is **updating portal/host toolset specs to set `masked: true`**, not
 expanding the library.
 
-> **Open:** the masking edge case where a plugin wants a cohesive
-> group (e.g. `portal.web`) with a sibling standalone tool
-> (`portal.learn`) is already handled by `requires` (§4.4) — two
+> **Resolved — no library action:** the masking edge case where a plugin
+> wants a cohesive group (e.g. `portal.web`) with a sibling standalone
+> tool (`portal.learn`) is already handled by `requires` (§4.4) — two
 > toolsets, one dependency edge, no new mechanism. See "Edge case:
 > web + learn" below.
 
@@ -190,6 +215,14 @@ filtered list depends on dev mode:
   `requires` closure auto-maintained (point 2).
 - **Dev mode:** masked toolsets expand to show individual members as
   checkable rows; builtins surface as toggleable; no closure auto-apply.
+
+**`emitMemberEvents` is not used by the MVP picker.** The library offers
+`spec.emitMemberEvents` (§13.1) for per-tool UI fanout on enable/disable.
+The picker derives membership from `getRegisteredToolsets()` and
+refreshes on `TOOLSET_EVENTS.changed`/`restored`, which is sufficient —
+fine-grained per-member events are YAGNI for the MVP. Deferred without
+prejudice: if the picker later needs live per-row animations, this is the
+knob.
 
 ### 5. Char counter
 
@@ -389,7 +422,5 @@ API surface, not just list+toggle.
   simpler).
 - `requires`-closure picker interaction details (how the auto-check /
   auto-uncheck surfaces to the user — animated? logged? silent?).
-- Focus exit semantics: `/tbox focus off` flips inclusion→exclusion and
-  restores defaults — confirm "restore defaults" means each toolset
-  returns to `spec.defaultEnabled`, not to its pre-focus state (which
-  the library doesn't remember).
+- `emitMemberEvents` left off for the MVP picker (decision recorded in
+  point 4); revisit only if live per-row picker animation is needed.
