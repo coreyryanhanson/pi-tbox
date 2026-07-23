@@ -18,6 +18,12 @@ import {
 	clearSlot,
 	setFocusUnit,
 } from "./src/status-slot.js";
+import {
+	formatBareHelp,
+	formatList,
+	formatStatus,
+	parseArgs,
+} from "./src/list.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -40,12 +46,42 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		};
 	} | null = null;
 
-	// --- Register /tbox command (stub) ---
+	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
 		description:
-			"Cross-extension tool manager. Usage: /tbox [list|toggle|all|focus|chars|dev|status]",
-		handler: async (_args, ctx) => {
-			ctx.ui.notify("tbox: not yet implemented", "info");
+			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|dev|focus|chars|group]",
+		handler: async (args, ctx) => {
+			const trimmed = args.trim();
+			if (!trimmed) {
+				// Bare /tbox — slot mirror + help
+				const slotText = formatBareHelp(
+					pi,
+					ctx.ui.theme.fg as (color: string, text: string) => string,
+				);
+				ctx.ui.notify(slotText, "info");
+				return;
+			}
+
+			const { command } = parseArgs(trimmed);
+
+			switch (command) {
+				case "list": {
+					const output = formatList(pi, trimmed);
+					ctx.ui.notify(output, "info");
+					break;
+				}
+				case "status": {
+					const output = formatStatus(pi);
+					ctx.ui.notify(output, "info");
+					break;
+				}
+				default: {
+					ctx.ui.notify(
+						`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|dev|focus|chars|group]`,
+						"error",
+					);
+				}
+			}
 		},
 	});
 
