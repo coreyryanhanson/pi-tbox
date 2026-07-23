@@ -62,9 +62,13 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
+				// Bind: Theme.fg reads `this.fgColors`; passing it unbound loses `this`.
 				const slotText = formatBareHelp(
 					pi,
-					ctx.ui.theme.fg as (color: string, text: string) => string,
+					ctx.ui.theme.fg.bind(ctx.ui.theme) as (
+						color: string,
+						text: string,
+					) => string,
 				);
 				ctx.ui.notify(slotText, "info");
 				return;

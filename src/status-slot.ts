@@ -115,7 +115,8 @@ export function render(
 	},
 ): void {
 	const state = computeSlotState(pi);
-	const text = renderSlotText(state, ctx.ui.theme.fg);
+	// Bind: Theme.fg reads `this.fgColors`; passing it unbound loses `this`.
+	const text = renderSlotText(state, ctx.ui.theme.fg.bind(ctx.ui.theme));
 	ctx.ui.setStatus(SLOT_NAME, text);
 }
 
