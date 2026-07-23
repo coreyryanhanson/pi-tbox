@@ -62,7 +62,10 @@ the seed set.)
   (members: `web-learn`) shows `web-learn` under `learn`; `portal.web`'s
   members show under `web`. A tool in no registered toolset shows under
   `tbox.orphans` (or `pi.builtin` if it's a builtin — see point 8).
-- **`--flat`:** every tool as a row, no grouping.
+- **`--flat`:** every tool as a row, no grouping. Tools outside
+  tbox's domain (see point 8 — `sdk`-source tools) appear as
+  read-only rows so the user sees they exist and understands why they
+  can't be toggled, but they carry no enable/disable affordance.
 
 Filters: `--active` (only currently enabled), `--inactive` (only
 disabled). Both filters work in both views.
@@ -198,17 +201,41 @@ disables every non-builtin toolset (builtins protected by point 3).
 no registered toolset can't be persistently toggled through the library
 (the library persists state per toolset, and a raw `setActiveTools`
 filter won't survive restore). Tbox fixes this by auto-registering
-toolsets for them at load:
+toolsets for them at load. tbox's domain is **extension tools only** —
+it mirrors pi's own canonical discriminator (docs: `extensions.md`
+§"pi.getAllTools()", `all.filter((t) => t.sourceInfo.source !== "builtin"
+&& t.sourceInfo.source !== "sdk")`). The three `sourceInfo.source`
+categories pi exposes:
+
+- `builtin` — built-in tools. Protected (point 3).
+- `sdk` — tools injected by a host embedding pi via
+  `createAgentSession({ customTools })`. **Outside tbox's domain.**
+- extension source metadata — tools registered by pi extensions.
+  These are what tbox manages.
+
+Registered toolsets at load:
 
 - **`pi.builtin`** — scan `pi.getAllTools()`, filter
   `sourceInfo.source === "builtin"`, register those names as the
-  `pi.builtin` toolset. This is the point-3 protected toolset. Verified:
-  `sourceInfo.source === "builtin"` is the exact discriminator pi
-  exposes (docs: `extensions.md` §"pi.getAllTools()"). No hardcoded
-  list, no drift, no `pi.getBuiltinTools()` upstream ask.
+  `pi.builtin` toolset. This is the point-3 protected toolset. No
+  hardcoded list, no drift, no `pi.getBuiltinTools()` upstream ask.
 - **`tbox.orphans`** (or per-source-plugin groupings) — extension tools
-  not in any plugin-declared toolset. Registered the same way so they
-  persist through the library like any other toolset.
+  (`source !== "builtin" && source !== "sdk"`) not in any plugin-declared
+  toolset. Registered the same way so they persist through the library
+  like any other toolset.
+- **`sdk`-source tools are not registered into any toolset**, not
+  toggleable via `/tbox toggle`, `/tbox <group> on|off`, or `/tbox all`,
+  and not counted in the status slot's excluded count. They appear as
+  read-only rows in `/tbox list --flat` (point 1). Rationale: an sdk
+  tool's presence is controlled by the host, not the extension system;
+  persisting `{ enabled }` state for a toolset whose membership the host
+  may swap next session is semantically broken, and `/tbox all off`
+  must not clobber host intent (e.g. a deliberately-restricted
+  read-only session's `customTools`). Dev mode does **not** lift this —
+  it only unseals `masked` members and exposes `pi.builtin`, both of
+  which concern tools that are always present; sdk tools are not
+  guaranteed present next session. If a future need arises, a separate
+  `/tbox dev` escalation can add sdk toggling — YAGNI now.
 
 Everything routes through the frozen library API; no new persist shape.
 
@@ -229,11 +256,15 @@ deliberately-constrained (matches portal's learn-mode green — "user
 chose this mode and it's holding"), red = broken (matches search's
 unreachable red). No color is overloaded.
 
-The excluded-count (`n`) is non-builtin excluded tools, computed as
-`getAllTools()` (non-builtin) minus `getActiveTools()`. Updates on every
-toggle via the `TOOLSET_EVENTS.changed`/`restored` listeners tbox wires
-for the slot. A user who's excluded only builtins (unusual) sees
-`○ tbox`; a user who's excluded 3 real tools sees `● tbox 3`.
+The excluded-count (`n`) is **non-builtin, non-sdk** excluded tools —
+i.e. extension tools tbox actually manages — computed as `getAllTools()`
+(filtered to `source !== "builtin" && source !== "sdk"`) minus
+`getActiveTools()`. Excluding sdk tools from the count keeps the number
+honest about how many *extension* tools the user turned off (see point 8).
+Updates on every toggle via the `TOOLSET_EVENTS.changed`/`restored`
+listeners tbox wires for the slot. A user who's excluded only builtins or
+sdk tools (unusual) sees `○ tbox`; a user who's excluded 3 real
+extension tools sees `● tbox 3`.
 
 The slot shows focus state only — **not** the char count. `/tbox chars`
 is the on-demand surface for the count. Budget awareness during focus is
@@ -267,7 +298,7 @@ handles the composition.
 
 | Area | Decision |
 |---|---|
-| Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + `tbox.orphans` toolsets; all persist through the library |
+| Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + `tbox.orphans` (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
 | Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; dev mode lifts it |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); dev mode skips |
@@ -288,6 +319,14 @@ handles the composition.
   `sourceInfo.source === "builtin"` is the exact discriminator; the docs
   show the canonical `all.filter((t) => t.sourceInfo.source === "builtin")`
   pattern. No hardcoded list, no `pi.getBuiltinTools()` needed.
+- **`sdk` is a distinct third source category** — the docs
+  (`extensions.md` §"pi.getAllTools()") list `builtin`, `sdk` (tools
+  from `createAgentSession({ customTools })`), and extension metadata,
+  and show the two-sided exclusion `source !== "builtin" &&
+  source !== "sdk"` as the canonical "extension tools" filter. tbox's
+  domain follows this: point 8 registers only `builtin` + extension
+  orphans, excludes sdk tools from management, and the status slot's
+  `n` counts non-builtin/non-sdk excluded only.
 
 ## MVP scope
 
