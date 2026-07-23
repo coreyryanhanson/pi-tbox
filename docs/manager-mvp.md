@@ -2,9 +2,34 @@
 
 > **Status: DRAFT.** This records the brainstorming decisions for the
 > user-facing manager extension (`pi-tbox`). The `pi-tool-masking` library
-> API (§5 of `design.md`) is frozen; this doc consumes it. The MVP ships
-> the full 8-point surface below (scope expanded from the earlier
+> API (§5 of `design.md`) is frozen **except for one prerequisite addition
+> — see "Development prerequisite" below**; this doc consumes it. The MVP
+> ships the full 8-point surface below (scope expanded from the earlier
 > list+toggle proposal — see "MVP scope" at the end).
+>
+> **Development prerequisite.** Before any `pi-tbox` code is written, the
+> library must export a typed registry-enumeration accessor:
+>
+> ```ts
+> export interface RegistryEntry {
+>  spec: ToolsetSpec;
+>  toolset: Toolset;
+> }
+> export function getRegisteredToolsets(): readonly RegistryEntry[];
+> ```
+>
+> This is the single most-used capability in the manager — `/tbox list`
+> (point 1), group→unit resolution (point 2), `/tbox all on|off` (point
+> 8), and the status-slot excluded-count all require enumerating registered
+> toolsets across extensions. Today the only sanctioned path is reading
+> the internal, untyped `globalThis.__piToolMaskingRegistry` (design §6.1,
+> §13), whose key name and `{ spec, toolset }` entry shape are not part of
+> the frozen §5 exports. Depending on an internal global is the one place
+> most likely to silently break the manager if the library renames the
+> key. Exporting `getRegisteredToolsets()` + `RegistryEntry` makes that
+> contract typed, documented, and frozen — exactly the kind of fix the
+> library is still unpublished to absorb. **This is blocking: tbox
+> development does not start until it lands.**
 
 ## Premise
 
@@ -15,12 +40,15 @@ the library is published so the frozen API is validated against a real
 consumer.
 
 The library owns *toolset on/off memory*, the `requires` cascade, the
-`masked` addressability contract, and the inclusion/exclusion
-default-resolution mode. `pi-tbox` owns *user intent*: which tools are
+`masked` addressability contract, the inclusion/exclusion
+default-resolution mode, and — once the prerequisite above lands —
+registry enumeration. `pi-tbox` owns *user intent*: which tools are
 grouped together, which unit is focused, how the user sees and toggles
 everything. The library never learns what a "group" or "focus label" is;
 tbox stores those in its own user config and resolves them to library
-primitives at actuation time.
+primitives at actuation time. tbox never reaches into
+`globalThis.__piToolMaskingRegistry` directly; it goes through
+`getRegisteredToolsets()`.
 
 ## Command surface — `/tbox`
 
@@ -237,7 +265,10 @@ Registered toolsets at load:
   guaranteed present next session. If a future need arises, a separate
   `/tbox dev` escalation can add sdk toggling — YAGNI now.
 
-Everything routes through the frozen library API; no new persist shape.
+Everything routes through the frozen library API (including
+`getRegisteredToolsets()` once the prerequisite lands); no new persist
+shape, and tbox never touches `globalThis.__piToolMaskingRegistry`
+directly.
 
 ## Status slot
 
@@ -298,6 +329,7 @@ handles the composition.
 
 | Area | Decision |
 |---|---|
+| Registry enumeration | **prerequisite** — library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
 | Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + `tbox.orphans` (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
 | Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; dev mode lifts it |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
@@ -327,6 +359,15 @@ handles the composition.
   domain follows this: point 8 registers only `builtin` + extension
   orphans, excludes sdk tools from management, and the status slot's
   `n` counts non-builtin/non-sdk excluded only.
+- **Registry enumeration is NOT yet exported** — the frozen §5 exports
+  are `defineToolset`, `setDefaultResolutionMode`,
+  `getDefaultResolutionMode`, `TOOLSET_EVENTS`, and four types; there is
+  no `getToolsets()`/registry accessor and `RegistryEntry` is not
+  exported. The only sanctioned read path today is the internal
+  `globalThis.__piToolMaskingRegistry` (design §6.1, §13). The manager
+  needs a typed, frozen accessor — see "Development prerequisite" at
+  the top of this doc. **This is the one gap between the plan's
+  "consumes the frozen API" claim and the library as it stands today.**
 
 ## MVP scope
 
