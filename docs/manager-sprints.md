@@ -236,138 +236,56 @@ rewrites it to assert the settings.json read).
 
 ---
 
-## Sprint 3 — User groups: storage, on/off, reserved words, closure helper
+## Sprint 3 — ✅ Done: User groups: storage, on/off, reserved words, closure helper
 
-**Goal:** point 2 (user groups) — the **actuation** half. Curation UX
-(the picker) is Sprint 4. This sprint ships `/tbox <group> on|off`, the
-explicit `/tbox group <name> [on|off]` form, the reserved-wordlist
-collision disambiguation, and the shared `requires-graph.ts` closure
-helper (used by Sprint 4's picker).
+Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
+`src/requires-graph.ts`, `index.ts`):
 
-### Work
+- **`config/settings-reader.ts`** — tbox's own merged-settings reader
+  (library exports none, `design.md` §5.1). Tbox-owned keys live under
+  one `tbox` object: `tbox.dev` (boolean) and `tbox.groups` (group →
+  `{ toolsets: string[], tools: string[] }`). Reads merge global +
+  project (project wins); a test-injectable override avoids fs mocks.
+  **Storage-shape decision (recorded):** groups live under `tbox.groups`
+  in merged settings — a dedicated `~/.pi/agent/pi-tbox/groups.json` was
+  rejected (one config location is simpler, matches the MVP
+  recommendation). The write path lands in Sprint 4's picker-confirm.
+- **Dev-mode swap (lands here, not Sprint 2)** — at `session_start`,
+  tbox reads `tbox.dev` and sets the in-memory flag the guards consult,
+  replacing Sprint 2's placeholder `setDevMode`/`isDevMode` + `/tbox dev`
+  command. The `/tbox dev` command is **removed entirely**; edit
+  `settings.json` and `/reload` to change. `/tbox status` reports "Dev
+  mode: on|off" from the read value. `dev-mode.test.ts` rewritten to
+  assert the settings read (`session_start` with `tbox.dev: true` →
+  guards lifted).
+- **`src/groups.ts`** — `/tbox <group> on` enables each toolset member
+  (library cascade pulls deps on); individual tool members actuate via
+  their containing toolset. `/tbox <group> off` disables each member; the
+  moved set is computed by **diffing `getActiveTools()` before vs.
+  after** (not `reverseClosure` — reflects reality incl. cross-extension
+  companions the static graph wouldn't predict); cascaded non-members
+  are reported in the output. Drift caveat line shipped on every
+  actuation.
+- **`src/reserved.ts`** — reserved wordlist (`toggle`, `status`,
+  `focus`, `all`, `list`, `chars`, `group`, `on`, `off`); **`dev`
+  dropped** (no `/tbox dev` command). `/tbox <name> on|off` is the group
+  shorthand unless `<name>` is reserved; a reserved-named group is
+  reachable only via `/tbox group <name> on`, and the bare form errors
+  with a pointer to the explicit form.
+- **`/tbox group <name> [on|off]`** — explicit group form (unambiguous
+  path + reserved-name escape). `/tbox group <name> edit` is a stub
+  ("picker coming in Sprint 4").
+- **`src/requires-graph.ts`** — the one shared helper for the
+  both-direction `requires` closure over `getRegisteredToolsets()`:
+  `forwardClosure(ids)` (ids + transitive `requires` targets) and
+  `reverseClosure(ids)` (ids + everything that transitively `requires`
+  one of them). Built from registry specs only (no `globalThis`). Cycle
+  detection surfaces the cycle path at curation time rather than letting
+  the library throw mid-actuation; forward-references (a `requires` id
+  absent from the registry) are skipped, not fatal.
 
-1. `config/settings-reader.ts`: tbox's own merged-settings reader
-   (mirror `pi-lean-portal/core/shared/settings-reader.ts` — the library
-   exports none, `design.md` §5.1). Groups live under a `tbox.groups` key
-   in merged settings. **Decide the storage shape** (an "Open" item in
-   `manager-mvp.md`): recommend
-
-   ```jsonc
-   "tbox": { "groups": { "mygroup": { "toolsets": ["portal.web"],
-                                       "tools": ["web-learn"] } } },
-   "tbox": { "dev": false }
-   ```
-
-   — group → `{ toolsets: string[], tools: string[] }` (addressable units
-   = whole toolsets and/or individual tools). Reads merge global + project
-   (project wins). **Writing** groups back (Sprint 4's edit command) uses
-   the same reader's write path; if programmatic settings.json writes are
-   judged too risky, fall back to a dedicated
-   `~/.pi/agent/pi-tbox/groups.json` — **decide in this sprint and record
-   the call in the sprint's PR description.**
-
-   **Dev-mode swap (lands here, not Sprint 2):** the same reader exposes
-   `tbox.dev` (boolean, default `false`). At `session_start`, tbox reads
-   it and sets the in-memory dev-mode flag the guards consult — replacing
-   Sprint 2's placeholder `setDevMode`/`isDevMode` + `/tbox dev on|off`
-   command surface. The `/tbox dev` command is **removed entirely**; to
-   change dev mode, edit `settings.json` and `/reload`. `/tbox status`
-   reports "Dev mode: on|off" from the read value. Rewrite Sprint 2's
-   `dev-mode.test.ts` to assert the settings.json read (a `session_start`
-   with `tbox.dev: true` in the mock settings → guards lifted) rather
-   than the placeholder flag.
-2. `src/groups.ts`: load groups from config; resolve a group → its units
-   (toolset ids + tool names) → call `toolset.enable/disable` per
-   toolset member and toggle the individual tools' containing toolsets
-   for tool members.
-   - **`/tbox <group> on`** resolves → enable each toolset member
-     (`requires` cascade in the library pulls deps on); for individual
-     tool members, enable their containing toolset (toggling a single
-     tool is always via its toolset — there is no per-tool persist
-     primitive).
-   - **`/tbox <group> off`** resolves → disable each toolset member
-     (library reverse-cascades to dependents outside the group — tbox
-     **surfaces this** in post-actuation status: report every toolset
-     that actually moved, including cascaded non-members). Compute the
-     moved set by **diffing `getActiveTools()` before vs. after
-     actuation** — this reflects reality (including any cross-extension
-     companions the static graph wouldn't predict); do **not** predict
-     it via `reverseClosure`, which would drift from what the library
-     actually did.
-   - **Drift is documented** (point 7): `on`/`off` writes per-toolset
-     entries; editing the group later does not retroact. The command's
-     output includes a one-line note when a group is actuated
-     ("group state saved per-toolset; editing this group won't change
-     already-saved sessions — use focus for drift-free snapshots").
-3. `src/reserved.ts`: the reserved wordlist (`toggle`, `status`, `focus`,
-   `all`, `list`, `chars`, `group`, `on`, `off`) — **`dev` dropped**: the
-   `/tbox dev` command was removed in this sprint's dev-mode swap, so a
-   group named `dev` is no longer a collision and `/tbox dev on` is just
-   the group shorthand. Command dispatch: `/tbox <name> on|off` is the
-   group shorthand **unless** `<name>` is reserved, in which case the
-   subcommand wins and a group named e.g. `focus` is only reachable via
-   `/tbox group focus on` (error on the bare form points the user at the
-   explicit form).
-4. `/tbox group <name> [on|off]`: explicit group form (for reserved-name
-   groups and as the unambiguous path). `/tbox group <name> edit` is
-   wired to a stub this sprint (picker lands in Sprint 4).
-5. `src/requires-graph.ts`: the **one shared helper** for the
-   both-direction `requires` closure over `getRegisteredToolsets()`.
-   - `forwardClosure(toolsetIds)`: given a set of ids, return the set
-     plus every transitive `requires` target.
-   - `reverseClosure(toolsetIds)`: given a set, return the set plus every
-     toolset that transitively `requires` one of them.
-   - Built from `getRegisteredToolsets()` specs only (no `globalThis`).
-   - Cycle detection: the library throws on cycles at actuation; tbox's
-     walk should detect and surface a cycle at curation time too (re-use
-     the visited-stack pattern) rather than letting the library throw
-     mid-actuation.
-   - This sprint: the helper exists and is unit-tested; Sprint 4's
-     picker calls it.
-
-### Acceptance criteria
-
-- [ ] `/tbox mygroup on` (non-reserved name) enables every toolset in
-      `mygroup`; `requires` deps come on via the library cascade;
-      post-actuation status lists everything that moved.
-- [ ] `/tbox mygroup off` disables every toolset in `mygroup`; cascaded
-      non-members (e.g. `portal.learn` when only `portal.web` is in the
-      group) are reported in the output as moved-by-cascade.
-- [ ] `/tbox focus on` (reserved name) errors and points at `/tbox group
-      focus on`; the explicit form works.
-- [ ] `/tbox group <name> on|off` is the unambiguous path and behaves
-      identically to the bare form for non-reserved names.
-- [ ] Dev mode is read from `tbox.dev` in `settings.json` at
-      `session_start`; the `/tbox dev` command is gone; `/tbox status`
-      reports the read value; a group named `dev` is reachable via
-      `/tbox dev on` (group shorthand, no longer reserved).
-- [ ] `/tbox group <name> edit` prints a "picker coming in Sprint 4"
-      stub (no crash).
-- [ ] `forwardClosure`/`reverseClosure` return the correct transitive
-      sets over a multi-toolset `requires` graph; a cycle is detected
-      and reported with the cycle path.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `groups.test.ts`:
-  - Group `{toolsets: ["portal.web"]}` → `on` enables `portal.web`;
-    `off` disables it and reports `portal.learn` as cascaded-off (fake
-    `portal.learn` with `requires: ["portal.web"]`).
-  - Group with both a toolset and an individual tool member → both
-    actuate.
-  - Actuating a non-existent group → clear error.
-  - Post-actuation output mentions the drift caveat line.
-- `reserved.test.ts`: every reserved word dispatches to its subcommand,
-  not a group; a group named `list` is reachable only via
-  `/tbox group list on`; bare `/tbox list on` errors with the pointer.
-- `requires-graph.test.ts`:
-  - `forwardClosure(["portal.learn"])` → `{portal.learn, portal.web}`.
-  - `reverseClosure(["portal.web"])` → `{portal.web, portal.learn}` (and
-    any deeper dependents).
-  - A 3-node cycle `A→B→C→A` → throws naming `A → B → C → A`.
-  - Forward-reference (a `requires` id not in the registry) is skipped,
-    not fatal.
+Tests shipped (green): `groups`, `reserved`, `requires-graph`,
+`dev-mode` (rewritten for the settings read).
 
 ---
 
