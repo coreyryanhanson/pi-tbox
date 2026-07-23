@@ -11,6 +11,7 @@
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 import { computeSlotState, renderSlotText } from "./status-slot.js";
+import { isDevMode } from "./toggle.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -303,7 +304,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 	lines.push("");
 	lines.push("User Groups: no groups defined");
 	lines.push("Focus: off");
-	lines.push("Dev Mode: off");
+	lines.push(`Dev Mode: ${isDevMode() ? "on" : "off"}`);
 
 	return lines.join("\n").trimEnd();
 }

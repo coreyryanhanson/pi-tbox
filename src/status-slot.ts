@@ -146,6 +146,10 @@ export function getFocusUnit(): string | null {
  *
  * Call this from the factory's session_start handler.
  * The render() call is at the END of the capture handler (§6 fix).
+ *
+ * Guard: the onChange handler checks that the context is captured before
+ * rendering — during session_start the library's restore handler fires
+ * TOOLSET_EVENTS before the tbox handler sets lastCtx.
  */
 export function wireSlot(
 	pi: ExtensionAPI,
@@ -154,11 +158,12 @@ export function wireSlot(
 			setStatus: (slot: string, text: string) => void;
 			theme: { fg: (color: string, text: string) => string };
 		};
-	},
+	} | null,
 ): void {
 	// Re-render on toolset changes
 	const onChange = () => {
-		render(pi, getCtx());
+		const ctx = getCtx();
+		if (ctx) render(pi, ctx);
 	};
 	pi.events.on(TOOLSET_EVENTS.changed, onChange);
 	pi.events.on(TOOLSET_EVENTS.restored, onChange);

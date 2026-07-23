@@ -24,6 +24,7 @@ import {
 	formatStatus,
 	parseArgs,
 } from "./src/list.js";
+import { toggleTool, toggleAll, setDevMode, isDevMode } from "./src/toggle.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -33,7 +34,7 @@ import {
  * Default extension factory — called by pi's loader.
  *
  * Registers:
- *   - /tbox command (stub for now)
+ *   - /tbox command
  *   - tbox status slot (wired to lifecycle events)
  *   - Auto-registration of pi.builtin + tbox.orphans on session_start
  */
@@ -53,7 +54,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
-				// Bare /tbox — slot mirror + help
 				const slotText = formatBareHelp(
 					pi,
 					ctx.ui.theme.fg as (color: string, text: string) => string,
@@ -62,7 +62,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				return;
 			}
 
-			const { command } = parseArgs(trimmed);
+			const { command, rest } = parseArgs(trimmed);
 
 			switch (command) {
 				case "list": {
@@ -73,6 +73,61 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "status": {
 					const output = formatStatus(pi);
 					ctx.ui.notify(output, "info");
+					break;
+				}
+				case "toggle": {
+					const toolName = rest[1];
+					if (!toolName) {
+						ctx.ui.notify(
+							"Usage: /tbox toggle <tool> — toggle a tool's containing toolset on/off.",
+							"info",
+						);
+						break;
+					}
+					const dev = isDevMode();
+					const result = toggleTool(pi, toolName, dev);
+					const isErr =
+						result.startsWith("Cannot") ||
+						result.startsWith("Ambiguous") ||
+						result.startsWith("No tool") ||
+						result.startsWith("Multiple");
+					ctx.ui.notify(result, isErr ? "error" : "info");
+					break;
+				}
+				case "all": {
+					const sub = rest[1];
+					if (sub === "on") {
+						ctx.ui.notify(toggleAll(pi, true), "info");
+					} else if (sub === "off") {
+						ctx.ui.notify(toggleAll(pi, false), "info");
+					} else {
+						ctx.ui.notify(
+							"Usage: /tbox all on | /tbox all off — enable or disable all toolsets.",
+							"info",
+						);
+					}
+					break;
+				}
+				case "dev": {
+					const sub = rest[1];
+					if (sub === "on") {
+						setDevMode(true);
+						ctx.ui.notify(
+							"Dev mode enabled. Builtin and masked-member guards are lifted.",
+							"info",
+						);
+					} else if (sub === "off") {
+						setDevMode(false);
+						ctx.ui.notify(
+							"Dev mode disabled. Builtin and masked-member guards are restored.",
+							"info",
+						);
+					} else {
+						ctx.ui.notify(
+							`Dev mode is currently ${isDevMode() ? "on" : "off"}.`,
+							"info",
+						);
+					}
 					break;
 				}
 				default: {
@@ -126,9 +181,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			},
 		);
 		setFocusUnit(null);
+		setDevMode(false);
 		lastCtx = null;
 	});
 
 	// --- Wire slot to toolset events ---
-	wireSlot(pi, () => lastCtx!);
+	wireSlot(pi, () => lastCtx);
 }
