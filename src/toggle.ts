@@ -5,21 +5,23 @@
  *   - resolveTool: find a tool by exact or prefix match
  *   - toggleTool: toggle a tool's containing toolset (with guards)
  *   - toggleAll: enable/disable every registered toolset
- *   - dev mode: set/get a per-session in-memory dev-mode flag
+ *   - dev mode: read from `tbox.dev` in settings.json at session_start
  *
  * @module
  */
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import { readTboxConfig } from "../config/settings-reader.js";
 
 // ---------------------------------------------------------------------------
 // Module-level dev-mode state (in-memory, session-scoped)
 // ---------------------------------------------------------------------------
 
-// ponytail: dev mode is a session-scoped in-memory flag, not persisted via
-// session entries. It resets on /reload (module re-eval) and on
-// session_shutdown. A settings.json-backed read (`tbox.dev`) lands in Sprint 3.
+// Dev mode is a `tbox.dev` boolean in settings.json, read at session_start
+// (and on /reload). There is no `/tbox dev` command — to change it, edit
+// settings.json and `/reload`. This in-memory flag is what the guards
+// consult; it is set from the settings read, not via a runtime command.
 let _devMode = false;
 
 // ---------------------------------------------------------------------------
@@ -31,9 +33,22 @@ export function isDevMode(): boolean {
 	return _devMode;
 }
 
-/** Set dev mode for the current session (in-memory only, not persisted). */
-export function setDevMode(enabled: boolean): void {
-	_devMode = enabled;
+/**
+ * Read `tbox.dev` from merged settings and sync the in-memory flag.
+ * Called at `session_start` (and on `/reload`, which re-evaluates the
+ * module). Returns the read value.
+ */
+export function loadDevModeFromSettings(): boolean {
+	_devMode = readTboxConfig().dev;
+	return _devMode;
+}
+
+/**
+ * Reset the in-memory dev-mode flag (session_shutdown). Not a settings
+ * write — just clears the session-scoped flag.
+ */
+export function resetDevMode(): void {
+	_devMode = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,12 +142,12 @@ export function toggleTool(
 
 	// --- Guards (normal mode) ---
 	if (entry.spec.id === "pi.builtin" && !devMode) {
-		return `Cannot toggle "${tool.name}": builtins are protected. Enable dev mode with /tbox dev on to toggle builtins.`;
+		return `Cannot toggle "${tool.name}": builtins are protected. Set "tbox.dev": true in settings.json and /reload to toggle builtins.`;
 	}
 
 	if (entry.spec.masked && !devMode) {
 		const label = entry.spec.label ?? entry.spec.id;
-		return `Cannot toggle "${tool.name}": this tool is part of the sealed group "${label}". Toggle the group, or enable dev mode.`;
+		return `Cannot toggle "${tool.name}": this tool is part of the sealed group "${label}". Toggle the group, or set "tbox.dev": true in settings.json and /reload.`;
 	}
 
 	// --- Toggle ---

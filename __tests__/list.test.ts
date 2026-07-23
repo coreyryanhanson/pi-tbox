@@ -650,14 +650,27 @@ describe("end-to-end via dispatchCommand", () => {
 		expect(notify!.message).toContain("Dev Mode:");
 	});
 
-	it("unknown subcommand shows error", async () => {
+	it("non-reserved unknown name is treated as a group shorthand (usage pointer)", async () => {
 		mock.fireLifecycleEvent("session_start");
 		mock.clearUiRecords();
 
+		// Sprint 3: non-reserved names are group shorthand, not errors.
 		await mock.dispatchCommand("unknown-sub");
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("Unknown subcommand");
+		expect(notify!.message).toContain("Usage");
+		expect(notify!.message).toContain("unknown-sub on");
+	});
+
+	it("/tbox <unknown-group> on → no-group error (not 'Unknown subcommand')", async () => {
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("unknown-sub on");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toContain('No group named "unknown-sub"');
 	});
 });

@@ -24,7 +24,15 @@ import {
 	formatStatus,
 	parseArgs,
 } from "./src/list.js";
-import { toggleTool, toggleAll, setDevMode, isDevMode } from "./src/toggle.js";
+import {
+	toggleTool,
+	toggleAll,
+	loadDevModeFromSettings,
+	resetDevMode,
+	isDevMode,
+} from "./src/toggle.js";
+import { isReserved } from "./src/reserved.js";
+import { actuateGroup, describeGroup } from "./src/groups.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -50,7 +58,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
 		description:
-			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|dev|focus|chars|group]",
+			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off",
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -63,6 +71,14 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			}
 
 			const { command, rest } = parseArgs(trimmed);
+
+			if (!command) {
+				ctx.ui.notify(
+					"Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off",
+					"info",
+				);
+				return;
+			}
 
 			switch (command) {
 				case "list": {
@@ -108,33 +124,67 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 					break;
 				}
-				case "dev": {
-					const sub = rest[1];
-					if (sub === "on") {
-						setDevMode(true);
+				case "group": {
+					// /tbox group <name> [on|off|edit]
+					const name = rest[1];
+					if (!name) {
 						ctx.ui.notify(
-							"Dev mode enabled. Builtin and masked-member guards are lifted.",
+							"Usage: /tbox group <name> [on|off|edit] — actuate or edit a named group.",
 							"info",
 						);
+						break;
+					}
+					const sub = rest[2];
+					if (sub === "on") {
+						ctx.ui.notify(actuateGroup(pi, name, true), "info");
 					} else if (sub === "off") {
-						setDevMode(false);
+						ctx.ui.notify(actuateGroup(pi, name, false), "info");
+					} else if (sub === "edit") {
+						// Picker lands in Sprint 4.
 						ctx.ui.notify(
-							"Dev mode disabled. Builtin and masked-member guards are restored.",
+							`Group "${name}" editor: picker coming in Sprint 4. Edit "tbox.groups.${name}" in settings.json for now.`,
 							"info",
 						);
 					} else {
-						ctx.ui.notify(
-							`Dev mode is currently ${isDevMode() ? "on" : "off"}.`,
-							"info",
-						);
+						// Bare `/tbox group <name>` — report the group's units.
+						ctx.ui.notify(describeGroup(name), "info");
 					}
 					break;
 				}
-				default: {
+				case "focus":
+				case "chars": {
+					// Reserved for Sprint 5 / Sprint 6. Because the name is
+					// reserved, a group with this name is only reachable via
+					// the explicit `/tbox group <name> on` form — point at it.
 					ctx.ui.notify(
-						`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|dev|focus|chars|group]`,
-						"error",
+						`/tbox ${command} ships in a later sprint. If you meant a group named "${command}", use /tbox group ${command} on.`,
+						"info",
 					);
+					break;
+				}
+				default: {
+					// Group shorthand: `/tbox <name> on|off` where <name> is
+					// NOT reserved. Reserved names dispatch to their
+					// subcommand above; a group named e.g. `focus` is only
+					// reachable via `/tbox group focus on`.
+					if (isReserved(command)) {
+						ctx.ui.notify(
+							`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off`,
+							"error",
+						);
+						break;
+					}
+					const sub = rest[1];
+					if (sub === "on") {
+						ctx.ui.notify(actuateGroup(pi, command, true), "info");
+					} else if (sub === "off") {
+						ctx.ui.notify(actuateGroup(pi, command, false), "info");
+					} else {
+						ctx.ui.notify(
+							`Usage: /tbox ${command} on | /tbox ${command} off — or /tbox group ${command} [on|off|edit].`,
+							"info",
+						);
+					}
 				}
 			}
 		},
@@ -145,6 +195,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		// Auto-register toolsets from the current tool population
 		autoRegisterBuiltinAndOrphans(pi);
+
+		// Read dev mode from `tbox.dev` in settings.json (re-read on /reload).
+		// No /tbox dev command — edit settings.json and /reload to change.
+		loadDevModeFromSettings();
 
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
@@ -161,6 +215,9 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
 		// Re-run auto-registration for the fresh branch
 		autoRegisterBuiltinAndOrphans(pi);
+
+		// Re-read dev mode for the fresh branch
+		loadDevModeFromSettings();
 
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
@@ -181,7 +238,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			},
 		);
 		setFocusUnit(null);
-		setDevMode(false);
+		resetDevMode();
 		lastCtx = null;
 	});
 

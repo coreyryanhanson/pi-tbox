@@ -1,15 +1,63 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isDevMode, setDevMode } from "../src/toggle.js";
+import {
+	isDevMode,
+	loadDevModeFromSettings,
+	resetDevMode,
+} from "../src/toggle.js";
 import { formatStatus } from "../src/list.js";
+import {
+	setSettingsOverrideForTests,
+	readTboxConfig,
+} from "../config/settings-reader.js";
+import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
+import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 import tboxFactory from "../index.js";
 
 // ---------------------------------------------------------------------------
-// Unit: setDevMode / isDevMode (in-memory, session-scoped)
+// Fixtures
 // ---------------------------------------------------------------------------
 
-describe("dev mode (in-memory)", () => {
+/** A tool population + toolsets with a masked group and a builtin. */
+function setupFixture(mock: MockPI, pi: ExtensionAPI): void {
+	mock.registerTool({
+		name: "read",
+		description: "Read files",
+		sourceInfo: {
+			path: "builtin.ts",
+			source: "builtin",
+			scope: "user",
+			origin: "top-level",
+		},
+	});
+	mock.registerTool({
+		name: "web-fetch",
+		description: "Fetch",
+		sourceInfo: {
+			path: "portal.ts",
+			source: "extension",
+			scope: "user",
+			origin: "top-level",
+		},
+	});
+	mock.defineFakeToolset({
+		id: "portal.web",
+		label: "Portal Web",
+		names: new Set(["web-fetch"]),
+		persistKey: "toolset-state:portal.web",
+		defaultEnabled: true,
+		masked: true,
+	});
+	autoRegisterBuiltinAndOrphans(pi);
+	for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+}
+
+// ---------------------------------------------------------------------------
+// Unit: readTboxConfig + loadDevModeFromSettings (settings-backed)
+// ---------------------------------------------------------------------------
+
+describe("dev mode (settings-backed)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
 
@@ -17,30 +65,155 @@ describe("dev mode (in-memory)", () => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
-		setDevMode(false);
+		resetDevMode();
+		setSettingsOverrideForTests(null);
 	});
 
-	it("starts disabled", () => {
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+	});
+
+	it("defaults to off when tbox.dev is absent", () => {
+		setSettingsOverrideForTests({});
+		expect(loadDevModeFromSettings()).toBe(false);
 		expect(isDevMode()).toBe(false);
 	});
 
-	it("setDevMode(true) flips flag on", () => {
-		setDevMode(true);
+	it("reads tbox.dev: true and flips the flag on", () => {
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+		expect(loadDevModeFromSettings()).toBe(true);
 		expect(isDevMode()).toBe(true);
 	});
 
-	it("setDevMode(false) flips flag back off", () => {
-		setDevMode(true);
-		expect(isDevMode()).toBe(true);
-
-		setDevMode(false);
+	it("reads tbox.dev: false and keeps the flag off", () => {
+		setSettingsOverrideForTests({ tbox: { dev: false } });
+		expect(loadDevModeFromSettings()).toBe(false);
 		expect(isDevMode()).toBe(false);
 	});
 
-	it("session_shutdown resets dev mode to false", async () => {
-		tboxFactory(pi);
+	it("ignores a non-boolean tbox.dev (treats as false)", () => {
+		setSettingsOverrideForTests({ tbox: { dev: "yes" } });
+		expect(loadDevModeFromSettings()).toBe(false);
+	});
+
+	it("resetDevMode clears the in-memory flag (session_shutdown)", () => {
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+		loadDevModeFromSettings();
+		expect(isDevMode()).toBe(true);
+
+		resetDevMode();
+		expect(isDevMode()).toBe(false);
+	});
+
+	it("readTboxConfig returns dev + groups together", () => {
+		setSettingsOverrideForTests({
+			tbox: { dev: true, groups: { mygroup: { toolsets: ["portal.web"] } } },
+		});
+		const cfg = readTboxConfig();
+		expect(cfg.dev).toBe(true);
+		expect(Object.keys(cfg.groups)).toEqual(["mygroup"]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Integration: session_start reads tbox.dev; guards lift accordingly
+// ---------------------------------------------------------------------------
+
+describe("dev mode via session_start + guards", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		resetDevMode();
+		setSettingsOverrideForTests(null);
+
+		const mod = await import("../index.js");
+		mod.default(pi);
+	});
+
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+	});
+
+	it("session_start with tbox.dev: true lifts the masked-member guard", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+
 		mock.fireLifecycleEvent("session_start");
+		expect(isDevMode()).toBe(true);
+
+		mock.clearUiRecords();
+		await mock.dispatchCommand("toggle web-fetch");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		// Dev mode on → masked member is toggleable, not refused.
+		expect(notify!.message).not.toContain("sealed group");
+		expect(notify!.message).toContain("web-fetch");
+	});
+
+	it("session_start with tbox.dev absent keeps the masked-member guard", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({});
+
+		mock.fireLifecycleEvent("session_start");
+		expect(isDevMode()).toBe(false);
+
+		mock.clearUiRecords();
+		await mock.dispatchCommand("toggle web-fetch");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.level).toBe("error");
+		expect(notify!.message).toContain("sealed group");
+	});
+
+	it("session_start with tbox.dev: true lifts the builtin guard", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+
+		mock.fireLifecycleEvent("session_start");
+
+		mock.clearUiRecords();
+		await mock.dispatchCommand("toggle read");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).not.toContain("builtins are protected");
+	});
+
+	it("/tbox status reports Dev Mode from the read value", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+		mock.fireLifecycleEvent("session_start");
+
+		const output = formatStatus(pi);
+		expect(output).toContain("Dev Mode: on");
+	});
+
+	it("there is no /tbox dev command — 'dev' is a group shorthand", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		// /tbox dev on → no group named "dev" → resolveGroup error, NOT a
+		// dev-mode toggle. Proves the command surface is gone.
 		await mock.dispatchCommand("dev on");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toContain('No group named "dev"');
+		expect(isDevMode()).toBe(true); // unchanged
+	});
+
+	it("session_shutdown resets the in-memory dev flag", async () => {
+		setupFixture(mock, pi);
+		setSettingsOverrideForTests({ tbox: { dev: true } });
+		mock.fireLifecycleEvent("session_start");
 		expect(isDevMode()).toBe(true);
 
 		mock.fireLifecycleEvent("session_shutdown");
@@ -49,10 +222,10 @@ describe("dev mode (in-memory)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration: dev command via dispatchCommand
+// Sanity: a group named "dev" is reachable via the group shorthand
 // ---------------------------------------------------------------------------
 
-describe("dev command via dispatchCommand", () => {
+describe("group named 'dev' (no longer reserved)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
 
@@ -60,64 +233,36 @@ describe("dev command via dispatchCommand", () => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
-		setDevMode(false);
-
+		resetDevMode();
+		setSettingsOverrideForTests({ tbox: { dev: true } });
 		const mod = await import("../index.js");
 		mod.default(pi);
+	});
+
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+	});
+
+	it("/tbox dev on actuates a group named 'dev' (not a dev-mode command)", async () => {
+		setupFixture(mock, pi);
+		// Define a group named "dev" containing portal.web.
+		setSettingsOverrideForTests({
+			tbox: { dev: true, groups: { dev: { toolsets: ["portal.web"] } } },
+		});
 		mock.fireLifecycleEvent("session_start");
 		mock.clearUiRecords();
-	});
 
-	it("dev on flips flag and notifies", async () => {
+		// Disable portal.web first so actuation has a visible effect.
+		const web = getRegisteredToolsets().find(
+			(e: RegistryEntry) => e.spec.id === "portal.web",
+		)!;
+		web.toolset.disable(pi);
+		mock.clearUiRecords();
+
 		await mock.dispatchCommand("dev on");
-
-		expect(isDevMode()).toBe(true);
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("Dev mode enabled");
-	});
-
-	it("dev off flips flag and notifies", async () => {
-		// Enable first
-		await mock.dispatchCommand("dev on");
-		mock.clearUiRecords();
-
-		// Then disable
-		await mock.dispatchCommand("dev off");
-
-		expect(isDevMode()).toBe(false);
-
-		const notify = mock.getLastNotify();
-		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("Dev mode disabled");
-	});
-
-	it("dev bare reports current state", async () => {
-		await mock.dispatchCommand("dev");
-
-		const notify1 = mock.getLastNotify();
-		expect(notify1).toBeDefined();
-		expect(notify1!.message).toContain("off");
-
-		mock.clearUiRecords();
-		await mock.dispatchCommand("dev on");
-		mock.clearUiRecords();
-
-		await mock.dispatchCommand("dev");
-		const notify2 = mock.getLastNotify();
-		expect(notify2).toBeDefined();
-		expect(notify2!.message).toContain("on");
-	});
-
-	it("/tbox status reflects dev mode state", async () => {
-		// Off by default
-		const output1 = formatStatus(pi);
-		expect(output1).toContain("Dev Mode: off");
-
-		// Enable via command
-		await mock.dispatchCommand("dev on");
-		const output2 = formatStatus(pi);
-		expect(output2).toContain("Dev Mode: on");
+		expect(notify!.message).toContain('Enabled group "dev"');
 	});
 });

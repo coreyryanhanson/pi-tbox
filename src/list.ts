@@ -12,6 +12,7 @@ import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 import { computeSlotState, renderSlotText } from "./status-slot.js";
 import { isDevMode } from "./toggle.js";
+import { getGroupNames } from "./groups.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -302,7 +303,12 @@ export function formatStatus(pi: ExtensionAPI): string {
 
 	// Subsystems not yet shipped report default-off/none
 	lines.push("");
-	lines.push("User Groups: no groups defined");
+	const groupNames = getGroupNames();
+	lines.push(
+		groupNames.length > 0
+			? `User Groups: ${groupNames.join(", ")}`
+			: "User Groups: no groups defined",
+	);
 	lines.push("Focus: off");
 	lines.push(`Dev Mode: ${isDevMode() ? "on" : "off"}`);
 
@@ -324,6 +330,6 @@ export function formatBareHelp(
 	const slotText = renderSlotText(state, fg);
 	return (
 		`Slot: ${slotText}\n` +
-		"Subcommands: list, status, toggle, all, dev, focus, chars, group"
+		"Subcommands: list, status, toggle, all, focus, chars, group"
 	);
 }

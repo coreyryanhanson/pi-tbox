@@ -1,0 +1,163 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { MockPI } from "./mock-pi.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { RESERVED_WORDS, isReserved } from "../src/reserved.js";
+import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
+import { getRegisteredToolsets } from "pi-tool-masking";
+
+// ---------------------------------------------------------------------------
+// isReserved / wordlist
+// ---------------------------------------------------------------------------
+
+describe("reserved wordlist", () => {
+	it("'dev' is NOT reserved (the /tbox dev command was removed in Sprint 3)", () => {
+		expect(isReserved("dev")).toBe(false);
+		expect(RESERVED_WORDS.includes("dev")).toBe(false);
+	});
+
+	it("seed subcommands are all reserved", () => {
+		for (const w of [
+			"toggle",
+			"status",
+			"focus",
+			"all",
+			"list",
+			"chars",
+			"group",
+			"on",
+			"off",
+		]) {
+			expect(isReserved(w)).toBe(true);
+		}
+	});
+
+	it("non-reserved names are not reserved", () => {
+		expect(isReserved("mygroup")).toBe(false);
+		expect(isReserved("portal")).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Dispatch: reserved words hit their subcommand, not a group
+// ---------------------------------------------------------------------------
+
+describe("reserved-word dispatch via /tbox", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setSettingsOverrideForTests(null);
+
+		// A tool population so list/status have something to render.
+		mock.registerTool({
+			name: "read",
+			description: "Read",
+			sourceInfo: {
+				path: "b.ts",
+				source: "builtin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.registerTool({
+			name: "web-fetch",
+			description: "Fetch",
+			sourceInfo: {
+				path: "p.ts",
+				source: "extension",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "portal.web",
+			names: new Set(["web-fetch"]),
+			persistKey: "toolset-state:portal.web",
+			defaultEnabled: true,
+		});
+		autoRegisterBuiltinAndOrphans(pi);
+		for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+	});
+
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+	});
+
+	it("/tbox list on (reserved 'list') does NOT actuate a group — dispatches to list", async () => {
+		// Even though "on" is a valid action, "list" is reserved so the
+		// subcommand wins. list ignores the trailing "on" and renders.
+		await mock.dispatchCommand("list on");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		// The list output contains the grouped header, not a group-actuation line.
+		expect(notify!.message).toContain("Tools by group");
+		expect(notify!.message).not.toContain("Enabled group");
+	});
+
+	it("/tbox focus on (reserved 'focus') points at the explicit group form, not a group actuation", async () => {
+		await mock.dispatchCommand("focus on");
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		// Reserved → not a group actuation; pointer to the explicit form.
+		expect(notify!.message).not.toContain("Enabled group");
+		expect(notify!.message).toContain("/tbox group focus on");
+	});
+
+	it("a group named 'list' is reachable only via /tbox group list on", async () => {
+		setSettingsOverrideForTests({
+			tbox: { groups: { list: { toolsets: ["portal.web"] } } },
+		});
+
+		// Bare form errors (reserved, no group actuation).
+		mock.clearUiRecords();
+		await mock.dispatchCommand("list on");
+		const bare = mock.getLastNotify();
+		expect(bare!.message).not.toContain('Enabled group "list"');
+
+		// Explicit form works.
+		mock.clearUiRecords();
+		// Disable portal.web first so actuation has an effect.
+		const web = getRegisteredToolsets().find(
+			(e) => e.spec.id === "portal.web",
+		)!;
+		web.toolset.disable(pi);
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("group list on");
+		const explicit = mock.getLastNotify();
+		expect(explicit!.message).toContain('Enabled group "list"');
+	});
+
+	it("/tbox group focus on actuates a group named 'focus' (explicit form works)", async () => {
+		setSettingsOverrideForTests({
+			tbox: { groups: { focus: { toolsets: ["portal.web"] } } },
+		});
+		const web = getRegisteredToolsets().find(
+			(e) => e.spec.id === "portal.web",
+		)!;
+		web.toolset.disable(pi);
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("group focus on");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('Enabled group "focus"');
+	});
+
+	it("/tbox group list on with no group named 'list' → clear error", async () => {
+		setSettingsOverrideForTests({ tbox: { groups: {} } });
+		mock.clearUiRecords();
+		await mock.dispatchCommand("group list on");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('No group named "list"');
+	});
+});
