@@ -88,7 +88,7 @@ pi-tbox/
 masking-relevant `ExtensionAPI` subset: `setActiveTools`/`getActiveTools`/
 `getAllTools` (returns `ToolInfo[]`), `registerTool`, `appendEntry`,
 `on`, a real `EventEmitter` as `events`, and `sessionManager.getBranch()`.
-It is the harness the library's own 84 tests run against. Tbox reuses the
+It is the harness the library's own 123 tests run against. Tbox reuses the
 **pattern** but needs a **richer mock** — so tbox ships its own
 `__tests__/mock-pi.ts` derived from the library's, extended with the
 surfaces tbox exercises that the library's mock lacks:
@@ -112,7 +112,11 @@ surfaces tbox exercises that the library's mock lacks:
   sibling extension like `portal.web`/`portal.learn`) without going
   through the real `defineToolset` — so tbox's tests can stand up a
   multi-extension registry in one line and assert tbox reads it through
-  `getRegisteredToolsets()` only.
+  `getRegisteredToolsets()` only. **Test-only, not a production
+  pattern** — this pokes library internals so test fixtures can skip
+  registering restore handlers on the mock pi; the cross-cutting
+  `rg "__piToolMasking" src/` check excludes `__tests__/`, so it never
+  leaks into shipped code.
 
 **Reuse, don't duplicate, the library's invariants.** The peer-composition
 invariant and `requires` cascade have exactly one test home
@@ -181,7 +185,12 @@ sprint has a complete registry to work against.
      the registry + tool population at `session_start`, after siblings
      have registered). Re-run on `session_tree` for the fresh branch.
      Dedup against already-registered ids (the library is
-     idempotent-by-content, so a re-scan is safe).
+     idempotent-by-content for an *unchanged* spec, so a re-scan is a
+     no-op when nothing moved; if the orphan population changed since
+     the last scan, the `tbox.orphans` spec differs and the library
+     replaces+warns rather than no-opping — acceptable, since new tools
+     are active by pi's startup activation and a stale restore only
+     affects old names).
 4. `src/status-slot.ts`: `render()` for the **pristine** state only this
    sprint — `○ tbox` dim. Wire `ctx.ui` capture in `session_start` +
    `session_tree` (call `render()` at the end of the capture handler),
@@ -434,7 +443,12 @@ helper (used by Sprint 4's picker).
    - **`/tbox <group> off`** resolves → disable each toolset member
      (library reverse-cascades to dependents outside the group — tbox
      **surfaces this** in post-actuation status: report every toolset
-     that actually moved, including cascaded non-members).
+     that actually moved, including cascaded non-members). Compute the
+     moved set by **diffing `getActiveTools()` before vs. after
+     actuation** — this reflects reality (including any cross-extension
+     companions the static graph wouldn't predict); do **not** predict
+     it via `reverseClosure`, which would drift from what the library
+     actually did.
    - **Drift is documented** (point 7): `on`/`off` writes per-toolset
      entries; editing the group later does not retroact. The command's
      output includes a one-line note when a group is actuated
@@ -660,7 +674,12 @@ hard requirement.
     persistKey matches the default). Exclusion mode restored.
   - Drift-free: enter focus, register `E` with `defaultEnabled: true`,
     fire a `session_tree` restore → `E` is off (inclusion). `focus off`
-    → fire restore → `E` is on (exclusion, default honored).
+    → fire restore → `E` is on (exclusion, default honored). This is
+    integration-level (it drives the library's inclusion/exclusion
+    restore through tbox's focus enter/exit), so it's the one place
+    tbox's tests come closest to re-asserting a library invariant —
+    acceptable because it pins tbox's *use* of the mode API end-to-end,
+    not the mode fallback in isolation (`design.md` §12 owns that).
   - Slot text asserts the green and red forms exactly.
 - `focus-exit.test.ts`: the **negative** test — explicitly assert that
   flipping only the mode bit (without re-actuation) leaves a previously-
