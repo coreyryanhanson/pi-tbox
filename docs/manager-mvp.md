@@ -51,7 +51,6 @@ the seed set.)
 | `/tbox focus off` | exit focus → flip inclusion back to exclusion, restore defaults |
 | `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 8) |
 | `/tbox chars` | print the serialized char count of the active tool set (point 5) |
-| `/tbox dev on` / `/tbox dev off` | toggle developer mode (point 3) |
 | `/tbox status` | full status: toolsets, groups, focus, dev mode, char count |
 
 ## The 8-point surface
@@ -152,7 +151,11 @@ shared helper inside tbox, not be inlined per command.
 
 ### 3. Developer mode + default guards
 
-Developer mode (`/tbox dev on`) lifts three guards:
+Developer mode is a single `tbox.dev` boolean in `settings.json`, read at
+load (no runtime toggle — toggling it would be unrequested state
+machinery, and a settings key is the natural home for a load-time
+guard flag). `/tbox status` reports whether it's on. Enabling it lifts
+three guards:
 
 1. **Pi builtin tools are their own toolset and untoggleable** unless dev
    mode is on. Tbox auto-registers `pi.builtin` (see point 8) and treats
@@ -269,8 +272,8 @@ Registered toolsets at load:
   read-only session's `customTools`). Dev mode does **not** lift this —
   it only unseals `masked` members and exposes `pi.builtin`, both of
   which concern tools that are always present; sdk tools are not
-  guaranteed present next session. If a future need arises, a separate
-  `/tbox dev` escalation can add sdk toggling — YAGNI now.
+  guaranteed present next session. If a future need arises, a future
+  escalation can add sdk toggling — YAGNI now.
 
 Everything routes through the frozen library API (including
 `getRegisteredToolsets()`); no new persist shape, and tbox never touches

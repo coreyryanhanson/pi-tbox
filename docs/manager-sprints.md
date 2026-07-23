@@ -147,258 +147,92 @@ once the library publishes.
 
 ---
 
-## Sprint 0 — Scaffolding, auto-registration, slot skeleton
+## Sprint 0 — ✅ Done: Scaffolding, auto-registration, slot skeleton
 
-**Goal:** a loadable pi extension that registers `/tbox` (no-op stub),
-owns the `tbox` status slot in its **pristine** state, and auto-registers
-the `pi.builtin` and `tbox.orphans` toolsets at load so every later
-sprint has a complete registry to work against.
+Shipped:
 
-### Work
+- **Project init** — `package.json` (`name: "pi-tbox"`, `type: "module"`,
+  `keywords: ["pi-package", "pi-extension"]`,
+  `pi: { extensions: ["./index.ts"] }`,
+  `dependencies: { "pi-tool-masking": "file:../pi-tool-masking", ... }`,
+  peer deps matching portal), `tsconfig.json` (strict library flags),
+  `vitest.config.ts`.
+- **`__tests__/mock-pi.ts`** — extended MockPI: `registerCommand` records
+  - dispatches, `ui.setStatus` records per-slot, `theme.fg` wraps with
+  markers, `defineFakeToolset` lands in `getRegisteredToolsets()`.
+- **`src/registry.ts`** — `autoRegisterBuiltinAndOrphans(pi)`: scans
+  `getAllTools()`, registers `pi.builtin` (`defaultEnabled: true`,
+  `masked: false`) from builtin tools, registers `tbox.orphans` from
+  extension tools no other toolset claims, **skips sdk entirely**. Run
+  from `session_start` + `session_tree`; idempotent (library is
+  idempotent-by-content for an unchanged spec).
+- **`src/status-slot.ts`** — pristine `○ tbox` (dim) render. `ctx.ui`
+  capture in `session_start` + `session_tree` with `render()` at the
+  **end** of the capture handler (§6 fix); `TOOLSET_EVENTS.changed`/
+  `restored` listeners re-render; `session_shutdown` clears the slot.
+- **`index.ts`** — factory registers `/tbox` (stub notify), wires the
+  slot, calls auto-registration from `session_start`.
 
-1. `package.json`: `name: "pi-tbox"`, `type: "module"`, `keywords:
-   ["pi-package", "pi-extension"]`, `pi: { extensions: ["./index.ts"] }`,
-   `dependencies: { "pi-tool-masking": "file:../pi-tool-masking", ... }`,
-   `peerDependencies` matching portal's (`@earendil-works/pi-coding-agent`,
-   `@earendil-works/pi-tui`, `typebox`). `scripts.test: "vitest run"`.
-   `tsconfig.json` mirroring the library's strict flags
-   (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
-   `module: "nodenext"`, `isolatedModules`, `noEmit: true`).
-2. `__tests__/mock-pi.ts`: derive from the library's MockPI, extended per
-   **Testing strategy** above. This is the foundation every sprint's
-   tests build on — get it right now.
-3. `src/registry.ts`: `autoRegisterBuiltinAndOrphans(pi)`. At load (inside
-   the factory, after capturing the post-startup tool population), scan
-   `pi.getAllTools()`:
-   - `source === "builtin"` → register toolset `pi.builtin` with those
-     names, `persistKey: "toolset-state:pi.builtin"`, `defaultEnabled:
-     true`, `masked: false`. This is the point-3 protected toolset.
-   - extension tools (`source !== "builtin" && source !== "sdk"`) **not
-     in any `getRegisteredToolsets()` toolset** → register
-     `tbox.orphans` (one catch-all; per-source groupings deferred — see
-     "Open" in `manager-mvp.md`) with those names,
-     `persistKey: "toolset-state:tbox.orphans"`, `defaultEnabled: true`.
-   - `sdk` tools → **not registered**, not counted, never toggled.
-   - **Timing:** `pi.getAllTools()` is only complete after every
-     extension has loaded. Register from a `session_start` handler
-     (portal/search register their toolsets at factory time; tbox reads
-     the registry + tool population at `session_start`, after siblings
-     have registered). Re-run on `session_tree` for the fresh branch.
-     Dedup against already-registered ids (the library is
-     idempotent-by-content for an *unchanged* spec, so a re-scan is a
-     no-op when nothing moved; if the orphan population changed since
-     the last scan, the `tbox.orphans` spec differs and the library
-     replaces+warns rather than no-opping — acceptable, since new tools
-     are active by pi's startup activation and a stale restore only
-     affects old names).
-4. `src/status-slot.ts`: `render()` for the **pristine** state only this
-   sprint — `○ tbox` dim. Wire `ctx.ui` capture in `session_start` +
-   `session_tree` (call `render()` at the end of the capture handler),
-   `TOOLSET_EVENTS.changed`/`restored` listeners that call `render()`,
-   and `session_shutdown` clears the slot.
-5. `index.ts` factory: `pi.registerCommand("tbox", { description, handler:
-   async (args, ctx) => { ctx.ui.notify("tbox: not yet implemented",
-   "info"); } })`; call the slot wiring; call auto-registration from
-   `session_start`.
-
-### Acceptance criteria
-
-- [ ] `pi -e ./index.ts` loads with no errors; `/tbox` prints the stub
-      notification.
-- [ ] The `tbox` status slot shows `○ tbox` (dim) on a fresh session with
-      no toggles, from the very first paint (capture-handler `render()`).
-- [ ] After load, `getRegisteredToolsets()` includes `pi.builtin` and
-      `tbox.orphans`; `pi.builtin`'s names equal
-      `getAllTools().filter(t => t.sourceInfo.source === "builtin").map(t
-      => t.name)`; `tbox.orphans` contains extension tools no other
-      toolset claims.
-- [ ] No `sdk`-source tool appears in any registered toolset.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `mock-pi.test.ts`: the extended MockPI behaves — `registerCommand`
-  records + dispatches; `ui.setStatus` records per-slot; `theme.fg`
-  wraps with markers; `defineFakeToolset` lands in
-  `getRegisteredToolsets()`.
-- `registry.test.ts`: given a mock tool population
-  `{builtin: [read,bash], sdk: [customX], ext-in-toolset: [web-navigate]
-  (claimed by a fake portal.web), ext-orphan: [orphan-tool]}`, after
-  `autoRegisterBuiltinAndOrphans`: `pi.builtin` = `{read,bash}`,
-  `tbox.orphans` = `{orphan-tool}`, `customX` in no toolset.
-  Re-running `autoRegisterBuiltinAndOrphans` is a no-op (idempotent).
-  `sdk` tool never registered.
-- `status-slot.test.ts`: fresh session → `ui.setStatus` called with the
-  pristine glyph string exactly once on first paint (capture-handler
-  render), not zero, not twice. `session_shutdown` clears the slot.
-- `load.test.ts`: the factory does not throw when
-  `pi-tool-masking` registry is empty (no siblings installed) —
-  `pi.builtin` + `tbox.orphans` still register.
+Tests shipped (green): `mock-pi`, `registry`, `status-slot`, `load`.
 
 ---
 
-## Sprint 1 — `/tbox list`, `/tbox`, `/tbox status`
+## Sprint 1 — ✅ Done: `/tbox list`, `/tbox`, `/tbox status`
 
-**Goal:** point 1 (listing tools) + the bare `/tbox` and `/tbox status`
-surfaces. The status slot stays Sprint 0's pristine state; the excluded
-count arrives in Sprint 2.
+Shipped (`src/list.ts`):
 
-### Work
+- **`--grouped` (default)** — smallest-toolset-wins: each tool appears
+  once under its smallest (by `names.size`) containing toolset; masked
+  toolset → one sealed row with members suppressed; orphans →
+  `tbox.orphans`.
+- **`--flat`** — every tool as a row; `sdk`-source tools present and
+  marked read-only/host-managed (no toggle affordance).
+- **Filters** — `--active` / `--inactive` in both views, combinable
+  (`--flat --inactive`). Active iff `getActiveTools().includes(name)`.
+- **Bare `/tbox`** — slot mirror + brief subcommand help.
+- **`/tbox status`** — aggregator: toolsets (id, enabled, member count,
+  masked); groups/focus/chars lines default to "none"/"off"/omitted
+  until their sprints ship.
 
-1. `src/list.ts`: enumerate tools from `pi.getAllTools()` cross-referenced
-   with `getRegisteredToolsets()`.
-   - **`--grouped` (default):** smallest-toolset-wins — each tool appears
-     under its **smallest** (by `names.size`) containing toolset only, no
-     duplication. A tool in multiple toolsets resolves to the most
-     specific. A tool in no toolset → `tbox.orphans` (or `pi.builtin` if
-     builtin — though builtins are now in `pi.builtin` after Sprint 0, so
-     this is the same row). `portal.learn` (members: `web-learn`) shows
-     `web-learn` under `learn`; `portal.web`'s members show under `web`.
-   - **`--flat`:** every tool as a row. `sdk`-source tools appear as
-     **read-only** rows (no enable/disable affordance, clearly marked
-     "host-managed"). Builtin tools appear normally (toggleable only in
-     dev mode — but the affordance guard is Sprint 2; this sprint just
-     renders them).
-   - **`masked` honoring in grouped view:** a masked toolset renders as
-     **one row** (the group) with members suppressed; an unmasked toolset
-     renders its members as individual rows. This is the §13.1
-     addressable-unit derivation.
-   - **Filters:** `--active` (only currently enabled, per
-     `getActiveTools()`), `--inactive` (only disabled). Both apply in
-     both views. A tool is "active" iff `getActiveTools().includes(name)`.
-2. `/tbox` bare: slot mirror (the current slot text) + a brief help line
-   listing the subcommands. No full enumeration.
-3. `/tbox status`: full status — toolsets (id, enabled, member count,
-   masked flag), user groups (from Sprint 3's config — until then,
-   "no groups defined"), focus state ("off" until Sprint 5), dev mode
-   ("off" until Sprint 2), and **char count** (from Sprint 6 — until
-   then, omit the line). Each subsystem lands its line when its sprint
-   ships; `/tbox status` is the aggregator and grows over sprints.
-
-### Acceptance criteria
-
-- [ ] `/tbox list` (no args) shows the grouped view; each tool appears
-      exactly once under its smallest containing toolset; masked
-      toolsets show as one row with members hidden.
-- [ ] `/tbox list --flat` shows every tool as a row; `sdk` tools are
-      present and marked read-only/host-managed; no `sdk` tool carries a
-      toggle affordance.
-- [ ] `/tbox list --active` / `--inactive` filter correctly in both
-      views; combined flags (`--flat --inactive`) work.
-- [ ] `/tbox` prints the slot mirror + help; `/tbox status` prints the
-      aggregated status (subsystems not yet shipped say "off"/"none").
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `list.test.ts`:
-  - **Smallest-toolset-wins:** fake toolsets `big = {a,b,c,web-learn}`
-    (size 4) and `small = {web-learn}` (size 1); grouped view shows
-    `web-learn` under `small` only, `a`/`b`/`c` under `big`. No
-    duplication.
-  - **Masked suppression:** `portal.web` masked with 3 members → grouped
-    view shows one `portal.web` row, zero member rows; unmasked
-    `portal.learn` shows `web-learn` as its own row.
-  - **Orphan routing:** an extension tool in no toolset appears under
-    `tbox.orphans`.
-  - **sdk read-only:** a `sdk`-source tool appears in `--flat` marked
-    read-only and appears in **no** grouped-view row (it is in no
-    toolset).
-  - **Filters:** with `a` active and `b` inactive, `--active` shows only
-    `a`, `--inactive` only `b`, in both views.
-  - **Combined flags** parse without error.
-- `command.test.ts`: `/tbox` bare prints a string containing the current
-  slot text; `/tbox status` prints a line per subsystem with the
-  not-yet-shipped subsystems reporting their default-off/none state.
+Tests shipped (green): `list`, `command`.
 
 ---
 
-## Sprint 2 — `/tbox toggle`, `/tbox all`, dev mode, guards
+## Sprint 2 — ✅ Done: `/tbox toggle`, `/tbox all`, guards; dev mode deferred to settings
 
-**Goal:** points 6 (individual toggle), 8 (all on/off), and 3 (dev mode +
-the masked/builtin guards). The status slot now renders its second state
-(`● tbox n` blue).
+Shipped (`src/toggle.ts`, `src/status-slot.ts`):
 
-### Work
+- **`/tbox toggle <tool>`** — exact→prefix resolution; ambiguous prefix
+  errors listing candidates; `sdk` tool always refused; orphan →
+  `tbox.orphans`; re-running toggles back.
+- **Guards (normal mode)** — masked-member toggle refused ("part of the
+  sealed group `<group>`; toggle the group, or enable dev mode");
+  `pi.builtin` toggle refused ("builtins are protected; enable dev
+  mode"). Both lifted when dev mode is on. `sdk` exclusion is **never**
+  lifted.
+- **`/tbox all on`** — enable every registered toolset. **`/tbox all off`**
+  — disable every non-builtin toolset (`pi.builtin` protected);
+  `sdk` untouched.
+- **Status slot count state** — `● tbox n` (blue) where
+  `n` = non-builtin, non-sdk tools minus `getActiveTools()`; pristine
+  `○ tbox` when `n === 0`. `changed`/`restored` listeners re-render.
 
-1. `src/toggle.ts`:
-   - `/tbox toggle <tool>`: resolve `<tool>` against `pi.getAllTools()`
-     names. If multiple tools share the suffix (e.g. `web:click` vs
-     `api:click`), require a longer prefix and error clearly listing
-     candidates. Toggle = if the tool is active → disable its containing
-     toolset; if inactive → enable its containing toolset. A tool in no
-     toolset (orphan) → toggle `tbox.orphans`. A `sdk` tool → refuse with
-     a message explaining host-management.
-   - **Guards (normal mode):**
-     - A **masked** toolset's members are not individually toggleable —
-       `toggle <masked-member>` errors "this tool is part of the sealed
-       group `<group>`; toggle the group, or enable dev mode." Dev mode
-       lifts this.
-     - **`pi.builtin`** is not toggleable — `toggle <builtin>` errors
-       "builtins are protected; enable dev mode." Dev mode lifts this.
-   - `/tbox all on`: enable every registered toolset (`toolset.enable(pi)`
-     per `getRegisteredToolsets()`). `/tbox all off`: disable every
-     **non-builtin** toolset (`pi.builtin` protected). `sdk` tools
-     untouched (they are in no toolset).
-2. `src/toggle.ts` (dev mode): `/tbox dev on` / `/tbox dev off` flips a
-   tbox-owned dev-mode flag (in tbox's user config under a `tbox.dev`
-   key, persisted via the settings reader — **not** a library concern).
-   Dev mode lifts: (a) the `pi.builtin` toggle guard, (b) the masked-
-   member toggle guard. It does **not** lift the `sdk` exclusion (the
-   MVP is explicit: sdk tools are not guaranteed present next session;
-   dev mode only unseals masking and exposes builtins).
-3. `src/status-slot.ts`: extend `render()` to compute the excluded count
-   `n` = `getAllTools().filter(source !== builtin && source !== sdk)`
-   minus `getActiveTools()`. State: pristine (`○ tbox` dim) when `n === 0`
-   and not in focus; `● tbox n` blue when `n > 0`. Focus states
-   (green/red) arrive in Sprint 5/6. The `changed`/`restored` listeners
-   already call `render()`; this sprint just makes the count real.
+**Dev-mode course correction (recorded):** dev mode is **not** a runtime
+`/tbox dev on|off` toggle — a runtime toggle over a load-time guard flag
+is unrequested state machinery. Dev mode is a single `tbox.dev` boolean
+in `settings.json`, read at load by **Sprint 3's** settings reader
+(`config/settings-reader.ts`). The current code's in-memory
+`setDevMode`/`isDevMode` flag and `/tbox dev on|off` command surface are
+**placeholders to be replaced in Sprint 3**: Sprint 3 swaps them for a
+read of `tbox.dev` at `session_start`, removes the `/tbox dev` command
+entirely, and `/tbox status` reports "Dev mode: on|off" from the read
+value. `dev` is therefore **dropped from the reserved-wordlist**
+(Sprint 3) — with no `/tbox dev` command, `/tbox dev on` is just the
+group shorthand for a group named `dev`.
 
-### Acceptance criteria
-
-- [ ] `/tbox toggle <tool>` toggles the tool's containing toolset on/off;
-      re-running toggles back. Ambiguous prefix → clear error listing
-      candidates. `sdk` tool → refused.
-- [ ] In normal mode, toggling a masked toolset's member is refused;
-      toggling a builtin is refused. `/tbox dev on` lifts both; `/tbox
-      dev off` restores both guards.
-- [ ] Dev mode persists across `/reload` (read from tbox user config at
-      load).
-- [ ] `/tbox all on` enables every registered toolset; `/tbox all off`
-      disables every non-builtin toolset; `pi.builtin` stays enabled
-      after `all off` in normal mode; no `sdk` tool's activation
-      changes.
-- [ ] Status slot shows `● tbox 3` (blue) when 3 extension tools are
-      excluded; `○ tbox` (dim) when nothing is excluded; the count
-      excludes builtin and sdk tools (excluding only builtins/sdk →
-      `○ tbox`).
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `toggle.test.ts`:
-  - Toggle a tool in `portal.web` (unmasked) → that toolset's `enable`
-    is called; toggle again → `disable`. Assert via MockPI's recorded
-    `setActiveTools` / `appendEntry`.
-  - Masked member toggle in normal mode → refused (no `setActiveTools`
-    call, an error notify). In dev mode → the toolset toggles.
-  - Builtin toggle refused in normal mode; allowed in dev mode.
-  - `sdk` tool toggle refused in **both** modes.
-  - Ambiguous prefix → error lists both candidates; exact match wins.
-  - Orphan tool → toggles `tbox.orphans`.
-- `all.test.ts`:
-  - `all on` → `enable` called for every `getRegisteredToolsets()` entry.
-  - `all off` → `disable` called for every entry except `pi.builtin`.
-  - `sdk` tool's presence in `getActiveTools()` unchanged by `all off`.
-- `status-slot.test.ts`:
-  - 3 extension tools excluded → slot text is exactly the `● tbox 3`
-    blue form.
-  - Only builtin/sdk excluded → pristine `○ tbox`.
-  - Toggling a toolset fires `changed` → `render()` updates the count
-    without a manual refresh.
-- `dev-mode.test.ts`: dev flag round-trips through the settings reader;
-  a `session_start` after a simulated `/reload` restores the persisted
-  dev state.
+Tests shipped (green): `toggle`, `all`, `status-slot` (count + event
+re-render), `dev-mode` (exercises the placeholder flag; Sprint 3
+rewrites it to assert the settings.json read).
 
 ---
 
@@ -431,6 +265,17 @@ helper (used by Sprint 4's picker).
    judged too risky, fall back to a dedicated
    `~/.pi/agent/pi-tbox/groups.json` — **decide in this sprint and record
    the call in the sprint's PR description.**
+
+   **Dev-mode swap (lands here, not Sprint 2):** the same reader exposes
+   `tbox.dev` (boolean, default `false`). At `session_start`, tbox reads
+   it and sets the in-memory dev-mode flag the guards consult — replacing
+   Sprint 2's placeholder `setDevMode`/`isDevMode` + `/tbox dev on|off`
+   command surface. The `/tbox dev` command is **removed entirely**; to
+   change dev mode, edit `settings.json` and `/reload`. `/tbox status`
+   reports "Dev mode: on|off" from the read value. Rewrite Sprint 2's
+   `dev-mode.test.ts` to assert the settings.json read (a `session_start`
+   with `tbox.dev: true` in the mock settings → guards lifted) rather
+   than the placeholder flag.
 2. `src/groups.ts`: load groups from config; resolve a group → its units
    (toolset ids + tool names) → call `toolset.enable/disable` per
    toolset member and toggle the individual tools' containing toolsets
@@ -455,11 +300,14 @@ helper (used by Sprint 4's picker).
      ("group state saved per-toolset; editing this group won't change
      already-saved sessions — use focus for drift-free snapshots").
 3. `src/reserved.ts`: the reserved wordlist (`toggle`, `status`, `focus`,
-   `all`, `list`, `chars`, `dev`, `group`, `on`, `off`). Command
-   dispatch: `/tbox <name> on|off` is the group shorthand **unless**
-   `<name>` is reserved, in which case the subcommand wins and a group
-   named e.g. `focus` is only reachable via `/tbox group focus on`
-   (error on the bare form points the user at the explicit form).
+   `all`, `list`, `chars`, `group`, `on`, `off`) — **`dev` dropped**: the
+   `/tbox dev` command was removed in this sprint's dev-mode swap, so a
+   group named `dev` is no longer a collision and `/tbox dev on` is just
+   the group shorthand. Command dispatch: `/tbox <name> on|off` is the
+   group shorthand **unless** `<name>` is reserved, in which case the
+   subcommand wins and a group named e.g. `focus` is only reachable via
+   `/tbox group focus on` (error on the bare form points the user at the
+   explicit form).
 4. `/tbox group <name> [on|off]`: explicit group form (for reserved-name
    groups and as the unambiguous path). `/tbox group <name> edit` is
    wired to a stub this sprint (picker lands in Sprint 4).
@@ -489,6 +337,10 @@ helper (used by Sprint 4's picker).
       focus on`; the explicit form works.
 - [ ] `/tbox group <name> on|off` is the unambiguous path and behaves
       identically to the bare form for non-reserved names.
+- [ ] Dev mode is read from `tbox.dev` in `settings.json` at
+      `session_start`; the `/tbox dev` command is gone; `/tbox status`
+      reports the read value; a group named `dev` is reachable via
+      `/tbox dev on` (group shorthand, no longer reserved).
 - [ ] `/tbox group <name> edit` prints a "picker coming in Sprint 4"
       stub (no crash).
 - [ ] `forwardClosure`/`reverseClosure` return the correct transitive
@@ -758,12 +610,15 @@ swapping the library dep to the published version.
 ### Work
 
 1. **Restore safety.** Tbox's auto-registration (Sprint 0) and dev-mode
-   flag (Sprint 2) must survive `/reload` and `session_tree`. Verify:
+   setting (Sprint 3) must survive `/reload` and `session_tree`. Verify:
    - Auto-registration re-runs against the fresh `pi` on `/reload`
      (jiti re-evaluates the module; the factory re-invokes; the
      `session_start` handler re-scans). The library's registry is
      idempotent-by-content so re-registration is a no-op for unchanged
      specs.
+   - Dev mode survives `/reload` trivially: it is re-read from
+     `tbox.dev` in `settings.json` at every `session_start`, so no
+     in-memory flag or persist entry is involved.
    - The `ctx.ui` capture-ordering fix (`render()` at the end of the
      capture handler) is in place — assert the first paint lands on
      post-restore state even if tbox's `session_start` handler runs
@@ -780,9 +635,10 @@ swapping the library dep to the published version.
    catches integration bugs the library's own MockPI tests cannot
    (exactly the stated reason for building the manager early).
 3. **Reserved-wordlist finalization.** Confirm the seed set
-   (`toggle`, `status`, `focus`, `all`, `list`, `chars`, `dev`, `group`,
-   `on`, `off`) against the shipped command surface; add any discovered
-   collisions; document the final list in the README.
+   (`toggle`, `status`, `focus`, `all`, `list`, `chars`, `group`,
+   `on`, `off`) against the shipped command surface; `dev` is **not**
+   reserved (the `/tbox dev` command was removed in Sprint 3). Add any
+   discovered collisions; document the final list in the README.
 4. **`tbox.orphans` shape decision** (an "Open" item): one catch-all vs
    per-source-plugin groupings. The MVP notes per-source is more
    informative in the grouped view. Decide based on the Sprint 1 list
@@ -797,7 +653,8 @@ swapping the library dep to the published version.
    no test files, and that `pi-tool-masking` resolves in the dep tree.
 6. **README** with the `/tbox` command reference, the 4-state slot
    legend, the drift caveat (`on`/`off` drifts, `focus` doesn't), and
-   the dev-mode explanation.
+   the dev-mode explanation (a `tbox.dev` setting in `settings.json`,
+   read at load — no runtime toggle; edit + `/reload` to change).
 
 ### Acceptance criteria
 
@@ -827,7 +684,7 @@ swapping the library dep to the published version.
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →
     `on` → `portal.web` cascades on; status reports both.
   - `toggle <portal.web member>` in normal mode → refused (masked);
-    dev on → allowed.
+    with `tbox.dev: true` in settings → allowed.
   - `all off` → every non-builtin toolset off; `pi.builtin` on; sdk
     untouched.
   - `focus host.api` → inclusion mode, only `host.api` (+ closure) on,
@@ -837,7 +694,8 @@ swapping the library dep to the published version.
 - `restore.test.ts`: simulate `/reload` by re-invoking the factory
   against a fresh MockPI sharing the same `globalThis`; assert
   auto-registration re-runs, registry has no duplicates, dev mode
-  restored from config, slot re-paints once on the capture handler.
+  re-read from `tbox.dev` in settings, slot re-paints once on the
+  capture handler.
 - `capture-order.test.ts`: register tbox's `session_start` handler both
   before and after a simulated sibling's (which fires `restored`
   events); assert the first slot paint is correct in both orders (the
