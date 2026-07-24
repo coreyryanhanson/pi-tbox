@@ -64,7 +64,8 @@ the seed set.)
   its most specific (smallest) toolset only, no duplication. `portal.learn`
   (members: `web-learn`) shows `web-learn` under `learn`; `portal.web`'s
   members show under `web`. A tool in no registered toolset shows under
-  `tbox.orphans` (or `pi.builtin` if it's a builtin — see point 8).
+  its `tbox.tool@<source>` toolset — one per unclaimed-source plugin
+  (see point 8) — or `pi.builtin` if it's a builtin.
 - **`--flat`:** every tool as a row, no grouping. Tools outside
   tbox's domain (see point 8 — `sdk`-source tools) appear as
   read-only rows so the user sees they exist and understands why they
@@ -279,10 +280,22 @@ Registered toolsets at load:
   `sourceInfo.source === "builtin"`, register those names as the
   `pi.builtin` toolset. This is the point-3 protected toolset. No
   hardcoded list, no drift, no `pi.getBuiltinTools()` upstream ask.
-- **`tbox.orphans`** (or per-source-plugin groupings) — extension tools
+- **`tbox.tool@<source>`** — one toolset per distinct unclaimed
+  `sourceInfo.source` among extension tools
   (`source !== "builtin" && source !== "sdk"`) not in any plugin-declared
   toolset. Registered the same way so they persist through the library
-  like any other toolset.
+  like any other toolset. The `@<source>` key makes each such plugin an
+  individually focusable unit — a plugin that only registers tools
+  (e.g. pi-lens) gets the same focus granularity as one that calls
+  `defineToolset`. The user-facing id `tbox.tool@<source>` mirrors
+  `pi.builtin`'s singular-category-noun shape and hides whether the
+  plugin opted into the library's vocabulary. `label` is derived from
+  `<source>` (the plugin id); `description` is passed through from the
+  tool only when the source contributes exactly one tool (the common
+  single-tool-plugin case gets a real description for free), otherwise
+  omitted — the grouped view already shows members, so a missing
+  description costs nothing and misrepresenting one tool's description
+  as the group's would mislabel the others.
 - **`sdk`-source tools are not registered into any toolset**, not
   toggleable via `/tbox toggle`, `/tbox <group> on|off`, or `/tbox all`,
   and not counted in the status slot's excluded count. They appear as
@@ -361,7 +374,7 @@ handles the composition.
 | Area | Decision |
 |---|---|
 | Registry enumeration | library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
-| Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + `tbox.orphans` (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
+| Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
 | Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; dev mode lifts it |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); dev mode skips |
@@ -410,9 +423,11 @@ API surface, not just list+toggle.
 - Final reserved-wordlist (seed set above; may grow).
 - Group config storage shape in tbox's user config (tbox-owned, not
   library).
-- Whether `tbox.orphans` is one catch-all or per-source-plugin groupings
-  (per-source is more informative in the grouped view; one catch-all is
-  simpler).
+- ~~Whether `tbox.tool` is one catch-all or per-source-plugin groupings~~
+  — **resolved:** per-source (`tbox.tool@<source>`) is the default. A
+  catch-all makes per-plugin focus impossible for plugins that only
+  register tools (the `tbox.tool@<source>` shape is what closes that
+  asymmetry); see `manager-sprints.md` Sprint 3.5 for the landing.
 - `requires`-closure picker interaction details (how the auto-check /
   auto-uncheck surfaces to the user — animated? logged? silent?).
 - `emitMemberEvents` left off for the MVP picker (decision recorded in
