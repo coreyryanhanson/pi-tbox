@@ -132,7 +132,7 @@ the three actuation entry points (`toggle`, `all on|off`, `<group> on|off`)
 are refused with a message pointing to `/tbox focus off`. Focus is an
 inclusion-mode snapshot that promises a known working set (the allowlist).
 If the user could toggle individual toolsets on/off while the slot still
-claims `● focus:<unit>`, the active set would diverge from what the slot
+claims `● focus:<unit> (n)`, the active set would diverge from what the slot
 advertises — the slot would lie. `group edit` (config-only),
 `list`/`status`/`chars` (read-only), and `focus <other-unit>` (re-focus,
 still a coherent focus state) are all unguarded. After `focus off` the
@@ -257,9 +257,13 @@ knob.
 active tool set. Computed from `pi.getAllTools()` full definitions
 (verified: each tool exposes `name`, `description`, `parameters` [JSON
 schema], `promptGuidelines`, `sourceInfo`) — serialize each enabled
-tool's fields and sum. Accurate, no upstream ask. Folded into the status
-slot only indirectly (see status slot below); the command is the
-on-demand surface.
+tool's fields and sum (all active tools, including builtin and sdk —
+the honest serialized size of what the LLM sees). Accurate, no upstream
+ask. **The output is a fixed/tools split** (`fixed` = builtin+sdk floor,
+`tools` = togglable extension budget, total reported), turning the
+number into a decision tool: builtins are immutable overhead, extension
+tools are your budget. Folded into the status slot only indirectly (see
+status slot below); the command is the on-demand surface.
 
 ### 6. Individual tool toggle
 
@@ -348,8 +352,8 @@ Tbox owns one status-bar slot (`tbox`). Four states, one glance each:
 | State | Glyph | Color | Meaning |
 |---|---|---|---|
 | Exclusion, nothing excluded | `○ tbox` | dim/default | pristine — all defaults, nothing toggled |
-| Exclusion, n tools excluded | `● tbox n` | blue (accent) | exclusion mode, n non-builtin tools turned off |
-| Focus on | `● focus:<unit>` | green (success) | deliberate focus mode engaged |
+| Exclusion, n tools excluded | `● tbox n masked` | blue (accent) | exclusion mode, n non-builtin tools masked (turned off) |
+| Focus on | `● focus:<unit> (n)` | green (success) | deliberate focus mode engaged; n = active extension tools in the focus set |
 | Focus on, empty allowlist | `● focus:∅` | red (error) | focus is on but nothing's allowed — broken |
 
 Color semantics: dim = pristine, blue = configured-normal (matches
@@ -366,7 +370,11 @@ honest about how many *extension* tools the user turned off (see point 8).
 Updates on every toggle via the `TOOLSET_EVENTS.changed`/`restored`
 listeners tbox wires for the slot. A user who's excluded only builtins or
 sdk tools (unusual) sees `○ tbox`; a user who's excluded 3 real
-extension tools sees `● tbox 3`.
+extension tools sees `● tbox 3 masked`. The unit word `masked` (chosen
+over `off`/`hidden`/`N/M`) names what tbox did to the tools, not tbox's
+own state — `● tbox 3 off` would parse as "tbox is off" on a glance,
+and a bare denominator resolves no ambiguity. A count of 0 still renders
+pristine `○ tbox`, not `● tbox 0 masked`.
 
 The slot shows focus state only — **not** the char count. `/tbox chars`
 is the on-demand surface for the count. Budget awareness during focus is
@@ -407,7 +415,7 @@ handles the composition.
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); cues inline in the picker footer |
 | Command collisions | reserved wordlist; `/tbox <group> on` bare for non-reserved |
 | Focus | single-unit; green glyph; drift-free via inclusion mode |
-| Status slot | `○ tbox` pristine / `● tbox n` blue / `● focus:<unit>` green / `● focus:∅` red |
+| Status slot | `○ tbox` pristine / `● tbox n masked` blue / `● focus:<unit> (n)` green / `● focus:∅` red |
 | Char counter | `/tbox chars` command, computed from `getAllTools()` full defs |
 | Session drift | per-toolset state persists; group edits don't retroact; `on`/`off` drift, `focus` doesn't |
 | MVP scope | expanded to all 8 points |

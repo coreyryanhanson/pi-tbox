@@ -564,6 +564,28 @@ swapping the library dep to the published version.
 
 1. **Restore safety.** Tbox's auto-registration (Sprint 0) must survive
    `/reload` and `session_tree`. Verify:
+   - **Restore-timing fix — ✅ shipped (pulled forward from this sprint).**
+     Root cause: `index.ts` calls `autoRegisterBuiltinAndOrphans(pi)`
+     *inside* the `session_start` handler, which calls `defineToolset` →
+     `ensureRestoreHandler` → `pi.on("session_start", doRestore)`. Node's
+     EventEmitter does **not** invoke a listener registered mid-emit for
+     the current emit, so on the session where tbox first registers its
+     orphan toolsets (`tbox.tool@<source>`), the library's restore pass
+     never runs for them — their members never get actuated to
+     `defaultEnabled`, so they're absent from `getActiveTools()` and
+     register as "excluded" in the slot count (a stale-count / "one off"
+     bug). Portal's toolsets are unaffected (they `defineToolset` at
+     module-load, before `session_start` fires). **Fix (tbox-owned, one
+     place):** `autoRegisterBuiltinAndOrphans` returns the ids it
+     registered this call; `actuateNewToolsets(pi, ids)` then drives each
+     just-registered toolset to its `spec.defaultEnabled`, mirroring what
+     the library's restore would have done. The diff-and-scope guard
+     (only actuate the ids returned this call) is load-bearing — it
+     prevents double-actuating toolsets the library's restore already
+     handled (portal, etc.). Wired in both the `session_start` and
+     `session_tree` handlers (`index.ts`); helper in `src/registry.ts`.
+     `pi.builtin` is `defaultEnabled: true` and protected, so the
+     actuation is a no-op for it but harmless to include for uniformity.
    - Auto-registration re-runs against the fresh `pi` on `/reload`
      (jiti re-evaluates the module; the factory re-invokes; the
      `session_start` handler re-scans). The library's registry is
@@ -573,6 +595,13 @@ swapping the library dep to the published version.
      capture handler) is in place — assert the first paint lands on
      post-restore state even if tbox's `session_start` handler runs
      before/after a sibling's.
+   - **Point-2 verification (no code change):** `computeExcludedCount`
+     (`src/status-slot.ts`) filters `source !== "builtin" && source !==
+     "sdk"` — the same filter `src/registry.ts` uses to build
+     `pi.builtin`. The slot's `n` is already "disabled *extension*
+     tools" only; builtins/sdk can never land in it. After the
+     restore-timing fix makes the input honest, confirm the count
+     matches `/tbox list --flat --inactive`.
 2. **Multi-extension integration test.** A single
    `integration.test.ts` that stands up a realistic registry: fake
    `portal.web` (masked) + `portal.learn` (requires web) + `host.api`
@@ -642,8 +671,14 @@ swapping the library dep to the published version.
     untouched.
   - `focus host.api` → inclusion mode, only `host.api` (+ closure) on,
     slot green; `focus off` → all toolsets back to `defaultEnabled`,
-    exclusion mode, slot pristine or `● tbox n`.
+    exclusion mode, slot pristine or `● tbox n masked`.
   - `chars` deterministic across two calls in the same state.
+- `restore-timing.test.ts` — **✅ shipped** with the restore-timing fix
+  (pulled forward): register orphans inside a synthetic `session_start`
+  emit → assert their members land in `getActiveTools()` and the slot
+  count reflects reality; re-run on a fresh session (idempotence) → no
+  duplicate entries; the "one off" regression (count equals the true
+  inactive extension count, not true-minus-one).
 - `restore.test.ts`: simulate `/reload` by re-invoking the factory
   against a fresh MockPI sharing the same `globalThis`; assert
   auto-registration re-runs, registry has no duplicates, slot re-paints
