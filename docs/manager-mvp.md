@@ -47,7 +47,7 @@ the seed set.)
 | `/tbox group <name> [on\|off]` | explicit group form (for reserved-name groups) |
 | `/tbox group <name> edit` | curate a group (point 4) |
 | `/tbox toggle <tool>` | toggle an individual tool (point 6) |
-| `/tbox focus <unit>` | enter focus on a group / toolset / tool (point 2) |
+| `/tbox focus <unit>` | enter focus on a group or toolset (point 2) |
 | `/tbox focus off` | exit focus → flip inclusion back to exclusion, restore defaults |
 | `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 8) |
 | `/tbox chars` | print the serialized char count of the active tool set (point 5) |
@@ -65,7 +65,7 @@ the seed set.)
   (members: `web-learn`) shows `web-learn` under `learn`; `portal.web`'s
   members show under `web`. A tool in no registered toolset shows under
   its `tbox.tool@<source>` toolset — one per unclaimed-source plugin
-  (see point 8) — or `pi.builtin` if it's a builtin.
+  (see point 8).
 - **`--flat`:** every tool as a row, no grouping. Tools outside
   tbox's domain (see point 8 — `sdk`-source tools) appear as
   read-only rows so the user sees they exist and understands why they
@@ -123,8 +123,8 @@ toolsets default off, so a focus snapshot survives new-extension installs
 without re-applying. This asymmetry is documented to users: `on`/`off`
 can drift, `focus` won't.
 
-**Focus arity: single-unit.** `/tbox focus <one-unit>` — a group, a
-toolset, or a single tool. One label, clean allowlist. Multi-unit focus
+**Focus arity: single-unit.** `/tbox focus <one-unit>` — a group
+or a toolset. One label, clean allowlist. Multi-unit focus
 deferred.
 
 **Mutual exclusion with actuation commands.** While focus is active,
@@ -138,23 +138,27 @@ advertises — the slot would lie. `group edit` (config-only),
 still a coherent focus state) are all unguarded. After `focus off` the
 actuation commands work normally again.
 
-**Builtins are out of tbox's management scope.** Once tbox
-auto-registers `pi.builtin` (point 8), the §13.2 emergent-preservation
-argument (builtins survive focus because they're in no `defineToolset`
-toolset) no longer holds — `pi.builtin` *is* a registered toolset, so a
-focus loop that disables every non-allowlist toolset would disable it.
-A newly shipped Pi builtin would then go dark for every focused user
-until tbox ships a new release. The fix is tbox-owned, one line in
-`src/focus.ts`: seed the focus allowlist with `pi.builtin` (or skip it
-in the disable pass). The library stays source-agnostic — moving
-builtin registration into the library would propagate the drift bug to
-every library consumer. Four rules follow:
+**Builtins are out of tbox's management scope.** Builtins are never
+the subject of a group, focus, or toggle operation; they are always
+preserved. Unlike the old approach where tbox auto-registered
+`pi.builtin` as a toolset and explicitly guarded it, builtins are now
+excluded from registry registration entirely — they live outside
+tbox's domain (tracked by `sourceInfo.source === "builtin"` rather than
+by toolset membership). Because builtins never appear in
+`getRegisteredToolsets()`, inclusion-mode focus can never disable them:
+they're invisible to both the enable and disable passes. No drift gap.
+
+Three rules follow:
 (a) groups never contain builtins (a group that can mass-disable
-builtins is the point-3 footgun through the back door); (b) focus never
-targets builtins (`/tbox focus <builtin>` errors); (c) the picker never
-offers builtins as rows; (d) `/tbox toggle <builtin>` is an
-unconditional refusal. The only place tbox touches `pi.builtin` is the
-`/tbox all off` safety skip that keeps it enabled.
+builtins is the point-3 footgun through the back door — a group of
+always-on builtins is meaningless for `on` and dangerous for `off`);
+(b) focus never targets builtins (`/tbox focus pi.builtin` errors on
+the reserved id `pi.builtin`, which can never be a user group or
+toolset name); (c) the picker never offers builtins as rows;
+(d) `/tbox toggle <builtin>` is an unconditional refusal (sdk-source
+tool in tbox's domain, but this check is a defense-in-depth layer;
+in practice, builtins are not in any registered toolset so
+`findContainingToolset` returns undefined).
 
 **Focus exit is re-actuation, not a mode flip.** `/tbox focus off` does
 more than flip inclusion→exclusion: while in focus, tbox writes
@@ -184,16 +188,16 @@ shared helper inside tbox, not be inlined per command.
 Tbox has one mode. Two guards are unconditional — there is no escape
 hatch and no runtime toggle:
 
-1. **Pi builtin tools are protected.** Tbox auto-registers
-   `pi.builtin` (see point 8) but never manages it: `/tbox toggle
-   <builtin>` is refused ("builtins are protected. tbox does not
-   manage pi's core tools."), builtins are never groupable rows in the
-   picker, and never focus targets (see "Builtins are out of tbox's
-   management scope" in point 2). The only place tbox touches
-   `pi.builtin` is the `/tbox all off` safety skip that keeps it
-   enabled. Builtins are always-on by nature; grouping them is
-   meaningless for `on` and dangerous for `off`, and a newly shipped
-   Pi builtin must stay active during focus.
+1. **Pi builtin tools are protected.** Builtins live outside
+tbox's toolset registry entirely (tracked by `sourceInfo.source ===
+"builtin"`, not by toolset membership). Because builtins never
+appear in `getRegisteredToolsets()`, inclusion-mode focus can
+never disable them. `toggleTool` also refuses builtins via source
+check (sdk tools are refused as host-managed; builtins are refused
+as protected). The `/tbox all off` safety skip is a defense-in-depth
+layer — builtins are always-on by nature; grouping them is
+meaningless for `on` and dangerous for `off`, and a newly shipped
+Pi builtin must stay active during focus.
 2. **`masked` toolset members are not individually toggleable.** Tbox
    honors `spec.masked` — a masked toolset is a sealed unit (members
    hidden in the picker, only the group toggles). `/tbox toggle
@@ -291,7 +295,7 @@ it's drift-free by library design (§4.5).
 `/tbox all on` enables every registered toolset. `/tbox all off`
 disables every non-builtin toolset (builtins protected by point 3).
 
-**Auto-registration of orphan + builtin toolsets.** Tools that belong to
+**Auto-registration of orphan toolsets.** Tools that belong to
 no registered toolset can't be persistently toggled through the library
 (the library persists state per toolset, and a raw `setActiveTools`
 filter won't survive restore). Tbox fixes this by auto-registering
@@ -309,10 +313,11 @@ categories pi exposes:
 
 Registered toolsets at load:
 
-- **`pi.builtin`** — scan `pi.getAllTools()`, filter
-  `sourceInfo.source === "builtin"`, register those names as the
-  `pi.builtin` toolset. This is the point-3 protected toolset. No
-  hardcoded list, no drift, no `pi.getBuiltinTools()` upstream ask.
+- **`pi.builtin`** — excluded from registry registration entirely.
+  Builtins are tracked by `sourceInfo.source === "builtin"` and kept
+  active by tbox's source-based guards in toggle/focus/all — they
+  never enter the registry as a toolset, so inclusion-mode focus
+  never touches them. No hardcoded list, no drift.
 - **`tbox.tool@<source>`** — one toolset per distinct unclaimed
   `sourceInfo.source` among extension tools
   (`source !== "builtin" && source !== "sdk"`) not in any plugin-declared
@@ -320,8 +325,9 @@ Registered toolsets at load:
   like any other toolset. The `@<source>` key makes each such plugin an
   individually focusable unit — a plugin that only registers tools
   (e.g. pi-lens) gets the same focus granularity as one that calls
-  `defineToolset`. The user-facing id `tbox.tool@<source>` mirrors
-  `pi.builtin`'s singular-category-noun shape and hides whether the
+  `defineToolset`. The user-facing id `tbox.tool@<source>`'s
+  naming mirrors `pi.builtin`'s singular-category-noun shape
+  (one entry per source category) and hides whether the
   plugin opted into the library's vocabulary. `label` is derived from
   `<source>` (the plugin id); `description` is passed through from the
   tool only when the source contributes exactly one tool (the common
@@ -363,10 +369,9 @@ chose this mode and it's holding"), red = broken (matches search's
 unreachable red). No color is overloaded.
 
 The excluded-count (`n`) is **non-builtin, non-sdk** excluded tools —
-i.e. extension tools tbox actually manages — computed as `getAllTools()`
-(filtered to `source !== "builtin" && source !== "sdk"`) minus
-`getActiveTools()`. Excluding sdk tools from the count keeps the number
-honest about how many *extension* tools the user turned off (see point 8).
+i.e. extension tools tbox actually manages (registered toolsets
+containing them). Computed as `getAllTools()` (filtered to `source
+!== "builtin" && source !== "sdk"`) minus `getActiveTools()`.
 Updates on every toggle via the `TOOLSET_EVENTS.changed`/`restored`
 listeners tbox wires for the slot. A user who's excluded only builtins or
 sdk tools (unusual) sees `○ tbox`; a user who's excluded 3 real
@@ -409,7 +414,7 @@ handles the composition.
 | Area | Decision |
 |---|---|
 | Registry enumeration | library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
-| Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
+| Orphans/builtins | builtins are excluded from the registry entirely (protected by source checks in toggle/focus/all); one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
 | Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; members sealed, group-toggled only — no escape hatch |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); cues inline in the picker footer |

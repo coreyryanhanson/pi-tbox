@@ -32,10 +32,10 @@ each independently shippable and testable. Every sprint lists **work**,
   directly — that boundary is load-bearing (`design.md` §6.1).
 - **Tbox's domain is extension tools only.** The canonical discriminator
   is `t.sourceInfo.source !== "builtin" && t.sourceInfo.source !== "sdk"`
-  (`extensions.md` §"pi.getAllTools()"). `builtin` tools → the
-  `pi.builtin` toolset, which tbox auto-registers but **never manages**
-  (never toggled, grouped, focused, or offered in the picker; the only
-  touch is the `/tbox all off` safety skip that keeps it enabled). `sdk`
+  (`extensions.md` §"pi.getAllTools()"). `builtin` tools are excluded
+  from the tbox registry entirely — protected by source-based guards
+  in toggle/focus/all (never toggled, grouped, focused, or offered
+  in the picker). `sdk`
   tools → **out of tbox's domain entirely** (read-only rows in `--flat`,
   never registered into a toolset, never counted in the status slot's
   excluded count).
@@ -62,9 +62,9 @@ pi-tbox/
                           #   pi: { extensions: ["./index.ts"] }
                           #   dependencies: { "pi-tool-masking": "^1.0.0", ... }
   index.ts                # default factory: registerCommand("tbox"), slot wiring,
-                          #   auto-registration of pi.builtin + tbox.tool
+                          #   auto-registration of per-source orphan toolsets
   src/
-    registry.ts           # auto-register pi.builtin + tbox.tool from getAllTools()
+    registry.ts           # auto-register per-source orphan toolsets from getAllTools()
     requires-graph.ts     # forward/reverse requires walks (one shared helper)
     groups.ts             # user group config read/write + resolution to units
     list.ts               # /tbox list (grouped/flat, filters, smallest-toolset-wins)
@@ -169,9 +169,10 @@ Shipped:
   - dispatches, `ui.setStatus` records per-slot, `theme.fg` wraps with
   markers, `defineFakeToolset` lands in `getRegisteredToolsets()`.
 - **`src/registry.ts`** — `autoRegisterBuiltinAndOrphans(pi)`: scans
-  `getAllTools()`, registers `pi.builtin` (`defaultEnabled: true`,
-  `masked: false`) from builtin tools, registers `tbox.tool` from
-  extension tools no other toolset claims, **skips sdk entirely**. Run
+  `getAllTools()`, registers per-source orphan toolsets for
+  extension tools not claimed by any toolset, **skips sdk and builtin
+  entirely**. Builtins are never registered — they are protected by
+  source-based guards in toggle/focus/all. Run
   from `session_start` + `session_tree`; idempotent (library is
   idempotent-by-content for an unchanged spec).
   **Note:** Sprint 0 shipped a single catch-all `tbox.tool` toolset.
@@ -222,13 +223,15 @@ Shipped (`src/toggle.ts`, `src/status-slot.ts`):
   toggles back.
 - **Guards (unconditional — tbox has one mode):** a masked-member
   toggle is refused ("part of the sealed group `<group>`; toggle the
-  group instead"); a `pi.builtin` toggle is refused ("builtins are
-  protected. tbox does not manage pi's core tools."); `sdk` tools are
-  refused ("SDK tools are host-managed and cannot be toggled"). There
-  is no escape hatch — masking and builtin protection are permanent.
+  group instead"); builtins are refused via source check
+  ("builtins are protected. tbox does not manage pi's core tools.");
+  `sdk` tools are refused ("SDK tools are host-managed and cannot be
+  toggled"). There is no escape hatch — masking and builtin protection
+  are permanent.
 - **`/tbox all on`** — enable every registered toolset. **`/tbox all off`**
-  — disable every non-builtin toolset (`pi.builtin` skipped as the one
-  safety rail so builtins stay enabled); `sdk` untouched.
+  — disable every non-builtin toolset (builtins are outside the
+  registry and never registered, so they are naturally skipped);
+  `sdk` untouched.
 - **Status slot count state** — `● tbox n` (blue) where
   `n` = non-builtin, non-sdk tools minus `getActiveTools()`; pristine
   `○ tbox` when `n === 0`. `changed`/`restored` listeners re-render.
@@ -287,32 +290,24 @@ Tests shipped (green): `groups`, `reserved`, `requires-graph`.
 
 **The invariant:** *Builtins are never the **subject** of a group,
 focus, or toggle operation; they are always **preserved**.* tbox
-auto-registers `pi.builtin` (Sprint 0) but never manages it — the only
-place it touches `pi.builtin` is the `/tbox all off` safety skip that
-keeps it enabled.
+builtins are excluded from the registry entirely. Because builtins
+never appear in `getRegisteredToolsets()`, they are invisible to
+both the enable and disable passes — inclusion-mode focus can never
+disable them, and no explicit seeding or skip logic is needed.
 
-### Why (the drift argument)
+The taxonomy of what tbox manages:
 
-Focus durability against new-tool drift has two halves:
+- **Registered toolsets** (user-declared via `defineToolset` + tbox
+  orphan toolsets `tbox.tool@<source>`) — these are tbox's domain.
+- **Builtin tools** (`sourceInfo.source === "builtin"`) — protected
+  by source-based checks in `toggleTool`/`focusUnit`/`toggleAll`,
+  never in any registered toolset.
+- **SDK tools** (`sourceInfo.source === "sdk"`) — out of tbox's
+  domain entirely, never registered, never toggled.
 
-- **Library half (done, §13.2):** inclusion mode — unknown toolsets
-  default off, so a newly installed extension's toolsets don't break
-  focus. This is `pi-tool-masking`'s job and it's shipped.
-- **Builtin half (was under-specified):** a newly shipped Pi builtin must
-  stay active during focus. `design.md` §13.2's original argument —
-  *builtins survive focus emergently because they are not members of any
-  `defineToolset` toolset* — **stops holding once tbox registers
-  `pi.builtin`** (Sprint 0): `pi.builtin` is now a registered toolset,
-  and if it isn't in the focus allowlist the focus loop would disable
-  it. A new Pi builtin would go dark for every focused user until tbox
-  ships a new release.
-
-The fix is **tbox-owned, one line in `src/focus.ts`**, not a library
-change: always seed the focus allowlist with `pi.builtin` (or skip it in
-the disable pass). The library staying source-agnostic is what keeps it
-stable; the taxonomy is each consumer's call. Moving `pi.builtin`
-registration into the library would **propagate** the drift bug to every
-library consumer (portal, search, host) instead of just tbox users.
+This eliminates the need for the old approach where tbox auto-registered
+`pi.builtin` as a toolset and explicitly guarded it. The library stays
+source-agnostic; the taxonomy is each consumer's call.
 
 ### The three resulting rules
 
@@ -321,15 +316,16 @@ library consumer (portal, search, host) instead of just tbox users.
    guards exist to prevent, smuggled in through the back door. There is
    no useful "group of builtins": they're always-on by nature, so
    grouping them is meaningless for `on` and dangerous for `off`.
-2. **Focus never targets builtins.** `/tbox focus <builtin-tool-or-
-   toolset>` errors. Focus on a builtin resolves to the `pi.builtin`
-   allowlist, disabling everything else — a weird working set that
-   conflates the preservation invariant with focus intent.
+2. **Focus never targets builtins.** `/tbox focus pi.builtin` errors on
+   the reserved id `pi.builtin`, which can never be a user group or toolset
+   name. Focus on a builtin tool name now falls through to the generic
+   "No toolset or group matching" error (since builtins are not in any
+   registered toolset).
 3. **Builtins are never toggleable and never groupable rows.**
-   `/tbox toggle <builtin>` is an unconditional refusal (Sprint 2); the
-   picker (Sprint 4) never offers builtins as rows. There is no escape
-   hatch — builtins are always-on by nature, and a group that can
-   mass-disable them is the rule-1 footgun through the back door.
+   `/tbox toggle <builtin>` is refused via source check in `toggleTool`.
+   Builtins never appear in the picker. There is no escape hatch —
+   builtins are always-on by nature, and a group that can mass-disable
+   them is the rule-1 footgun through the back door.
 
 ---
 
@@ -369,8 +365,9 @@ Shipped (`src/registry.ts`):
   source that gains/loses a tool between reloads updates its `names`
   set; a source that disappears leaves a stale entry (a harmless no-op
   at restore — Sprint 7's restore-safety pass confirms).
-- **No change to builtins or sdk handling** — `pi.builtin` and the sdk
-  skip are exactly as Sprint 0 shipped them.
+- **No change to sdk handling** — sdk tools are still never
+  registered, never toggled, never counted in the slot, and
+  appear as read-only rows in `--flat`.
 
 Tests shipped (green): `registry-per-source` (multi-source population,
 focus granularity, idempotence, single-tool description pass-through).
@@ -391,13 +388,14 @@ Shipped (`src/group-editor.ts`, `src/groups.ts`, `index.ts`,
   pi's interactive-mode dist path. Requires interactive (`tui`) mode;
   a non-tui session returns "Group editing requires interactive mode."
   rather than mounting the component.
-- **Single granularity: toolsets only.** One row per non-`pi.builtin`
-  toolset. Masked toolsets render as one sealed row `(masked, N tools)`;
+- **Single granularity: toolsets only.** One row per registered toolset.
+  Masked toolsets render as one sealed row `(masked, N tools)`;
   unmasked as `(N tools)`; orphans as their `tbox.tool@<source>` row
   (Sprint 3.5). **No member rows** — pi-tool-masking has no per-tool
   persist primitive, so per-tool rows would collapse to the containing
-  toolset at actuation (theater). `pi.builtin` is absent (decision
-  record: builtins are out of tbox's management scope).
+  toolset at actuation (theater). Builtins are not in the registry
+  and never appear in the picker (decision record: builtins are out of
+  tbox's management scope).
 - **`requires` closure auto-maintained** via `src/requires-graph.ts`
   (Sprint 3). Checking a toolset forward-closes its deps; unchecking
   reverse-closes dependents. Cues render **inline in the component
@@ -444,20 +442,21 @@ Shipped (`src/focus.ts`, `src/status-slot.ts`, `src/toggle.ts`,
 `src/groups.ts`, `index.ts`):
 
 - **Single-unit resolution (`resolveFocusUnit`)** — the `<unit>` is one
-  group name, one toolset id, or one tool name, resolved in that order.
-  **Never a builtin:** `pi.builtin` and any builtin tool name error with
+  group name or a toolset id, resolved in that order.
+  **Never a builtin:** the reserved id `pi.builtin` errors with
   "builtins are out of tbox's scope; focus on an extension toolset or
-  group instead." SDK tools reached by name error as host-managed. A
-  tool-name input with a unique prefix expands (mirrors `toggle`'s
-  prefix behavior); an ambiguous prefix lists candidates.
+  group instead." The function no longer resolves individual tool
+  names or does prefix-expansion; that path was removed to eliminate
+  collision surface with user group names.
 - **Allowlist = forward `requires` closure ∪ reverse `dependents`
   closure** (not forward-only as the work text suggested). The library's
   enable cascade is bi-directional, so closing in both directions keeps
   the allowlist coherent with what the cascade actually enables — a
   forward-only allowlist would have left dependents enabled by the
   cascade but "outside" focus, then wrongly disabled them in the second
-  pass. `pi.builtin` is seeded into the allowlist (the §13.2 drift fix,
-  one tbox-owned line) so newly shipped builtins survive focus.
+  pass. Builtins are excluded from the registry entirely
+  and are naturally unaffected by the focus loop — no explicit
+  seeding or skip logic is needed to keep them safe during focus.
 - **Enter focus (`focusUnit`)** — `setFocusUnit(label)` is called
   **before** actuating so the synchronous `TOOLSET_EVENTS.changed`
   fanout (emitted inside `enable()`/`disable()`) renders the focus
@@ -465,10 +464,10 @@ Shipped (`src/focus.ts`, `src/status-slot.ts`, `src/toggle.ts`,
   covers the no-event edge case (re-focus on an identical allowlist).
   Then `setDefaultResolutionMode(pi, "inclusion")`, a two-pass
   actuation: pass 1 enables every allowlist member (the library cascades
-  deps + dependents on); pass 2 disables every non-allowlist,
-  non-`pi.builtin` toolset that is **still enabled** after the cascade
-  — i.e. only toolsets the cascade did not pull in. `pi.builtin` is
-  never disabled. A `ponytail:` comment flags the two-pass reliance on
+  deps + dependents on); pass 2 disables every non-allowlist toolset that
+  is **still enabled** after the cascade — i.e. only toolsets the cascade
+  did not pull in. Builtins are outside the registry entirely and are
+  naturally excluded. A `ponytail:` comment flags the two-pass reliance on
   synchronous `enable()` (upgrade path: flush/tick before pass 2 if the
   library ever goes async).
 - **Exit focus (`focusOff`) — re-actuation, not a mode flip.**
@@ -500,13 +499,12 @@ Shipped (`src/focus.ts`, `src/status-slot.ts`, `src/toggle.ts`,
   <unit>` (re-focus, coherent) are unguarded — the slot never lies
   about the active set.
 
-Tests shipped (green): `focus` (enter on toolset/tool/group, builtin +
-sdk refusal, closure, `pi.builtin` kept enabled, exit re-actuation
-overwrites focus-era entries, drift-free restore under inclusion vs
-exclusion, mutual-exclusion refusals across `toggleTool`/`toggleAll`/
-`actuateGroup`), `focus-exit` (the negative regression guard — a
-mode-flip-only exit leaves a disabled toolset stuck off, documenting
-why re-actuation is mandatory).
+Tests shipped (green): `focus` (enter on toolset/tool/group,
+closure, exit re-actuation overwrites focus-era entries, drift-free
+restore under inclusion vs exclusion, mutual-exclusion refusals across
+`toggleTool`/`toggleAll`/`actuateGroup`), `focus-exit` (the negative
+guard — a mode-flip-only exit leaves a disabled toolset stuck off,
+documenting why re-actuation is mandatory).
 
 ---
 
@@ -584,8 +582,8 @@ swapping the library dep to the published version.
      prevents double-actuating toolsets the library's restore already
      handled (portal, etc.). Wired in both the `session_start` and
      `session_tree` handlers (`index.ts`); helper in `src/registry.ts`.
-     `pi.builtin` is `defaultEnabled: true` and protected, so the
-     actuation is a no-op for it but harmless to include for uniformity.
+     Builtins are outside the registry entirely and are unaffected by
+     actuation — no explicit handling needed.
    - Auto-registration re-runs against the fresh `pi` on `/reload`
      (jiti re-evaluates the module; the factory re-invokes; the
      `session_start` handler re-scans). The library's registry is
@@ -598,15 +596,15 @@ swapping the library dep to the published version.
    - **Point-2 verification (no code change):** `computeExcludedCount`
      (`src/status-slot.ts`) filters `source !== "builtin" && source !==
      "sdk"` — the same filter `src/registry.ts` uses to build
-     `pi.builtin`. The slot's `n` is already "disabled *extension*
-     tools" only; builtins/sdk can never land in it. After the
-     restore-timing fix makes the input honest, confirm the count
-     matches `/tbox list --flat --inactive`.
+     matching the filters used throughout tbox. Builtins are
+     never registered as toolsets so they never enter the count.
+     After the restore-timing fix makes the input honest, confirm
+     the count matches `/tbox list --flat --inactive`.
 2. **Multi-extension integration test.** A single
    `integration.test.ts` that stands up a realistic registry: fake
    `portal.web` (masked) + `portal.learn` (requires web) + `host.api`
-   - `search.web` + tbox's own `pi.builtin` + per-source `tbox.tool@*`
-  toolsets (at least two unclaimed-source plugins, to exercise the
+   - `search.web` + tbox's own per-source `tbox.tool@*` toolsets
+  (at least two unclaimed-source plugins, to exercise the
   Sprint 3.5 shape), with a
    tool population spanning builtin/sdk/extension sources. Then drive
    the full `/tbox` surface end-to-end through the MockPI's
@@ -666,9 +664,9 @@ swapping the library dep to the published version.
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →
     `on` → `portal.web` cascades on; status reports both.
   - `toggle <portal.web member>` → refused (masked);
-    `toggle <pi.builtin tool>` → refused (out of scope).
-  - `all off` → every non-builtin toolset off; `pi.builtin` on; sdk
-    untouched.
+    `toggle <builtin tool>` → refused, builtin source check (out of tbox scope).
+  - `all off` → every non-builtin toolset off; builtins unaffected
+    (outside the registry); sdk untouched.
   - `focus host.api` → inclusion mode, only `host.api` (+ closure) on,
     slot green; `focus off` → all toolsets back to `defaultEnabled`,
     exclusion mode, slot pristine or `● tbox n masked`.
@@ -720,7 +718,7 @@ swapping the library dep to the published version.
 
 | Decision | Sprint | Recommendation |
 |---|---|---|
-| **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** toggle refuses builtins unconditionally (Sprint 2); picker never offers builtins (Sprint 4); focus rejects builtin targets and seeds `pi.builtin` in the allowlist (Sprint 5). The only `pi.builtin` touch is the `/tbox all off` safety skip |
+| **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely; toggle refuses builtins via source check (Sprint 2); picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5). Builtins are never registered so no safety skip is needed |
 | Final reserved-wordlist | 7 | Seed set + any discovered collisions |
 | Group config storage shape | 3 | **Closed:** `tbox.groups` key in merged settings; `GroupSpec = { toolsets: string[] }` (whole-toolset units only — no per-tool field) |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
