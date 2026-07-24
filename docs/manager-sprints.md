@@ -289,6 +289,63 @@ Tests shipped (green): `groups`, `reserved`, `requires-graph`,
 
 ---
 
+## Decision record — builtins are preserved, not grouped or focused
+
+> Recorded after Sprint 3, before Sprint 4. This is a **spec
+> clarification**, not a re-design: it sharpens an invariant that was
+> implicit in the MVP and corrects one Sprint 5 claim that became stale
+> once Sprint 0 registered `pi.builtin`. No shipped Sprint 1–3 code is
+> incorrect in any user-reachable path; one one-line hardening in
+> `groups.ts` folds into Sprint 4.
+
+**The invariant:** *Builtins are never the **subject** of a group or
+focus operation; they are always **preserved** by one.*
+
+### Why (the drift argument)
+
+Focus durability against new-tool drift has two halves:
+
+- **Library half (done, §13.2):** inclusion mode — unknown toolsets
+  default off, so a newly installed extension's toolsets don't break
+  focus. This is `pi-tool-masking`'s job and it's shipped.
+- **Builtin half (was under-specified):** a newly shipped Pi builtin must
+  stay active during focus. `design.md` §13.2's original argument —
+  *builtins survive focus emergently because they are not members of any
+  `defineToolset` toolset* — **stops holding once tbox registers
+  `pi.builtin`** (Sprint 0): `pi.builtin` is now a registered toolset,
+  and if it isn't in the focus allowlist the focus loop would disable
+  it. A new Pi builtin would go dark for every focused user until tbox
+  ships a new release.
+
+The fix is **tbox-owned, one line in `src/focus.ts`**, not a library
+change: always seed the focus allowlist with `pi.builtin` (or skip it in
+the disable pass). The library staying source-agnostic is what keeps it
+stable; the taxonomy is each consumer's call. Moving `pi.builtin`
+registration into the library would **propagate** the drift bug to every
+library consumer (portal, search, host) instead of just tbox users.
+
+### The three resulting rules
+
+1. **Groups never contain builtins.** A group containing a builtin name
+   means `group off` disables `pi.builtin` — the exact footgun Sprint 2's
+   guards exist to prevent, smuggled in through the back door. There is
+   no useful "group of builtins": they're always-on by nature, so
+   grouping them is meaningless for `on` and dangerous for `off`.
+2. **Focus never targets builtins.** `/tbox focus <builtin-tool-or-
+   toolset>` errors. Focus on a builtin resolves to the `pi.builtin`
+   allowlist, disabling everything else — a weird working set that
+   conflates the preservation invariant with focus intent. A dev who
+   wants to isolate one builtin already has `/tbox toggle` for surgical
+   per-tool control.
+3. **Dev mode's builtin affordance is `/tbox toggle` only, not the
+   picker.** The picker (Sprint 4) never offers builtins as groupable
+   rows, in any mode. Dev mode lifts the `/tbox toggle <builtin>` guard
+   (one tool, deliberate, per-session); it does **not** grant the power
+   to build a group that can later mass-disable builtins — that's a
+   weaponized composition, not an override.
+
+---
+
 ## Sprint 4 — Group editing picker UX
 
 **Goal:** point 4 (curation UX). `/tbox group <name> edit` opens a
@@ -305,11 +362,13 @@ filtered check-list (the same UX as pi's scoped-models picker), with the
      group can include a whole toolset or cherry-pick members). Orphans
      show as individual tool-rows under `tbox.orphans`.
    - **Dev mode:** masked toolsets expand to show individual members as
-     checkable rows; `pi.builtin` surfaces as a toggleable row; the
-     `requires` closure is **not** auto-applied (raw behavior; the
-     library still resolves `requires` at actuation, so an unclosed
-     group just pulls deps on anyway — documented in the picker's
-     dev-mode help line).
+     checkable rows; the `requires` closure is **not** auto-applied (raw
+     behavior; the library still resolves `requires` at actuation, so an
+     unclosed group just pulls deps on anyway — documented in the
+     picker's dev-mode help line). **`pi.builtin` is never a groupable
+     row, in any mode** (decision record above): builtins are preserved
+     by groups/focus, never the subject of them. Dev mode's builtin
+     access is `/tbox toggle <builtin>` only.
 2. **`requires` closure auto-maintained (normal mode):**
    - Check `portal.learn` → `portal.web` auto-checks (forward closure).
    - Uncheck `portal.web` while `portal.learn` is checked →
@@ -335,8 +394,9 @@ filtered check-list (the same UX as pi's scoped-models picker), with the
 - [ ] Checking `portal.learn` auto-checks `portal.web` (forward closure)
       with a visible cue; unchecking `portal.web` auto-unchecks
       `portal.learn` (reverse closure) with a visible cue.
-- [ ] In dev mode, masked toolsets expand to member rows; `pi.builtin`
-      is a toggleable row; no closure auto-apply.
+- [ ] In dev mode, masked toolsets expand to member rows; no closure
+      auto-apply. **`pi.builtin` is absent from the row list in both
+      modes** (decision record).
 - [ ] Confirming writes the group to config; `/tbox newgroup on`
       immediately actuates the curated set.
 - [ ] Re-opening `edit` shows the previously-saved checks.
@@ -349,7 +409,8 @@ filtered check-list (the same UX as pi's scoped-models picker), with the
   - Normal-mode option list: masked toolset present as one row, its
     members **absent** from the option list; builtin toolset absent;
     orphan tool present.
-  - Dev-mode option list: masked members present; `pi.builtin` present.
+  - Dev-mode option list: masked members present; `pi.builtin` **absent**
+    (builtins are never groupable — decision record).
   - Selecting `portal.learn` → the selection passed back through
     forwardClosure includes `portal.web`; the group written to config
     contains both.
@@ -370,8 +431,11 @@ hard requirement.
 ### Work
 
 1. `src/focus.ts`: focus is **single-unit** — the `<unit>` is one group
-   name, one toolset id, or one tool name. Resolve to an allowlist of
-   toolset ids:
+   name, one toolset id, or one tool name — **but never a builtin**
+   (decision record above). `/tbox focus <builtin-tool-or-toolset>`
+   errors with "builtins are preserved during focus, not focused on;
+   use `/tbox toggle` to adjust one." Resolve a non-builtin unit to an
+   allowlist of toolset ids:
    - group → the group's toolsets (from config) plus their `requires`
      closure (forward) — focus on a group must keep deps on;
    - toolset → that toolset plus its `requires` closure;
@@ -381,14 +445,18 @@ hard requirement.
    - `setDefaultResolutionMode(pi, "inclusion")` — unknown toolsets
      default off, so a future new extension's toolsets don't break
      focus (drift-free, `design.md` §4.5/§13.2).
+   - **Seed the allowlist with `pi.builtin`** (or skip it in the disable
+     pass) so builtins survive focus regardless of what Pi ships next —
+     this is the drift fix that `design.md` §13.2's emergent-preservation
+     argument can no longer carry once `pi.builtin` is a registered
+     toolset (Sprint 0). One line; tbox-owned (the library stays
+     source-agnostic).
    - For every registered toolset: if in the allowlist → `enable(pi)`
      (the library's `requires` cascade pulls deps on); else →
-     `disable(pi)`. This writes `{ enabled: false }` entries for every
-     non-allowlist toolset (the MVP's confirmed focus-era writes).
-   - Builtins stay active emergently (disabling a toolset only removes
-     its own members; builtins are not members of any toolset the user
-     focused away from — `design.md` §13.2). Do not register a
-     "protected builtin" hack for focus.
+     `disable(pi)` — **except `pi.builtin`, which is never disabled by
+     focus.** This writes `{ enabled: false }` entries for every
+     non-allowlist, non-builtin toolset (the MVP's confirmed focus-era
+     writes).
 3. **Exit focus (`/tbox focus off`):** this is **re-actuation, not a mode
    flip.** Flipping inclusion→exclusion alone leaves the focus-era
    `{ enabled: false }` entries stuck off (the `ExtensionAPI` exposes
@@ -410,8 +478,11 @@ hard requirement.
 
 ### Acceptance criteria
 
+- [ ] `/tbox focus <builtin-tool-or-toolset>` errors (builtins are
+      preserved, not focused on — decision record).
 - [ ] `/tbox focus portal.web` sets inclusion mode, enables `portal.web`
       (+ `requires` closure), disables every other registered toolset;
+      `pi.builtin` stays enabled (allowlist-seeded, not emergent);
       builtins remain active.
 - [ ] `/tbox focus mygroup` (a group) focuses the group's toolsets +
       their forward closure.
@@ -433,8 +504,10 @@ hard requirement.
 - `focus.test.ts`:
   - Enter focus on `portal.web` with fake `portal.learn` (requires web)
     - `host.api` registered → `portal.web` enabled, `portal.learn`
-    enabled (closure), `host.api` disabled, builtins untouched. Inclusion
-    mode set. Entries written for all three toolsets.
+    enabled (closure), `host.api` disabled, `pi.builtin` **kept enabled**
+    (allowlist-seeded, not emergent — this is the drift fix). Inclusion
+    mode set. Entries written for `portal.web`, `portal.learn`,
+    `host.api` — **not** for `pi.builtin`.
   - Empty allowlist (focus on a group with no toolsets) → slot red, no
     toolset enabled except via requires-nada.
   - Exit focus → every toolset driven to `spec.defaultEnabled`; the
@@ -651,6 +724,7 @@ swapping the library dep to the published version.
 
 | Decision | Sprint | Recommendation |
 |---|---|---|
+| **Builtins: preserved not grouped/focused** | 4, 5 | Decision record above — picker never offers builtins (Sprint 4); focus allowlist seeds `pi.builtin` + rejects builtin targets (Sprint 5); one-line `groups.ts` disable-guard folds into Sprint 4 |
 | Final reserved-wordlist | 7 | Seed set + any discovered collisions |
 | Group config storage shape | 3 | `tbox.groups` key in merged settings, or dedicated `~/.pi/agent/pi-tbox/groups.json` if settings writes are too risky |
 | `tbox.orphans` shape | 7 | Start catch-all; promote to per-source if the realistic registry makes it noisy |

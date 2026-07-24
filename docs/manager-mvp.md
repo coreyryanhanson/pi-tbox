@@ -126,6 +126,23 @@ can drift, `focus` won't.
 toolset, or a single tool. One label, clean allowlist. Multi-unit focus
 deferred.
 
+**Builtins are preserved, not grouped or focused.** Once tbox
+auto-registers `pi.builtin` (point 8), the §13.2 emergent-preservation
+argument (builtins survive focus because they're in no `defineToolset`
+toolset) no longer holds — `pi.builtin` *is* a registered toolset, so a
+focus loop that disables every non-allowlist toolset would disable it.
+A newly shipped Pi builtin would then go dark for every focused user
+until tbox ships a new release. The fix is tbox-owned, one line in
+`src/focus.ts`: seed the focus allowlist with `pi.builtin` (or skip it
+in the disable pass). The library stays source-agnostic — moving
+builtin registration into the library would propagate the drift bug to
+every library consumer. Three rules follow:
+(a) groups never contain builtins (a group that can mass-disable
+builtins is the point-3 footgun through the back door); (b) focus never
+targets builtins (`/tbox focus <builtin>` errors — use `/tbox toggle`
+for surgical control); (c) the picker never offers builtins as groupable
+rows in any mode — dev mode's builtin affordance is `/tbox toggle` only.
+
 **Focus exit is re-actuation, not a mode flip.** `/tbox focus off` does
 more than flip inclusion→exclusion: while in focus, tbox writes
 `{ enabled: false }` entries for every non-allowlist toolset (the
@@ -159,7 +176,10 @@ three guards:
 
 1. **Pi builtin tools are their own toolset and untoggleable** unless dev
    mode is on. Tbox auto-registers `pi.builtin` (see point 8) and treats
-   it as protected; dev mode exposes it for toggling.
+   it as protected; dev mode exposes it for **individual `/tbox toggle`
+   only** — builtins are never groupable rows in the picker and never
+   focus targets (see "Builtins are preserved, not grouped or focused"
+   below).
 2. **`masked` toolset members are not individually toggleable** unless
    dev mode is on. In normal mode, tbox honors `spec.masked` — a masked
    toolset is a sealed unit (members hidden in the picker, only the
@@ -191,7 +211,9 @@ filtered list depends on dev mode:
   individual members are not surfaced. Builtins not shown (protected).
   `requires` closure auto-maintained (point 2).
 - **Dev mode:** masked toolsets expand to show individual members as
-  checkable rows; builtins surface as toggleable; no closure auto-apply.
+  checkable rows; no closure auto-apply. **Builtins are still not shown**
+  — dev mode's builtin access is `/tbox toggle <builtin>` only, not the
+  picker (see "Builtins are preserved, not grouped or focused" below).
 
 **`emitMemberEvents` is not used by the MVP picker.** The library offers
 `spec.emitMemberEvents` (§13.1) for per-tool UI fanout on enable/disable.
