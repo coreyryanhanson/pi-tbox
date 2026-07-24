@@ -13,6 +13,8 @@ import {
 	computeSlotState,
 	getFocusUnit,
 	setFocusUnit,
+	wireSlot,
+	SLOT_NAME,
 } from "../src/status-slot.js";
 import { formatStatus } from "../src/list.js";
 import { setSettingsOverrideForTests } from "../config/settings-reader.js";
@@ -314,6 +316,58 @@ describe("/tbox focus", () => {
 			if (state.kind === "focus") {
 				expect(state.unit).toBe("portal.web");
 			}
+		});
+	});
+
+	// Regression: the TOOLSET_EVENTS.changed fanout fires synchronously inside
+	// focusUnit's enable/disable loop and drives render() -> setStatus. If
+	// setFocusUnit lands AFTER that loop, the slot paints a one-frame-stale
+	// glyph: a count glyph on focus enter, and a focus glyph on focus off.
+	// This wires the slot and asserts the LAST painted status is correct.
+	describe("slot glyph does not lag the actuation (regression)", () => {
+		it("focus enter paints the focus glyph, not a stale count glyph", () => {
+			setup(pi, mock);
+			wireSlot(
+				pi,
+				() =>
+					({
+						ui: mock.createCommandContext().ui as unknown as {
+							setStatus: (slot: string, text: string) => void;
+							theme: { fg: (color: string, text: string) => string };
+						},
+					}) as any,
+			);
+			mock.clearUiRecords();
+
+			focusUnit(pi, "portal.web");
+
+			const last = mock.getLastStatus(SLOT_NAME);
+			expect(last).toBeDefined();
+			// green focus glyph, not the blue count glyph `● tbox n`
+			expect(last!.text).toContain("focus:portal.web");
+			expect(last!.text).not.toContain("tbox ");
+		});
+
+		it("focus off paints a non-focus glyph, not a stale focus glyph", () => {
+			setup(pi, mock);
+			wireSlot(
+				pi,
+				() =>
+					({
+						ui: mock.createCommandContext().ui as unknown as {
+							setStatus: (slot: string, text: string) => void;
+							theme: { fg: (color: string, text: string) => string };
+						},
+					}) as any,
+			);
+			focusUnit(pi, "portal.web");
+			mock.clearUiRecords();
+
+			focusOff(pi);
+
+			const last = mock.getLastStatus(SLOT_NAME);
+			expect(last).toBeDefined();
+			expect(last!.text).not.toContain("focus:");
 		});
 	});
 

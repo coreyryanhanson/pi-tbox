@@ -20,7 +20,7 @@ import {
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
 import { resolveGroup } from "./groups.js";
 import { BUILTIN_TOOLSET_ID } from "./registry.js";
-import { setFocusUnit } from "./status-slot.js";
+import { setFocusUnit, rerenderSlot } from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
 // Resolution
@@ -173,6 +173,12 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 
 	const registry = getRegisteredToolsets();
 
+	// Set the focus unit BEFORE actuating so the TOOLSET_EVENTS.changed
+	// fanout (emitted synchronously inside enable()/disable()) renders the
+	// focus glyph, not a one-frame-stale count glyph. The final rerenderSlot
+	// covers the no-event edge case (re-focus on an identical allowlist).
+	setFocusUnit(resolved.label);
+
 	// Set inclusion mode before actuating
 	setDefaultResolutionMode(pi, "inclusion");
 
@@ -208,7 +214,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 		}
 	}
 
-	setFocusUnit(resolved.label);
+	rerenderSlot(pi);
 
 	return `Focus on "${resolved.label}" — ${enabled} enabled, ${disabled} disabled.`;
 }
@@ -225,6 +231,11 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
  */
 export function focusOff(pi: ExtensionAPI): string {
 	const registry = getRegisteredToolsets();
+
+	// Clear the focus unit BEFORE re-actuating so the TOOLSET_EVENTS.changed
+	// fanout (emitted synchronously inside enable()/disable()) renders the
+	// post-focus glyph, not a one-frame-stale focus glyph.
+	setFocusUnit(null);
 
 	// ponytail: focus-era overwrite is destructive — pre-focus manual toggles
 	// are lost. The MVP confirms this: "the library never remembers pre-focus
@@ -245,7 +256,7 @@ export function focusOff(pi: ExtensionAPI): string {
 	}
 
 	setDefaultResolutionMode(pi, "exclusion");
-	setFocusUnit(null);
+	rerenderSlot(pi);
 
 	return `Focus off — ${restored} toolset${restored !== 1 ? "s" : ""} restored to default.`;
 }

@@ -152,6 +152,27 @@ export function getFocusUnit(): string | null {
  * rendering — during session_start the library's restore handler fires
  * TOOLSET_EVENTS before the tbox handler sets lastCtx.
  */
+/** Module-level ref to the wired getCtx so non-event callers can repaint. */
+let _getCtx:
+	| (() => {
+			ui: {
+				setStatus: (slot: string, text: string) => void;
+				theme: { fg: (color: string, text: string) => string };
+			};
+	  } | null)
+	| null = null;
+
+/**
+ * Repaint the slot now from the wired context (no-op if unwired or
+ * ctx not yet captured). Use after mutating slot-affecting state outside
+ * a TOOLSET_EVENTS fanout (e.g. focus enter/exit) so the glyph never lags
+ * a frame behind the actuation that produced it.
+ */
+export function rerenderSlot(pi: ExtensionAPI): void {
+	const ctx = _getCtx?.();
+	if (ctx) render(pi, ctx);
+}
+
 export function wireSlot(
 	pi: ExtensionAPI,
 	getCtx: () => {
@@ -161,6 +182,7 @@ export function wireSlot(
 		};
 	} | null,
 ): void {
+	_getCtx = getCtx;
 	// Re-render on toolset changes
 	const onChange = () => {
 		const ctx = getCtx();
