@@ -121,13 +121,21 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	// ponytail: two-pass approach relies on synchronous enable(). If the
 	// library ever adds async enable/disable, the disable pass would race
 	// the cascade — guard with a flush/tick before the second pass.
-	// First pass: enable allowlist members (library cascades deps + dependents)
+	// First pass: enable allowlist members (library cascades deps + dependents).
+	// For toolsets already in the desired state, still persist the entry so
+	// that inclusion-mode restore can find it and doesn't default them off.
 	let enabled = 0;
 
 	for (const entry of registry) {
-		if (allowlist.has(entry.spec.id) && !entry.toolset.isEnabled(pi)) {
+		if (!allowlist.has(entry.spec.id)) continue;
+
+		if (!entry.toolset.isEnabled(pi)) {
 			entry.toolset.enable(pi);
 			enabled++;
+		} else {
+			// Already enabled — persist the entry so restore in inclusion
+			// mode doesn't silently default this allowlisted toolset off.
+			pi.appendEntry(entry.spec.persistKey, { enabled: true });
 		}
 	}
 

@@ -510,6 +510,48 @@ describe("/tbox focus", () => {
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("new-tool")).toBe(true);
 		});
+
+		it("already-enabled allowlisted toolset persists entry so it survives inclusion-mode restore", () => {
+			setup(pi, mock);
+
+			// portal.learn requires portal.web. Before focus, portal.web
+			// AND portal.learn are both already enabled (pre-focus state).
+			// If focus focuses portal.web and portal.learn is already enabled,
+			// the old code would skip writing {enabled:true} for portal.learn
+			// (because isEnabled → true → focus skips enable() entirely).
+			// That meant on restore in inclusion mode, portal.learn (no entry)
+			// defaults to off — the exact bug the user reported.
+
+			// Confirm pre-state: both already enabled
+			expect(new Set(pi.getActiveTools()).has("web-fetch")).toBe(true);
+			expect(new Set(pi.getActiveTools()).has("web-learn")).toBe(true);
+
+			// Clear entries so focus writes fresh ones
+			mock.clearEntries();
+
+			// Focus portal.web — portal.learn is already enabled so focus
+			// skips calling enable() on it; my fix explicitly persists the slot.
+			focusUnit(pi, "portal.web");
+
+			// portal.learn must have a persisted {enabled:true} entry
+			// even though focus didn't toggle it
+			const learnEntries = mock
+				.getEntries()
+				.filter((e) => e.customType === "toolset-state:portal.learn");
+			expect(learnEntries.length).toBeGreaterThan(0);
+			const lastLearn = learnEntries[learnEntries.length - 1]!.data as Record<
+				string,
+				unknown
+			>;
+			expect(lastLearn?.enabled).toBe(true);
+
+			// Simulate restore (fresh globalThis, no in-memory mode)
+			mock.emit("toolset:restored", {});
+
+			const active = new Set(pi.getActiveTools());
+			expect(active.has("web-fetch")).toBe(true);
+			expect(active.has("web-learn")).toBe(true);
+		});
 	});
 
 	describe("status command reflects focus", () => {
