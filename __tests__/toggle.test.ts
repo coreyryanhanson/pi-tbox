@@ -110,7 +110,7 @@ function setupToggleFixture(mock: MockPI, pi: ExtensionAPI): void {
 		requires: ["portal.web"],
 	});
 
-	// Auto-register tbox.orphans + pi.builtin
+	// Auto-register per-source orphan toolsets + pi.builtin
 	autoRegisterBuiltinAndOrphans(pi);
 
 	// Enable all toolsets so they start active
@@ -277,16 +277,16 @@ describe("toggleTool", () => {
 		expect(msg).toContain('Disabled "read"');
 	});
 
-	it("toggles an orphan tool via tbox.orphans", () => {
+	it("toggles an orphan tool via its per-source toolset", () => {
 		setupToggleFixture(mock, pi);
-		// orphan-tool is in tbox.orphans, enabled by default
+		// orphan-tool has source "extension", so it lives in tbox.tool@extension
 		const msg1 = toggleTool(pi, "orphan-tool", false);
 		expect(msg1).toContain('Disabled "orphan-tool"');
-		expect(msg1).toContain("tbox.orphans");
+		expect(msg1).toContain("tbox.tool@extension");
 
 		const msg2 = toggleTool(pi, "orphan-tool", false);
 		expect(msg2).toContain('Enabled "orphan-tool"');
-		expect(msg2).toContain("tbox.orphans");
+		expect(msg2).toContain("tbox.tool@extension");
 	});
 
 	it("returns error for nonexistent tool", () => {

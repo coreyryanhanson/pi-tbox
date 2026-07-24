@@ -4,7 +4,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
 	BUILTIN_TOOLSET_ID,
-	ORPHANS_TOOLSET_ID,
+	ORPHAN_TOOLSET_PREFIX,
+	orphanToolsetId,
 } from "../src/registry.js";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
@@ -53,13 +54,24 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		expect(builtin!.spec.masked).toBe(false);
 	});
 
-	it("registers tbox.orphans with unclaimed extension tools", () => {
+	it("registers per-source orphan toolsets for unclaimed extension tools", () => {
+		// Two sources, one tool each
 		mock.registerTool({
-			name: "orphan-tool",
-			description: "An orphaned tool",
+			name: "lens-search",
+			description: "Search codebase",
 			sourceInfo: {
-				path: "ext.ts",
-				source: "extension",
+				path: "pi-lens.ts",
+				source: "pi-lens",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.registerTool({
+			name: "deploy-run",
+			description: "Run deployment",
+			sourceInfo: {
+				path: "deploy.ts",
+				source: "pi-deploy",
 				scope: "user",
 				origin: "top-level",
 			},
@@ -68,13 +80,33 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 
 		const toolsets = getRegisteredToolsets();
-		const orphans = toolsets.find(
-			(e: RegistryEntry) => e.spec.id === ORPHANS_TOOLSET_ID,
+
+		// Two orphan toolsets — one per source
+		const lensToolset = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === orphanToolsetId("pi-lens"),
+		);
+		const deployToolset = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === orphanToolsetId("pi-deploy"),
 		);
 
-		expect(orphans).toBeDefined();
-		expect(orphans!.spec.names).toEqual(new Set(["orphan-tool"]));
-		expect(orphans!.spec.defaultEnabled).toBe(true);
+		expect(lensToolset).toBeDefined();
+		expect(lensToolset!.spec.names).toEqual(new Set(["lens-search"]));
+		expect(lensToolset!.spec.defaultEnabled).toBe(true);
+		expect(lensToolset!.spec.masked).toBe(false);
+		// Single-tool source gets description passed through
+		expect(lensToolset!.spec.description).toBe("Search codebase");
+
+		expect(deployToolset).toBeDefined();
+		expect(deployToolset!.spec.names).toEqual(new Set(["deploy-run"]));
+		expect(deployToolset!.spec.defaultEnabled).toBe(true);
+		expect(deployToolset!.spec.masked).toBe(false);
+		expect(deployToolset!.spec.description).toBe("Run deployment");
+
+		// No catch-all tbox.orphans
+		const catchAll = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === "tbox.orphans",
+		);
+		expect(catchAll).toBeUndefined();
 	});
 
 	it("does not register sdk tools in any toolset", () => {
@@ -97,7 +129,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		expect(allNames).not.toContain("custom-x");
 	});
 
-	it("does not register extension tools claimed by other toolsets in tbox.orphans", () => {
+	it("does not register extension tools claimed by other toolsets in orphan toolsets", () => {
 		// Register a fake toolset claiming web-fetch
 		mock.defineFakeToolset({
 			id: "portal.web",
@@ -110,7 +142,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 			description: "Web fetch tool",
 			sourceInfo: {
 				path: "portal.ts",
-				source: "extension",
+				source: "portal",
 				scope: "user",
 				origin: "top-level",
 			},
@@ -120,18 +152,18 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 			description: "Browser navigate tool",
 			sourceInfo: {
 				path: "portal.ts",
-				source: "extension",
+				source: "portal",
 				scope: "user",
 				origin: "top-level",
 			},
 		});
-		// Add an orphan tool to ensure orphans toolset is created
+		// Add an orphan tool from a different source
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphaned tool",
 			sourceInfo: {
 				path: "ext.ts",
-				source: "extension",
+				source: "pi-other",
 				scope: "user",
 				origin: "top-level",
 			},
@@ -140,16 +172,21 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 
 		const toolsets = getRegisteredToolsets();
-		const orphans = toolsets.find(
-			(e: RegistryEntry) => e.spec.id === ORPHANS_TOOLSET_ID,
-		);
 
-		// Orphans toolset should exist but not contain claimed tools
-		expect(orphans).toBeDefined();
-		expect(orphans!.spec.names).not.toContain("web-fetch");
-		expect(orphans!.spec.names).not.toContain("browser-navigate");
-		// Orphan tool should be in orphans
-		expect(orphans!.spec.names).toContain("orphan-tool");
+		// Portal's tools should NOT appear in any orphan toolset
+		for (const entry of toolsets) {
+			if (entry.spec.id.startsWith(ORPHAN_TOOLSET_PREFIX)) {
+				expect(entry.spec.names).not.toContain("web-fetch");
+				expect(entry.spec.names).not.toContain("browser-navigate");
+			}
+		}
+
+		// The orphan tool should still show up in its source's toolset
+		const otherToolset = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === orphanToolsetId("pi-other"),
+		);
+		expect(otherToolset).toBeDefined();
+		expect(otherToolset!.spec.names).toContain("orphan-tool");
 	});
 
 	it("is idempotent — re-running does not duplicate toolsets", () => {
@@ -208,7 +245,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 			},
 		});
 
-		// Extension tools — some claimed, some orphaned
+		// Extension tools — some claimed, some orphaned from different sources
 		mock.defineFakeToolset({
 			id: "portal.web",
 			names: new Set(["web-fetch"]),
@@ -220,7 +257,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 			description: "Web fetch tool",
 			sourceInfo: {
 				path: "portal.ts",
-				source: "extension",
+				source: "portal",
 				scope: "user",
 				origin: "top-level",
 			},
@@ -230,7 +267,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 			description: "Orphaned tool",
 			sourceInfo: {
 				path: "ext.ts",
-				source: "extension",
+				source: "pi-other",
 				scope: "user",
 				origin: "top-level",
 			},
@@ -242,18 +279,24 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		const builtin = toolsets.find(
 			(e: RegistryEntry) => e.spec.id === BUILTIN_TOOLSET_ID,
 		);
-		const orphans = toolsets.find(
-			(e: RegistryEntry) => e.spec.id === ORPHANS_TOOLSET_ID,
+		const orphanEntry = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === orphanToolsetId("pi-other"),
 		);
 
 		expect(builtin).toBeDefined();
 		expect(builtin!.spec.names).toEqual(new Set(["read"]));
 
-		expect(orphans).toBeDefined();
-		expect(orphans!.spec.names).toEqual(new Set(["orphan-tool"]));
+		expect(orphanEntry).toBeDefined();
+		expect(orphanEntry!.spec.names).toEqual(new Set(["orphan-tool"]));
 
 		// sdk tool should not be in any toolset
 		const allNames = toolsets.flatMap((e: RegistryEntry) => [...e.spec.names]);
 		expect(allNames).not.toContain("custom-x");
+
+		// No catch-all
+		const catchAll = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === "tbox.orphans",
+		);
+		expect(catchAll).toBeUndefined();
 	});
 });

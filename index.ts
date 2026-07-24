@@ -2,7 +2,7 @@
  * pi-tbox — Cross-extension tool manager for Pi
  *
  * Registers the /tbox command, the tbox status slot, and auto-registers
- * pi.builtin + tbox.orphans toolsets at load.
+ * pi.builtin + per-source orphan toolsets at load.
  *
  * @module
  */
@@ -44,7 +44,7 @@ import { actuateGroup, describeGroup } from "./src/groups.js";
  * Registers:
  *   - /tbox command
  *   - tbox status slot (wired to lifecycle events)
- *   - Auto-registration of pi.builtin + tbox.orphans on session_start
+ *   - Auto-registration of pi.builtin + per-source orphan toolsets on session_start
  */
 export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Capture the session context so TOOLSET_EVENTS can re-render ---

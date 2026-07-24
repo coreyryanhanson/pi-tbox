@@ -90,7 +90,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 		defaultEnabled: true,
 	});
 
-	// Auto-register pi.builtin + tbox.orphans
+	// Auto-register pi.builtin + per-source orphan toolsets
 	autoRegisterBuiltinAndOrphans(pi);
 
 	// Enable all toolsets

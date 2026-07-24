@@ -1,10 +1,11 @@
 /**
- * Auto-register pi.builtin and tbox.orphans toolsets at load time.
+ * Auto-register pi.builtin and per-source orphan toolsets at load time.
  *
  * Scans pi.getAllTools() after all extensions have loaded (in session_start)
  * and registers:
  *   - pi.builtin: all tools with source === "builtin"
- *   - tbox.orphans: extension tools not claimed by any other toolset
+ *   - tbox.tool@<source>: for each distinct source of extension tools not
+ *     claimed by any other toolset
  *
  * sdk tools are never registered — they are out of tbox's domain.
  *
@@ -22,14 +23,25 @@ import type { ToolsetSpec } from "pi-tool-masking";
 /** Canonical toolset id for builtin tools (point-3 protected toolset). */
 export const BUILTIN_TOOLSET_ID = "pi.builtin";
 
-/** Canonical toolset id for orphaned extension tools. */
-export const ORPHANS_TOOLSET_ID = "tbox.orphans";
+/** Prefix for per-source orphan toolset ids: tbox.tool@<source>. */
+export const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
 
 /** Persist key for the builtin toolset. */
 const BUILTIN_PERSIST_KEY = "toolset-state:pi.builtin";
 
-/** Persist key for the orphans toolset. */
-const ORPHANS_PERSIST_KEY = "toolset-state:tbox.orphans";
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Build a toolset id for a given orphan source. */
+export function orphanToolsetId(source: string): string {
+	return `${ORPHAN_TOOLSET_PREFIX}${source}`;
+}
+
+/** Build a persist key for a given orphan source. */
+function orphanPersistKey(source: string): string {
+	return `toolset-state:tbox.tool@${source}`;
+}
 
 // ---------------------------------------------------------------------------
 // Auto-registration
@@ -62,13 +74,10 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
 	// --- Find which extension tools are already claimed by a toolset ---
 	const claimedByToolset = new Set<string>();
 	for (const entry of existingToolsets) {
-		// Skip the toolsets we're about to register/update
-		if (
-			entry.spec.id === BUILTIN_TOOLSET_ID ||
-			entry.spec.id === ORPHANS_TOOLSET_ID
-		) {
-			continue;
-		}
+		// Skip toolsets we manage (ourselves) so orphan tools don't look
+		// claimed-by-themselves when we re-register.
+		if (entry.spec.id.startsWith(ORPHAN_TOOLSET_PREFIX)) continue;
+		if (entry.spec.id === BUILTIN_TOOLSET_ID) continue;
 		for (const name of entry.spec.names) {
 			claimedByToolset.add(name);
 		}
@@ -78,7 +87,14 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
 	const orphanTools = extensionTools.filter(
 		(t) => !claimedByToolset.has(t.name),
 	);
-	const orphanNames = orphanTools.map((t) => t.name);
+
+	// --- Group orphan tools by sourceInfo.source ---
+	const toolsBySource = new Map<string, typeof orphanTools>();
+	for (const tool of orphanTools) {
+		const source = tool.sourceInfo.source;
+		if (!toolsBySource.has(source)) toolsBySource.set(source, []);
+		toolsBySource.get(source)!.push(tool);
+	}
 
 	// --- Register pi.builtin ---
 	if (builtinNames.length > 0) {
@@ -94,17 +110,22 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
 		defineToolset(pi, builtinSpec);
 	}
 
-	// --- Register tbox.orphans ---
-	if (orphanNames.length > 0) {
-		const orphansSpec: ToolsetSpec = {
-			id: ORPHANS_TOOLSET_ID,
-			label: "Orphaned Tools",
-			description: "Extension tools not claimed by any other toolset.",
-			names: new Set(orphanNames),
-			persistKey: ORPHANS_PERSIST_KEY,
+	// --- Register per-source orphan toolsets ---
+	for (const [source, tools] of toolsBySource) {
+		const names = tools.map((t) => t.name);
+		// Pass description only when the source contributes exactly one tool.
+		// Multi-tool sources omit description rather than misrepresent one
+		// tool's description as the group's.
+		const description = tools.length === 1 ? tools[0]!.description : undefined;
+		const spec: ToolsetSpec = {
+			id: orphanToolsetId(source),
+			label: source,
+			...(description !== undefined ? { description } : {}),
+			names: new Set(names),
+			persistKey: orphanPersistKey(source),
 			defaultEnabled: true,
 			masked: false,
 		};
-		defineToolset(pi, orphansSpec);
+		defineToolset(pi, spec);
 	}
 }

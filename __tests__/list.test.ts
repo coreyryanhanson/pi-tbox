@@ -274,7 +274,7 @@ describe("formatGroupedList", () => {
 		expect(output).toContain("web-learn");
 	});
 
-	it("routes orphan extension tools under Orphaned Tools label", () => {
+	it("routes orphan extension tools under their source label", () => {
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphan",
@@ -290,8 +290,8 @@ describe("formatGroupedList", () => {
 
 		const output = formatGroupedList(pi);
 
-		// The label from registry.ts is "Orphaned Tools"
-		expect(output).toContain("Orphaned Tools");
+		// The label from registry.ts is the source string ("extension")
+		expect(output).toContain("extension (1 tool)");
 		expect(output).toContain("orphan-tool");
 	});
 
@@ -554,7 +554,7 @@ describe("formatStatus", () => {
 		expect(output).toContain("pi.builtin");
 		expect(output).toContain("portal.web");
 		expect(output).toContain("portal.learn");
-		expect(output).toContain("tbox.orphans");
+		expect(output).toContain("tbox.tool@extension");
 
 		expect(output).toContain("User Groups: no groups defined");
 		expect(output).toContain("Focus: off");

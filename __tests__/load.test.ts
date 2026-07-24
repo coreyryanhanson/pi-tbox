@@ -34,7 +34,7 @@ describe("load.test", () => {
 		}).not.toThrow();
 	});
 
-	it("session_start handler registers pi.builtin and tbox.orphans", () => {
+	it("session_start handler registers pi.builtin and per-source orphan toolsets", () => {
 		// Add some tools before loading
 		mock.registerTool({
 			name: "read",
@@ -67,7 +67,7 @@ describe("load.test", () => {
 		const ids = toolsets.map((e: RegistryEntry) => e.spec.id);
 
 		expect(ids).toContain("pi.builtin");
-		expect(ids).toContain("tbox.orphans");
+		expect(ids).toContain("tbox.tool@extension");
 	});
 
 	it("session_start handler renders the status slot", () => {
