@@ -10,7 +10,11 @@
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
-import { computeSlotState, renderSlotText } from "./status-slot.js";
+import {
+	computeSlotState,
+	renderSlotText,
+	getFocusUnit,
+} from "./status-slot.js";
 import { getGroupNames } from "./groups.js";
 
 // ---------------------------------------------------------------------------
@@ -308,7 +312,8 @@ export function formatStatus(pi: ExtensionAPI): string {
 			? `User Groups: ${groupNames.join(", ")}`
 			: "User Groups: no groups defined",
 	);
-	lines.push("Focus: off");
+	const focusUnit = getFocusUnit();
+	lines.push(focusUnit ? `Focus: on (${focusUnit})` : "Focus: off");
 
 	return lines.join("\n").trimEnd();
 }

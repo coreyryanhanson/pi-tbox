@@ -104,13 +104,14 @@ describe("reserved-word dispatch via /tbox", () => {
 		expect(notify!.message).not.toContain("Enabled group");
 	});
 
-	it("/tbox focus on (reserved 'focus') points at the explicit group form, not a group actuation", async () => {
+	it("/tbox focus on dispatches to the focus subcommand, not group shorthand", async () => {
 		await mock.dispatchCommand("focus on");
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		// Reserved → not a group actuation; pointer to the explicit form.
+		// "focus" is a real subcommand, so this goes to the focus handler,
+		// not the group shorthand. "on" as a focus unit won't match anything.
 		expect(notify!.message).not.toContain("Enabled group");
-		expect(notify!.message).toContain("/tbox group focus on");
+		expect(notify!.message).toContain("No toolset, group, or tool matching");
 	});
 
 	it("a group named 'list' is reachable only via /tbox group list on", async () => {

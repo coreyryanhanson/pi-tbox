@@ -27,6 +27,7 @@ import {
 import { toggleTool, toggleAll } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
 import { actuateGroup, describeGroup, editGroup } from "./src/groups.js";
+import { focusUnit, focusOff } from "./src/focus.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -144,15 +145,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 					break;
 				}
-				case "focus":
-				case "chars": {
-					// Reserved for Sprint 5 / Sprint 6. Because the name is
-					// reserved, a group with this name is only reachable via
-					// the explicit `/tbox group <name> on` form — point at it.
-					ctx.ui.notify(
-						`/tbox ${command} ships in a later sprint. If you meant a group named "${command}", use /tbox group ${command} on.`,
-						"info",
-					);
+				case "focus": {
+					const sub = rest[1];
+					if (sub === "off") {
+						ctx.ui.notify(focusOff(pi), "info");
+					} else if (sub) {
+						ctx.ui.notify(focusUnit(pi, sub), "info");
+					} else {
+						ctx.ui.notify(
+							"Usage: /tbox focus <unit> | /tbox focus off — focus on a toolset, group, or tool.",
+							"info",
+						);
+					}
 					break;
 				}
 				default: {
