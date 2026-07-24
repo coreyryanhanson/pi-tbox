@@ -10,6 +10,20 @@ import type {
 import { defineToolset, getRegisteredToolsets } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 
+// -------------------------------------------------------------------------
+// Component mount state (for ctx.ui.custom)
+// -------------------------------------------------------------------------
+
+interface MountState {
+	component: {
+		handleInput(data: string): void;
+		render(width: number): string[];
+		invalidate(): void;
+	} | null;
+	pendingKeys: string[];
+	doneCalled: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -47,6 +61,14 @@ export interface ExtensionCommandContext {
 		notify: (message: string, level?: string) => void;
 		select: (message: string, options: string[]) => Promise<string>;
 		confirm: (message: string) => Promise<boolean>;
+		custom: <T>(
+			factory: (
+				tui: unknown,
+				theme: unknown,
+				kb: unknown,
+				done: (result: T) => void,
+			) => unknown,
+		) => Promise<T>;
 		theme: {
 			fg: (color: ThemeColor, text: string) => string;
 		};
@@ -97,6 +119,10 @@ export class MockPI implements Partial<ExtensionAPI> {
 	// Select/confirm return values (set by tests)
 	private _selectReturnValues: string[] = [];
 	private _confirmReturnValues: boolean[] = [];
+
+	// Component mount (for ctx.ui.custom)
+	private _mountStates = new Map<string, MountState>();
+	private _mountCounter = 0;
 
 	// --- Tool management ---
 
@@ -277,6 +303,68 @@ export class MockPI implements Partial<ExtensionAPI> {
 		};
 	}
 
+	/** Create a lightweight theme stub for component tests. */
+	private _stubTheme(): any {
+		return {
+			fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+			bold: (text: string) => text,
+			dim: (text: string) => text,
+		};
+	}
+
+	/**
+	 * Mount a custom component and drain queued keys.
+	 * Returns a promise that resolves with the value passed to `done()`.
+	 */
+	private _mountCustom<T>(
+		factory: (
+			tui: unknown,
+			theme: unknown,
+			kb: unknown,
+			done: (result: T) => void,
+		) => unknown,
+	): Promise<T> {
+		return new Promise<T>((resolve, reject) => {
+			const mountId = `mount-${++this._mountCounter}`;
+			const mount: MountState = {
+				component: null,
+				pendingKeys: [...this._customKeySequence],
+				doneCalled: false,
+			};
+			this._mountStates.set(mountId, mount);
+
+			const theme = this._stubTheme();
+			const tuiStub = {};
+			const kbStub = { matches: () => false };
+
+			const comp = factory(tuiStub, theme, kbStub, (result: T) => {
+				mount.doneCalled = true;
+				resolve(result);
+			});
+
+			mount.component = comp as MountState["component"];
+
+			// Drain queued keys — synchronous handleInput calls
+			if (!mount.component) {
+				reject(new Error("factory did not return a component"));
+				return;
+			}
+
+			while (mount.pendingKeys.length > 0 && !mount.doneCalled) {
+				const key = mount.pendingKeys.shift()!;
+				mount.component.handleInput(key);
+			}
+
+			if (!mount.doneCalled) {
+				reject(
+					new Error(
+						`Custom component key sequence exhausted without done() being called (${this._customKeySequence.length} keys processed)`,
+					),
+				);
+			}
+		});
+	}
+
 	// --- Command context (for handler invocation) ---
 
 	createCommandContext(): ExtensionCommandContext {
@@ -298,6 +386,14 @@ export class MockPI implements Partial<ExtensionAPI> {
 					this._confirmRecords.push({ message, result: value });
 					return value;
 				},
+				custom: <T>(
+					factory: (
+						tui: unknown,
+						theme: unknown,
+						kb: unknown,
+						done: (result: T) => void,
+					) => unknown,
+				) => this._mountCustom<T>(factory),
 				theme: {
 					fg: (color: ThemeColor, text: string) =>
 						`<${color}>${text}</${color}>`,
@@ -331,6 +427,14 @@ export class MockPI implements Partial<ExtensionAPI> {
 				this._confirmRecords.push({ message, result: value });
 				return value;
 			},
+			custom: <T>(
+				factory: (
+					tui: unknown,
+					theme: unknown,
+					kb: unknown,
+					done: (result: T) => void,
+				) => unknown,
+			) => this._mountCustom<T>(factory),
 			theme: {
 				fg: (color: ThemeColor, text: string) => `<${color}>${text}</${color}>`,
 			},
@@ -392,6 +496,70 @@ export class MockPI implements Partial<ExtensionAPI> {
 		this._confirmRecords = [];
 		this._selectReturnValues = [];
 		this._confirmReturnValues = [];
+		this._customKeySequence = [];
+		this._mountStates.clear();
+	}
+
+	// -----------------------------------------------------------------------
+	// Custom component test helpers
+	// -----------------------------------------------------------------------
+
+	private _customKeySequence: string[] = [];
+
+	/**
+	 * Queue key data strings for the next ui.custom() call.
+	 * Each string is fed to handleInput() in order.
+	 */
+	setCustomKeySequence(keys: string[]): void {
+		this._customKeySequence = [...keys];
+	}
+
+	// -----------------------------------------------------------------------
+	// keyFor — map logical action names to key bytes
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Return the raw key bytes for a given logical action or named key.
+	 *
+	 * Supported names:
+	 *   up / down                 — arrow keys
+	 *   confirm / enter            — toggle the focused row
+	 *   cancel / escape            — cancel / clear search
+	 *   save / ctrl+s              — persist to config
+	 *   enableAll / ctrl+a         — enable all (filtered)
+	 *   clearAll / ctrl+x          — clear all (filtered)
+	 *   backspace                  — delete last search char
+	 *   ctrl+c                     — cancel
+	 *   Any printable single char  — passed through
+	 */
+	keyFor(action: string): string {
+		const table: Record<string, string> = {
+			up: "\x1B[A",
+			down: "\x1B[B",
+			confirm: "\r",
+			enter: "\r",
+			escape: "\x1B",
+			cancel: "\x1B",
+			save: "\x13", // ctrl+s
+			"ctrl+s": "\x13",
+			enableAll: "\x01", // ctrl+a
+			"ctrl+a": "\x01",
+			clearAll: "\x18", // ctrl+x
+			"ctrl+x": "\x18",
+			backspace: "\x7F",
+			"ctrl+c": "\x03",
+		};
+		const v = table[action];
+		if (v !== undefined) return v;
+		// Single printable character
+		if (
+			action.length === 1 &&
+			action.charCodeAt(0) >= 0x20 &&
+			action.charCodeAt(0) <= 0x7e
+		) {
+			return action;
+		}
+		throw new Error(`keyFor: unknown action "${action}"`);
 	}
 
 	// --- Fake toolset registration (test-only) ---

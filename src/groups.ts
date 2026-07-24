@@ -14,9 +14,19 @@
  * @module
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
-import { readTboxConfig, type GroupSpec } from "../config/settings-reader.js";
+import {
+	readTboxConfig,
+	writeGroupToConfig,
+	type GroupSpec,
+} from "../config/settings-reader.js";
+import { forwardClosure, reverseClosure } from "./requires-graph.js";
+import { BUILTIN_TOOLSET_ID } from "./registry.js";
+import { GroupEditorComponent } from "./group-editor.js";
 
 // ---------------------------------------------------------------------------
 // Drift caveat (point 7)
@@ -39,6 +49,292 @@ export function resolveGroup(
 	const group = groups[name];
 	if (!group) return { error: `No group named "${name}".` };
 	return { group };
+}
+
+// ---------------------------------------------------------------------------
+// Picker types
+// ---------------------------------------------------------------------------
+
+/** An addressable unit shown in the picker checklist. */
+export interface PickerUnit {
+	id: string;
+	label: string;
+	type: "toolset" | "tool";
+	toolsetId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Build picker units
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the list of addressable units for the picker.
+ *
+ * Normal mode:
+ *  - Masked toolsets → one sealed row (toolset itself)
+ *  - Unmasked toolsets → one row per toolset + one row per member
+ *  - Orphans → individual tool-rows under their tbox.tool@<source> toolset
+ *  - pi.builtin → not shown
+ *
+ * Dev mode:
+ *  - Masked toolsets → individual member rows (no toolset row)
+ *  - Others same as normal mode (but pi.builtin still absent)
+ */
+export function buildPickerUnits(devMode: boolean): PickerUnit[] {
+	const registry = getRegisteredToolsets();
+	const units: PickerUnit[] = [];
+
+	for (const entry of registry) {
+		if (entry.spec.id === BUILTIN_TOOLSET_ID) continue;
+
+		if (entry.spec.masked) {
+			if (!devMode) {
+				// Normal mode: one sealed row for the whole toolset
+				const label = entry.spec.label ?? entry.spec.id;
+				units.push({
+					id: entry.spec.id,
+					label: `${label} (masked, ${entry.spec.names.size} tools)`,
+					type: "toolset",
+				});
+			} else {
+				// Dev mode: individual member rows (no toolset row)
+				for (const name of entry.spec.names) {
+					units.push({
+						id: name,
+						label: name,
+						type: "tool",
+						toolsetId: entry.spec.id,
+					});
+				}
+			}
+		} else {
+			// Unmasked toolset: toolset row + member tool rows
+			const label = entry.spec.label ?? entry.spec.id;
+			units.push({
+				id: entry.spec.id,
+				label: `${label} (${entry.spec.names.size} tools)`,
+				type: "toolset",
+			});
+			for (const name of entry.spec.names) {
+				units.push({
+					id: name,
+					label: name,
+					type: "tool",
+					toolsetId: entry.spec.id,
+				});
+			}
+		}
+	}
+
+	return units;
+}
+
+// ---------------------------------------------------------------------------
+// Closure helpers for the picker
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the effective set of toolset IDs from the current selection.
+ *
+ * Includes both directly-checked toolsets and the containing toolsets of
+ * cherry-picked member tools.
+ */
+export function effectiveToolsetIds(
+	checkedToolsets: Set<string>,
+	checkedTools: Set<string>,
+): Set<string> {
+	const ids = new Set(checkedToolsets);
+	const registry = getRegisteredToolsets();
+	for (const toolName of checkedTools) {
+		const entry = findContainingToolset(toolName, registry);
+		if (entry) ids.add(entry.spec.id);
+	}
+	return ids;
+}
+
+/**
+ * Remove all checked tools that belong to a given toolset.
+ */
+function removeToolsInToolset(
+	checkedTools: Set<string>,
+	toolsetId: string,
+): void {
+	const registry = getRegisteredToolsets();
+	const entry = registry.find((e) => e.spec.id === toolsetId);
+	if (!entry) return;
+	for (const name of entry.spec.names) {
+		checkedTools.delete(name);
+	}
+}
+
+/**
+ * Compute the auto-checked toolset IDs: those in forwardClosure(effective)
+ * but not in the user's direct selection.
+ */
+export function autoCheckedToolsetIds(
+	checkedToolsets: Set<string>,
+	checkedTools: Set<string>,
+): Set<string> {
+	const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
+	const closure = forwardClosure(effective);
+	// Auto = in closure but not directly checked
+	return new Set([...closure].filter((id) => !effective.has(id)));
+}
+
+// ---------------------------------------------------------------------------
+// editGroup — the Sprint 4 picker
+// ---------------------------------------------------------------------------
+
+/**
+ * Open the group edit picker for a named group.
+ *
+ * Mounts a GroupEditorComponent via `ctx.ui.custom`.
+ * In normal mode, the `requires` closure is auto-maintained
+ * (forward on check, reverse on uncheck). In dev mode, raw toggling
+ * (the library still resolves `requires` at actuation, but the picker
+ * does not pre-apply it).
+ *
+ * On save, writes the curated `{toolsets, tools}` to config.
+ */
+export async function editGroup(
+	name: string,
+	ctx: ExtensionContext,
+	devMode: boolean,
+): Promise<string> {
+	if (ctx.mode !== "tui") {
+		return "Group editing requires interactive mode.";
+	}
+
+	const resolved = resolveGroup(name);
+	const existingGroup =
+		"group" in resolved ? resolved.group : { toolsets: [], tools: [] };
+
+	const result = await ctx.ui.custom<{ saved: boolean }>(
+		(_tui, theme, _kb, done) =>
+			new GroupEditorComponent(
+				{
+					groupName: name,
+					devMode,
+					initial: existingGroup,
+					onSave: (spec) => {
+						writeGroupToConfig(name, spec);
+						done({ saved: true });
+					},
+					onCancel: () => done({ saved: false }),
+				},
+				theme,
+			),
+	);
+
+	return result?.saved
+		? `Group "${name}" saved.`
+		: `Group "${name}" edit cancelled.`;
+}
+
+// ---------------------------------------------------------------------------
+// Toggle helpers
+// ---------------------------------------------------------------------------
+
+export function toggleToolsetUnit(
+	unit: PickerUnit,
+	checkedToolsets: Set<string>,
+	checkedTools: Set<string>,
+	devMode: boolean,
+): { cue: string } {
+	const wasChecked = checkedToolsets.has(unit.id);
+	let cue = "";
+
+	if (wasChecked) {
+		// --- Unchecking ---
+		checkedToolsets.delete(unit.id);
+
+		if (!devMode) {
+			// Reverse closure: find dependents and uncheck them too
+			const revClosure = reverseClosure([unit.id]);
+			const uncheckDeps = [...revClosure].filter((id) => id !== unit.id);
+			if (uncheckDeps.length > 0) {
+				for (const depId of uncheckDeps) {
+					checkedToolsets.delete(depId);
+					removeToolsInToolset(checkedTools, depId);
+				}
+				cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${unit.id})`;
+			}
+		}
+	} else {
+		// --- Checking ---
+		checkedToolsets.add(unit.id);
+
+		if (!devMode) {
+			// Forward closure: ensure transitive deps are checked
+			const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
+			const closure = forwardClosure(effective);
+			const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
+			for (const depId of newDeps) {
+				checkedToolsets.add(depId);
+			}
+			if (newDeps.length > 0) {
+				cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
+			}
+		}
+	}
+	return { cue };
+}
+
+export function toggleToolUnit(
+	unit: PickerUnit,
+	checkedToolsets: Set<string>,
+	checkedTools: Set<string>,
+	devMode: boolean,
+): { cue: string } {
+	const wasChecked = checkedTools.has(unit.id);
+	const toolsetId = unit.toolsetId;
+	let cue = "";
+
+	if (wasChecked) {
+		// --- Unchecking ---
+		checkedTools.delete(unit.id);
+
+		if (!devMode && toolsetId) {
+			// If no other tools from this toolset remain checked, apply
+			// reverse closure from the toolset.
+			const registry = getRegisteredToolsets();
+			const entry = registry.find((e) => e.spec.id === toolsetId);
+			if (entry) {
+				const stillChecked = [...entry.spec.names].filter((n) =>
+					checkedTools.has(n),
+				);
+				if (stillChecked.length === 0) {
+					checkedToolsets.delete(toolsetId);
+					const revClosure = reverseClosure([toolsetId]);
+					const uncheckDeps = [...revClosure].filter((id) => id !== toolsetId);
+					for (const depId of uncheckDeps) {
+						checkedToolsets.delete(depId);
+						removeToolsInToolset(checkedTools, depId);
+					}
+					if (uncheckDeps.length > 0) {
+						cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${toolsetId})`;
+					}
+				}
+			}
+		}
+	} else {
+		// --- Checking ---
+		checkedTools.add(unit.id);
+
+		if (!devMode && toolsetId) {
+			// Forward closure from the containing toolset
+			const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
+			const closure = forwardClosure(effective);
+			const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
+			for (const depId of newDeps) {
+				checkedToolsets.add(depId);
+			}
+			if (newDeps.length > 0) {
+				cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
+			}
+		}
+	}
+	return { cue };
 }
 
 /** All configured group names (for status listing). */

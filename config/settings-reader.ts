@@ -28,9 +28,9 @@
  * @module
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Config paths
@@ -111,6 +111,54 @@ export function readMergedSettings(
 // ---------------------------------------------------------------------------
 // tbox slice
 // ---------------------------------------------------------------------------
+
+/**
+ * Write (or overwrite) a group in the `tbox.groups` config.
+ *
+ * In test mode (when `setSettingsOverrideForTests` has set an override),
+ * updates the override in place. In production, writes to the
+ * project-level `.pi/settings.json` file, preserving all other keys.
+ *
+ * The write prefers the project settings file so groups are
+ * project-specific. Global settings are never written.
+ */
+export function writeGroupToConfig(
+	name: string,
+	spec: GroupSpec,
+	projectPath?: string,
+): void {
+	if (_override !== null) {
+		// Test mode: update the override object in place.
+		// Nested objects survive the shallow spread in readMergedSettings.
+		if (!_override.tbox || typeof _override.tbox !== "object") {
+			_override.tbox = {};
+		}
+		const tbox = _override.tbox as Record<string, unknown>;
+		if (!tbox.groups || typeof tbox.groups !== "object") {
+			tbox.groups = {};
+		}
+		(tbox.groups as Record<string, unknown>)[name] = {
+			toolsets: [...spec.toolsets],
+			tools: [...spec.tools],
+		};
+		return;
+	}
+
+	// Production: write to project settings file
+	const projPath = projectPath ?? join(process.cwd(), PROJECT_SETTINGS_PATH);
+	const current = readSettingsFile(projPath);
+	const tboxSettings = (current.tbox as Record<string, unknown>) ?? {};
+	const groups = (tboxSettings.groups as Record<string, unknown>) ?? {};
+	groups[name] = {
+		toolsets: [...spec.toolsets],
+		tools: [...spec.tools],
+	};
+	tboxSettings.groups = groups;
+	current.tbox = tboxSettings;
+
+	mkdirSync(dirname(projPath), { recursive: true });
+	writeFileSync(projPath, JSON.stringify(current, null, 2) + "\n");
+}
 
 /**
  * Read the `tbox` slice from merged settings.

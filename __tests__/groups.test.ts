@@ -317,10 +317,12 @@ describe("group dispatch via /tbox", () => {
 		expect(notify!.message).toContain('Enabled group "webgroup"');
 	});
 
-	it("/tbox group webgroup edit prints the Sprint 4 picker stub (no crash)", async () => {
+	it("/tbox group webgroup edit — save immediately via key sequence", async () => {
+		mock.setCustomKeySequence([mock.keyFor("save")]);
+
 		await mock.dispatchCommand("group webgroup edit");
 		const notify = mock.getLastNotify();
-		expect(notify!.message).toContain("Sprint 4");
+		expect(notify!.message).toContain('Group "webgroup" saved');
 	});
 
 	it("/tbox group webgroup (bare) describes the group", async () => {

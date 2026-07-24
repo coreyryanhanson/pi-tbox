@@ -32,7 +32,7 @@ import {
 	isDevMode,
 } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
-import { actuateGroup, describeGroup } from "./src/groups.js";
+import { actuateGroup, describeGroup, editGroup } from "./src/groups.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -144,11 +144,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					} else if (sub === "off") {
 						ctx.ui.notify(actuateGroup(pi, name, false), "info");
 					} else if (sub === "edit") {
-						// Picker lands in Sprint 4.
-						ctx.ui.notify(
-							`Group "${name}" editor: picker coming in Sprint 4. Edit "tbox.groups.${name}" in settings.json for now.`,
-							"info",
-						);
+						ctx.ui.notify(await editGroup(name, ctx, isDevMode()), "info");
 					} else {
 						// Bare `/tbox group <name>` — report the group's units.
 						ctx.ui.notify(describeGroup(name), "info");
