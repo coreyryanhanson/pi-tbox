@@ -59,9 +59,9 @@ pi-tbox/
                           #   pi: { extensions: ["./index.ts"] }
                           #   dependencies: { "pi-tool-masking": "^1.0.0", ... }
   index.ts                # default factory: registerCommand("tbox"), slot wiring,
-                          #   auto-registration of pi.builtin + tbox.orphans
+                          #   auto-registration of pi.builtin + tbox.tool
   src/
-    registry.ts           # auto-register pi.builtin + tbox.orphans from getAllTools()
+    registry.ts           # auto-register pi.builtin + tbox.tool from getAllTools()
     requires-graph.ts     # forward/reverse requires walks (one shared helper)
     groups.ts             # user group config read/write + resolution to units
     list.ts               # /tbox list (grouped/flat, filters, smallest-toolset-wins)
@@ -162,10 +162,14 @@ Shipped:
   markers, `defineFakeToolset` lands in `getRegisteredToolsets()`.
 - **`src/registry.ts`** — `autoRegisterBuiltinAndOrphans(pi)`: scans
   `getAllTools()`, registers `pi.builtin` (`defaultEnabled: true`,
-  `masked: false`) from builtin tools, registers `tbox.orphans` from
+  `masked: false`) from builtin tools, registers `tbox.tool` from
   extension tools no other toolset claims, **skips sdk entirely**. Run
   from `session_start` + `session_tree`; idempotent (library is
   idempotent-by-content for an unchanged spec).
+  **Note:** Sprint 0 shipped a single catch-all `tbox.tool` toolset.
+  Sprint 3.5 supersedes this with per-source registration
+  (`tbox.tool@<source>`); the idempotent re-registration scaffold
+  here is reused, only the grouping key changes.
 - **`src/status-slot.ts`** — pristine `○ tbox` (dim) render. `ctx.ui`
   capture in `session_start` + `session_tree` with `render()` at the
   **end** of the capture handler (§6 fix); `TOOLSET_EVENTS.changed`/
@@ -184,7 +188,8 @@ Shipped (`src/list.ts`):
 - **`--grouped` (default)** — smallest-toolset-wins: each tool appears
   once under its smallest (by `names.size`) containing toolset; masked
   toolset → one sealed row with members suppressed; orphans →
-  `tbox.orphans`.
+  their `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 1
+  shipped against a catch-all `tbox.tool`, refined by 3.5).
 - **`--flat`** — every tool as a row; `sdk`-source tools present and
   marked read-only/host-managed (no toggle affordance).
 - **Filters** — `--active` / `--inactive` in both views, combinable
@@ -204,7 +209,9 @@ Shipped (`src/toggle.ts`, `src/status-slot.ts`):
 
 - **`/tbox toggle <tool>`** — exact→prefix resolution; ambiguous prefix
   errors listing candidates; `sdk` tool always refused; orphan →
-  `tbox.orphans`; re-running toggles back.
+  its `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 2 shipped
+  against a catch-all `tbox.tool`, refined by 3.5); re-running
+  toggles back.
 - **Guards (normal mode)** — masked-member toggle refused ("part of the
   sealed group `<group>`; toggle the group, or enable dev mode");
   `pi.builtin` toggle refused ("builtins are protected; enable dev
@@ -346,6 +353,106 @@ library consumer (portal, search, host) instead of just tbox users.
 
 ---
 
+## Sprint 3.5 — Per-source orphan toolsets
+
+**Goal:** close the focus-granularity asymmetry between plugins that
+call `defineToolset` (e.g. `portal.web`) and plugins that only register
+tools (e.g. pi-lens). A catch-all `tbox.tool` makes per-plugin focus
+impossible — `/tbox focus tbox.tool` keeps *every* orphan or none.
+Per-source registration makes each unclaimed-source plugin its own
+focusable unit. This is a **spec clarification that refines shipped
+Sprint 0 code**, in the same category as the builtins decision record
+above: Sprint 0's idempotent re-registration scaffold is reused, only
+the grouping key changes. No shipped Sprint 1–3 path is incorrect.
+
+**Why a separate sprint, and why now:** Sprint 4's picker renders
+toolsets as rows and Sprint 5's focus resolves "tool → its containing
+toolset" — both depend on the orphan shape. Landing per-source in
+Sprint 7 (publish prep) would force Sprint 4–6 to build against the
+catch-all and rework. Sprint 3.5 lands the structural change before the
+sprints that consume it.
+
+### Work
+
+1. **`src/registry.ts`** — change the orphan branch of
+   `autoRegisterBuiltinAndOrphans` from one catch-all to one toolset
+   per distinct `sourceInfo.source` among unclaimed extension tools:
+   - **Id:** `tbox.tool@<source>` (stable, addressable; `<source>`
+     is the extension source metadata from `sourceInfo.source`).
+   - **`names`:** all unclaimed extension tools sharing that source.
+   - **`label`:** derived from `<source>` (the plugin id). `ToolInfo`
+     has no `label` field, so this is derivation, not pass-through.
+   - **`description`:** pass through from the tool **only when the
+     source contributes exactly one orphaned tool** (the common
+     single-tool-plugin case gets a real description for free). When
+     the source contributes multiple tools, omit `description`
+     (`ToolsetSpec.description` is optional) rather than synthesize a
+     bland "tools from X" string — the grouped view already shows
+     members, so a missing description costs nothing and
+     misrepresenting one tool's description as the group's would
+     mislabel the others.
+   - **`defaultEnabled: true`, `masked: false`, `persistKey:`**
+     `toolset-state:tbox.tool@<source>` — unchanged from the
+     catch-all plan per field.
+   - **Skips sdk entirely** — unchanged; sdk tools are never registered
+     into any toolset (out of tbox's domain).
+2. **Idempotence preserved:** the library is idempotent-by-content for
+   an unchanged spec, so re-registration on `/reload` is a no-op for
+   unchanged sources. A source that gains/loses a tool between reloads
+   updates its `names` set; a source that disappears leaves a stale
+   entry — Sprint 7's restore-safety pass verifies this is benign (a
+   stale entry with no matching tools is a harmless no-op at restore).
+3. **No change to builtins or sdk handling** — `pi.builtin` and the sdk
+   skip are exactly as Sprint 0 shipped them.
+
+### Acceptance criteria
+
+- [ ] A session with two unclaimed-source plugins (e.g. `pi-lens` with
+      ~15 tools and a single-tool plugin) produces **two** orphan
+      toolsets: `tbox.tool@pi-lens` (multi-tool, `description`
+      omitted) and `tbox.tool@<single>` (one tool, `description`
+      passed through from that tool's `description`).
+- [ ] `/tbox focus tbox.tool@pi-lens` keeps only pi-lens's tools +
+      `pi.builtin`, disabling every other registered toolset including
+      the other orphan toolset — the asymmetry that prompted this
+      sprint is closed.
+- [ ] `/tbox toggle <pi-lens-tool>` still works (the name is in
+      `tbox.tool@pi-lens.spec.names`); per-tool toggle granularity
+      is unchanged from the catch-all design.
+- [ ] Re-running `autoRegisterBuiltinAndOrphans` against an unchanged
+      tool population is a no-op (registry contents unchanged); the
+      idempotent-by-content guarantee from Sprint 0 still holds under
+      the per-source keying.
+- [ ] `/reload` (simulated via `session_tree`) re-registers against
+      the fresh `pi`; a source that gained a tool reflects the new
+      `names` set.
+- [ ] `npm test` green; `tsc --noEmit` clean.
+
+### Tests
+
+- `registry-per-source.test.ts`:
+  - Multi-source population: register builtin tools, sdk tools, two
+    plugins' worth of extension tools (none calling `defineToolset`),
+    and one plugin that *does* call `defineToolset` (its tools must not
+    be claimed by any `tbox.tool@*`). After
+    `autoRegisterBuiltinAndOrphans`: one `pi.builtin`, one
+    `tbox.tool@<source-A>` (multi-tool, no `description`), one
+    `tbox.tool@<source-B>` (single-tool, `description` passed
+    through), zero `tbox.tool` catch-all, sdk tools in no toolset.
+  - Focus granularity: enter focus on `tbox.tool@<source-A>`;
+    assert source-A's tools active, source-B's tools inactive,
+    `pi.builtin` active (allowlist-seeded per Sprint 5's rule — this
+    test pre-pins the rule Sprint 5 will enforce).
+  - Idempotence: call `autoRegisterBuiltinAndOrphans` twice; assert the
+    second call writes no new registry entries and no new `appendEntry`
+    calls.
+  - Single-tool description pass-through: assert
+    `tbox.tool@<source-B>.spec.description === <source-B tool's
+    description>` and `tbox.tool@<source-A>.spec.description` is
+    `undefined`.
+
+---
+
 ## Sprint 4 — Group editing picker UX
 
 **Goal:** point 4 (curation UX). `/tbox group <name> edit` opens a
@@ -360,7 +467,8 @@ filtered check-list (the same UX as pi's scoped-models picker), with the
      — they only surface in dev mode). Unmasked toolsets show as one row
      per toolset **and** their member tools as individual rows (so a
      group can include a whole toolset or cherry-pick members). Orphans
-     show as individual tool-rows under `tbox.orphans`.
+     show as individual tool-rows under their `tbox.tool@<source>`
+     toolset (per Sprint 3.5).
    - **Dev mode:** masked toolsets expand to show individual members as
      checkable rows; the `requires` closure is **not** auto-applied (raw
      behavior; the library still resolves `requires` at actuation, so an
@@ -617,7 +725,9 @@ swapping the library dep to the published version.
 2. **Multi-extension integration test.** A single
    `integration.test.ts` that stands up a realistic registry: fake
    `portal.web` (masked) + `portal.learn` (requires web) + `host.api`
-   - `search.web` + tbox's own `pi.builtin` + `tbox.orphans`, with a
+   - `search.web` + tbox's own `pi.builtin` + per-source `tbox.tool@*`
+  toolsets (at least two unclaimed-source plugins, to exercise the
+  Sprint 3.5 shape), with a
    tool population spanning builtin/sdk/extension sources. Then drive
    the full `/tbox` surface end-to-end through the MockPI's
    `registerCommand` dispatch: `list` (grouped + flat + filters), group
@@ -630,12 +740,12 @@ swapping the library dep to the published version.
    `on`, `off`) against the shipped command surface; `dev` is **not**
    reserved (the `/tbox dev` command was removed in Sprint 3). Add any
    discovered collisions; document the final list in the README.
-4. **`tbox.orphans` shape decision** (an "Open" item): one catch-all vs
-   per-source-plugin groupings. The MVP notes per-source is more
-   informative in the grouped view. Decide based on the Sprint 1 list
-   output — if a single catch-all reads well, keep it; if a real
-   multi-extension registry makes it noisy, promote to per-source.
-   Record the call.
+4. **`tbox.tool` shape** — **closed in Sprint 3.5**: per-source is
+   the default, not "promote if noisy." Verify the per-source toolsets
+   behave correctly under `/reload` and `session_tree` (a source that
+   disappears leaves a stale entry — confirm it's a benign no-op at
+   restore, as Sprint 3.5's idempotence note predicts). No catch-all
+   fallback ships.
 5. **Publish prep.** When `pi-tool-masking@1.0.0` is published: swap
    `"pi-tool-masking": "file:../pi-tool-masking"` → `"^1.0.0"`,
    `npm install`, `npm test` green. Add the `pi-package` gallery keyword
@@ -660,7 +770,9 @@ swapping the library dep to the published version.
       the restored branch state on first paint.
 - [ ] Final reserved-wordlist documented in README; every reserved word
       dispatches to its subcommand, not a group.
-- [ ] `tbox.orphans` shape decision recorded (catch-all or per-source).
+- [ ] `tbox.tool` per-source shape verified under `/reload` and
+      `session_tree` (closed in Sprint 3.5; Sprint 7 confirms the
+      stale-entry-is-benign prediction).
 - [ ] After swapping to `pi-tool-masking@^1.0.0`: `npm install` clean,
       `npm test` green, `npm pack` dry-run tarball is correct.
 - [ ] `npm test` green; `tsc --noEmit` clean; `npm run publish:dry` (or
@@ -671,7 +783,8 @@ swapping the library dep to the published version.
 - `integration.test.ts`: the big end-to-end (see Work #2). At minimum:
   - `list --grouped` on the realistic registry matches a snapshot of the
     expected grouped output (smallest-toolset-wins, masked sealed,
-    orphans under `tbox.orphans`, sdk read-only in `--flat`).
+    orphans under their `tbox.tool@<source>` toolsets, sdk
+    read-only in `--flat`).
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →
     `on` → `portal.web` cascades on; status reports both.
   - `toggle <portal.web member>` in normal mode → refused (masked);
@@ -727,7 +840,7 @@ swapping the library dep to the published version.
 | **Builtins: preserved not grouped/focused** | 4, 5 | Decision record above — picker never offers builtins (Sprint 4); focus allowlist seeds `pi.builtin` + rejects builtin targets (Sprint 5); one-line `groups.ts` disable-guard folds into Sprint 4 |
 | Final reserved-wordlist | 7 | Seed set + any discovered collisions |
 | Group config storage shape | 3 | `tbox.groups` key in merged settings, or dedicated `~/.pi/agent/pi-tbox/groups.json` if settings writes are too risky |
-| `tbox.orphans` shape | 7 | Start catch-all; promote to per-source if the realistic registry makes it noisy |
+| `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
 | `requires`-closure picker interaction | 4 | Visible auto-check/auto-uncheck + one-line cue |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
 | `/tbox chars` serialization shape | 6 | `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed |
