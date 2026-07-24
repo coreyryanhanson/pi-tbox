@@ -3,8 +3,8 @@
  *
  * States:
  *   - Pristine: `○ tbox` (dim) — no tools excluded, not in focus
- *   - Count: `● tbox n` (blue) — n extension tools excluded
- *   - Focus: `● focus:<unit>` (green) — focused on a unit
+ *   - Count: `● tbox n masked` (blue) — n extension tools excluded
+ *   - Focus: `● focus:<unit> (n)` (green) — focused on a unit, n active extension tools
  *   - Focus empty: `● focus:∅` (red) — focused on an empty allowlist
  *
  * @module
@@ -21,7 +21,7 @@ import { TOOLSET_EVENTS } from "pi-tool-masking";
 export type SlotState =
 	| { kind: "pristine" }
 	| { kind: "count"; n: number }
-	| { kind: "focus"; unit: string }
+	| { kind: "focus"; unit: string; count: number }
 	| { kind: "focus-empty" };
 
 // ---------------------------------------------------------------------------
@@ -59,21 +59,23 @@ function computeExcludedCount(pi: ExtensionAPI): number {
  */
 export function computeSlotState(pi: ExtensionAPI): SlotState {
 	if (_focusUnit !== null) {
-		// Check if the focus allowlist is empty by looking at the count
-		// of enabled tools (if no extension tools are enabled, it's empty)
 		const allTools = pi.getAllTools();
 		const activeTools = new Set(pi.getActiveTools());
-		const hasActiveNonBuiltin = allTools.some(
+		const activeExtensionTools = allTools.filter(
 			(t) =>
 				t.sourceInfo.source !== "builtin" &&
 				t.sourceInfo.source !== "sdk" &&
 				activeTools.has(t.name),
 		);
 
-		if (!hasActiveNonBuiltin) {
+		if (activeExtensionTools.length === 0) {
 			return { kind: "focus-empty" };
 		}
-		return { kind: "focus", unit: _focusUnit };
+		return {
+			kind: "focus",
+			unit: _focusUnit,
+			count: activeExtensionTools.length,
+		};
 	}
 
 	const n = computeExcludedCount(pi);
@@ -94,9 +96,9 @@ export function renderSlotText(
 		case "pristine":
 			return `${fg("dim", "○")} tbox`;
 		case "count":
-			return `${fg("accent", "●")} tbox ${state.n}`;
+			return `${fg("accent", "●")} tbox ${state.n} masked`;
 		case "focus":
-			return `${fg("success", "●")} focus:${state.unit}`;
+			return `${fg("success", "●")} focus:${state.unit} (${state.count})`;
 		case "focus-empty":
 			return `${fg("error", "●")} focus:∅`;
 	}

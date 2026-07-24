@@ -9,8 +9,8 @@
  * `{name, description, parameters, promptGuidelines, sourceInfo}`
  * per tool, summed. This is the contract — the shape is an impl detail.
  *
- * All active tools are counted (builtin and sdk included) because the
- * count is the honest serialized size of what the LLM sees.
+ * Returns a split: `fixed` (builtin + sdk, non-togglable floor) and
+ * `tools` (extension tools, togglable budget).
  *
  * @module
  */
@@ -39,27 +39,44 @@ function serializeToolDef(tool: ToolInfo): string {
 	});
 }
 
+/** Result of computeCharCount: fixed (untoggleable) vs tools (togglable). */
+export interface CharCountSplit {
+	/** Active builtin + sdk tool char count — non-togglable floor. */
+	fixed: number;
+	/** Active extension tool char count — togglable budget. */
+	tools: number;
+}
+
 // ---------------------------------------------------------------------------
 // Count
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the total serialized character count for all active tools.
+ * Compute the serialized character count split into fixed and tools buckets.
  *
  * @param pi - The extension API
- * @returns The sum of character counts across all active tool definitions
+ * @returns `{ fixed, tools }` where fixed is builtin+sdk and tools is extension
  */
-export function computeCharCount(pi: ExtensionAPI): number {
+export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	const activeNames = new Set(pi.getActiveTools());
 	const allTools = pi.getAllTools();
 
-	let total = 0;
+	const result: CharCountSplit = { fixed: 0, tools: 0 };
+
 	for (const tool of allTools) {
-		if (activeNames.has(tool.name)) {
-			total += serializeToolDef(tool).length;
+		if (!activeNames.has(tool.name)) continue;
+		const len = serializeToolDef(tool).length;
+		if (
+			tool.sourceInfo.source === "builtin" ||
+			tool.sourceInfo.source === "sdk"
+		) {
+			result.fixed += len;
+		} else {
+			result.tools += len;
 		}
 	}
-	return total;
+
+	return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,9 +84,17 @@ export function computeCharCount(pi: ExtensionAPI): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle `/tbox chars` — returns the serialized character count string.
+ * Format a CharCountSplit into the shared one-line display used by both
+ * `/tbox chars` and the `/tbox status` char line.
+ */
+export function formatCharSplit({ fixed, tools }: CharCountSplit): string {
+	const total = fixed + tools;
+	return `Char count \u2014 fixed: ${fixed} | tools: ${tools} (total: ${total})`;
+}
+
+/**
+ * Handle `/tbox chars` — returns the serialized character count split.
  */
 export function formatChars(pi: ExtensionAPI): string {
-	const count = computeCharCount(pi);
-	return `Serialized character count of active tools: ${count}`;
+	return formatCharSplit(computeCharCount(pi));
 }

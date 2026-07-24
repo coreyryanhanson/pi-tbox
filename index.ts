@@ -11,7 +11,10 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { autoRegisterBuiltinAndOrphans } from "./src/registry.js";
+import {
+	autoRegisterBuiltinAndOrphans,
+	actuateNewToolsets,
+} from "./src/registry.js";
 import {
 	wireSlot,
 	render,
@@ -196,7 +199,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		// Auto-register toolsets from the current tool population
-		autoRegisterBuiltinAndOrphans(pi);
+		const newIds = autoRegisterBuiltinAndOrphans(pi);
+
+		// Actuate any toolsets registered in this call — the library's restore
+		// handler already fired before they were registered, so they'd otherwise
+		// never get their defaultEnabled state applied.
+		actuateNewToolsets(pi, newIds);
 
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
@@ -212,7 +220,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 	pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
 		// Re-run auto-registration for the fresh branch
-		autoRegisterBuiltinAndOrphans(pi);
+		const newIds = autoRegisterBuiltinAndOrphans(pi);
+
+		// Actuate any toolsets registered in this call (restore-timing fix)
+		actuateNewToolsets(pi, newIds);
 
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {

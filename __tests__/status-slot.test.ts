@@ -109,24 +109,42 @@ describe("status-slot", () => {
 			expect(state).toEqual({ kind: "count", n: 1 });
 		});
 
-		it("returns focus state when in focus", () => {
+		it("returns focus state with count of active extension tools", () => {
 			setFocusUnit("portal.web");
 
-			// Add an active extension tool so focus is not empty
+			// Add active extension tools so focus is not empty
+			for (const name of ["web-fetch", "web-learn", "browser-navigate"]) {
+				mock.registerTool({
+					name,
+					description: `Tool ${name}`,
+					sourceInfo: {
+						path: "portal.ts",
+						source: "extension",
+						scope: "user",
+						origin: "top-level",
+					},
+				});
+			}
+			// Also add an active builtin — should not count toward focus count
 			mock.registerTool({
-				name: "web-fetch",
-				description: "Web fetch tool",
+				name: "read",
+				description: "Read",
 				sourceInfo: {
-					path: "portal.ts",
-					source: "extension",
+					path: "builtin.ts",
+					source: "builtin",
 					scope: "user",
 					origin: "top-level",
 				},
 			});
-			mock.setActiveTools(["web-fetch"]);
+			mock.setActiveTools([
+				"web-fetch",
+				"web-learn",
+				"browser-navigate",
+				"read",
+			]);
 
 			const state = computeSlotState(pi);
-			expect(state).toEqual({ kind: "focus", unit: "portal.web" });
+			expect(state).toEqual({ kind: "focus", unit: "portal.web", count: 3 });
 		});
 
 		it("returns focus-empty when focus allowlist is empty", () => {
@@ -157,18 +175,21 @@ describe("status-slot", () => {
 			expect(text).toBe("<dim>○</dim> tbox");
 		});
 
-		it("renders count state", () => {
+		it("renders count state with masked suffix", () => {
 			const fg = (color: string, text: string) =>
 				`<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "count", n: 3 }, fg);
-			expect(text).toBe("<accent>●</accent> tbox 3");
+			expect(text).toBe("<accent>●</accent> tbox 3 masked");
 		});
 
-		it("renders focus state", () => {
+		it("renders focus state with count in parens", () => {
 			const fg = (color: string, text: string) =>
 				`<${color}>${text}</${color}>`;
-			const text = renderSlotText({ kind: "focus", unit: "portal.web" }, fg);
-			expect(text).toBe("<success>●</success> focus:portal.web");
+			const text = renderSlotText(
+				{ kind: "focus", unit: "portal.web", count: 12 },
+				fg,
+			);
+			expect(text).toBe("<success>●</success> focus:portal.web (12)");
 		});
 
 		it("renders focus-empty state", () => {
@@ -235,7 +256,7 @@ describe("status-slot", () => {
 
 			const status = mock.getLastStatus(SLOT_NAME);
 			expect(status).toBeDefined();
-			expect(status!.text).toBe("<accent>●</accent> tbox 1");
+			expect(status!.text).toBe("<accent>●</accent> tbox 1 masked");
 		});
 	});
 
@@ -269,7 +290,7 @@ describe("status-slot", () => {
 
 			const status = mock.getLastStatus(SLOT_NAME);
 			expect(status).toBeDefined();
-			expect(status!.text).toBe("<accent>●</accent> tbox 3");
+			expect(status!.text).toBe("<accent>●</accent> tbox 3 masked");
 		});
 
 		it("renders pristine when only builtin/sdk tools are excluded", () => {
@@ -344,7 +365,7 @@ describe("status-slot", () => {
 
 			const after = mock.getLastStatus(SLOT_NAME);
 			expect(after).toBeDefined();
-			expect(after!.text).toBe("<accent>●</accent> tbox 1");
+			expect(after!.text).toBe("<accent>●</accent> tbox 1 masked");
 		});
 	});
 

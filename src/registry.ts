@@ -7,14 +7,22 @@
  *   - tbox.tool@<source>: for each distinct source of extension tools not
  *     claimed by any other toolset
  *
+ * Returns the set of toolset ids that were registered in this call
+ * (so callers can actuate them if the library's restore handler already
+ * fired before registration).
+ *
  * sdk tools are never registered — they are out of tbox's domain.
  *
  * @module
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { defineToolset, getRegisteredToolsets } from "pi-tool-masking";
-import type { ToolsetSpec } from "pi-tool-masking";
+import {
+	defineToolset,
+	getRegisteredToolsets,
+	TOOLSET_EVENTS,
+} from "pi-tool-masking";
+import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,9 +62,13 @@ function orphanPersistKey(source: string): string {
  * is a no-op (the library's defineToolset is idempotent-by-content for
  * unchanged specs).
  *
+ * Returns the set of toolset ids that were newly registered in this call.
+ *
  * @param pi - The extension API
+ * @returns Array of newly-registered toolset ids (empty if no new registrations)
  */
-export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
+export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
+	const newIds: string[] = [];
 	const allTools = pi.getAllTools();
 	const existingToolsets = getRegisteredToolsets();
 
@@ -107,6 +119,12 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
 			defaultEnabled: true,
 			masked: false,
 		};
+		const existing = existingToolsets.find(
+			(e) => e.spec.id === BUILTIN_TOOLSET_ID,
+		);
+		if (!existing) {
+			newIds.push(BUILTIN_TOOLSET_ID);
+		}
 		defineToolset(pi, builtinSpec);
 	}
 
@@ -126,6 +144,76 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): void {
 			defaultEnabled: true,
 			masked: false,
 		};
+		const existing = existingToolsets.find(
+			(e) => e.spec.id === orphanToolsetId(source),
+		);
+		if (!existing) {
+			newIds.push(orphanToolsetId(source));
+		}
 		defineToolset(pi, spec);
+	}
+
+	return newIds;
+}
+
+// ---------------------------------------------------------------------------
+// Restore-timing: actuate a recently-registered toolset to default state
+// ---------------------------------------------------------------------------
+
+/**
+ * Actuate a set of toolset ids to their defaultEnabled state, without
+ * appending persist entries or emitting events.
+ *
+ * This mirrors what the library's restore handler would have done if it
+ * had seen these toolsets at the time it ran. Used after
+ * autoRegisterBuiltinAndOrphans when the restore handler already fired
+ * before these orphans were registered.
+ *
+ * @param pi - The extension API
+ * @param ids - Toolset ids to actuate (typically the return of
+ *   autoRegisterBuiltinAndOrphans)
+ */
+export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
+	if (ids.length === 0) return;
+
+	const allToolNames = pi.getAllTools().map((t) => t.name);
+	const activeSet = new Set(pi.getActiveTools());
+	let changed = false;
+
+	for (const id of ids) {
+		const entry = getRegisteredToolsets().find(
+			(e: RegistryEntry) => e.spec.id === id,
+		);
+		if (!entry) continue;
+
+		const enabled = entry.spec.defaultEnabled !== false;
+		const registeredNames = [...entry.spec.names].filter((n) =>
+			allToolNames.includes(n),
+		);
+
+		if (enabled) {
+			for (const name of registeredNames) {
+				if (!activeSet.has(name)) {
+					activeSet.add(name);
+					changed = true;
+				}
+			}
+		} else {
+			for (const name of registeredNames) {
+				if (activeSet.has(name)) {
+					activeSet.delete(name);
+					changed = true;
+				}
+			}
+		}
+	}
+
+	if (changed) {
+		pi.setActiveTools([...activeSet]);
+		// Emit so wireSlot's listener re-renders the status bar
+		pi.events.emit(TOOLSET_EVENTS.changed, {
+			id: "tbox.restore-timing",
+			enabled: true,
+		});
 	}
 }

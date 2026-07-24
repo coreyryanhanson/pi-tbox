@@ -89,45 +89,57 @@ describe("computeCharCount", () => {
 		MockPI.cleanRegistry();
 	});
 
-	it("returns 0 when no tools are active", () => {
-		expect(computeCharCount(mock as any)).toBe(0);
+	it("returns 0 fixed and 0 tools when no tools are active", () => {
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(0);
+		expect(result.tools).toBe(0);
 	});
 
 	it("returns correct sum for a single active extension tool", () => {
 		mock.registerTool(TOOL_A);
 		mock.setActiveTools(["tool-alpha"]);
-		expect(computeCharCount(mock as any)).toBe(LEN_A);
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(0);
+		expect(result.tools).toBe(LEN_A);
 	});
 
 	it("returns correct sum for multiple active extension tools", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_B);
 		mock.setActiveTools(["tool-alpha", "tool-beta"]);
-		expect(computeCharCount(mock as any)).toBe(LEN_A + LEN_B);
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(0);
+		expect(result.tools).toBe(LEN_A + LEN_B);
 	});
 
 	it("does not count inactive tools", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_B);
 		mock.setActiveTools(["tool-alpha"]); // only A active
-		expect(computeCharCount(mock as any)).toBe(LEN_A);
+		const result = computeCharCount(mock as any);
+		expect(result.tools).toBe(LEN_A);
+		expect(result.fixed).toBe(0);
 	});
 
-	it("counts builtin tools when they are active", () => {
+	it("counts builtin tools in fixed, not tools", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_BUILTIN);
 		mock.setActiveTools(["tool-alpha", "pi.help"]);
-		expect(computeCharCount(mock as any)).toBe(LEN_A + LEN_BUILTIN);
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(LEN_BUILTIN);
+		expect(result.tools).toBe(LEN_A);
 	});
 
-	it("counts sdk tools when they are active", () => {
+	it("counts sdk tools in fixed, not tools", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_SDK);
 		mock.setActiveTools(["tool-alpha", "sdk.file_read"]);
-		expect(computeCharCount(mock as any)).toBe(LEN_A + LEN_SDK);
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(LEN_SDK);
+		expect(result.tools).toBe(LEN_A);
 	});
 
-	it("counts all active tools regardless of source (builtin + sdk + extension)", () => {
+	it("counts all active tools with correct split (builtin+sdk in fixed, extension in tools)", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_B);
 		mock.registerTool(TOOL_BUILTIN);
@@ -138,12 +150,12 @@ describe("computeCharCount", () => {
 			"pi.help",
 			"sdk.file_read",
 		]);
-		expect(computeCharCount(mock as any)).toBe(
-			LEN_A + LEN_B + LEN_BUILTIN + LEN_SDK,
-		);
+		const result = computeCharCount(mock as any);
+		expect(result.fixed).toBe(LEN_BUILTIN + LEN_SDK);
+		expect(result.tools).toBe(LEN_A + LEN_B);
 	});
 
-	it("is deterministic — same input produces same number across calls", () => {
+	it("is deterministic — same input produces same split across calls", () => {
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_B);
 		mock.setActiveTools(["tool-alpha", "tool-beta"]);
@@ -151,11 +163,13 @@ describe("computeCharCount", () => {
 		const first = computeCharCount(mock as any);
 		const second = computeCharCount(mock as any);
 		const third = computeCharCount(mock as any);
-		expect(first).toBe(second);
-		expect(second).toBe(third);
+		expect(first.tools).toBe(second.tools);
+		expect(second.tools).toBe(third.tools);
+		expect(first.fixed).toBe(second.fixed);
+		expect(second.fixed).toBe(third.fixed);
 	});
 
-	it("reflects toggle — enabling a toolset increases the count by its members' sizes", () => {
+	it("reflects toggle — enabling a toolset increases the tools bucket by its members' sizes", () => {
 		// Register two tools
 		mock.registerTool(TOOL_A);
 		mock.registerTool(TOOL_B);
@@ -171,16 +185,17 @@ describe("computeCharCount", () => {
 
 		// Both active initially (defaultEnabled: true)
 		mock.setActiveTools(["tool-alpha", "tool-beta"]);
-		const fullCount = computeCharCount(mock as any);
-		expect(fullCount).toBe(LEN_A + LEN_B);
+		const full = computeCharCount(mock as any);
+		expect(full.tools).toBe(LEN_A + LEN_B);
+		expect(full.fixed).toBe(0);
 
-		// Deactivate one → count drops by that tool's size
+		// Deactivate one → tools drops by that tool's size, fixed unchanged
 		mock.setActiveTools(["tool-alpha"]);
-		expect(computeCharCount(mock as any)).toBe(LEN_A);
+		expect(computeCharCount(mock as any).tools).toBe(LEN_A);
 
-		// Deactivate both → zero
+		// Deactivate both → tools is zero
 		mock.setActiveTools([]);
-		expect(computeCharCount(mock as any)).toBe(0);
+		expect(computeCharCount(mock as any).tools).toBe(0);
 	});
 });
 
@@ -196,15 +211,29 @@ describe("formatChars", () => {
 		MockPI.cleanRegistry();
 	});
 
-	it("returns a human-readable string with the count", () => {
+	it("returns a human-readable string with the split", () => {
 		mock.registerTool(TOOL_A);
 		mock.setActiveTools(["tool-alpha"]);
 		const output = formatChars(mock as any);
-		expect(output).toBe(`Serialized character count of active tools: ${LEN_A}`);
+		expect(output).toBe(
+			`Char count \u2014 fixed: 0 | tools: ${LEN_A} (total: ${LEN_A})`,
+		);
 	});
 
-	it("returns 0 when no tools are active", () => {
+	it("returns 0 for both buckets when no tools are active", () => {
 		const output = formatChars(mock as any);
-		expect(output).toBe("Serialized character count of active tools: 0");
+		expect(output).toBe("Char count \u2014 fixed: 0 | tools: 0 (total: 0)");
+	});
+
+	it("shows builtin+sdk in fixed and extension in tools", () => {
+		mock.registerTool(TOOL_A);
+		mock.registerTool(TOOL_BUILTIN);
+		mock.registerTool(TOOL_SDK);
+		mock.setActiveTools(["tool-alpha", "pi.help", "sdk.file_read"]);
+		const output = formatChars(mock as any);
+		const total = LEN_BUILTIN + LEN_SDK + LEN_A;
+		expect(output).toBe(
+			`Char count \u2014 fixed: ${LEN_BUILTIN + LEN_SDK} | tools: ${LEN_A} (total: ${total})`,
+		);
 	});
 });
