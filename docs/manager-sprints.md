@@ -32,10 +32,13 @@ each independently shippable and testable. Every sprint lists **work**,
   directly — that boundary is load-bearing (`design.md` §6.1).
 - **Tbox's domain is extension tools only.** The canonical discriminator
   is `t.sourceInfo.source !== "builtin" && t.sourceInfo.source !== "sdk"`
-  (`extensions.md` §"pi.getAllTools()"). `builtin` tools → protected
-  `pi.builtin` toolset. `sdk` tools → **out of tbox's domain entirely**
-  (read-only rows in `--flat`, never registered into a toolset, never
-  counted in the status slot's excluded count, not lifted by dev mode).
+  (`extensions.md` §"pi.getAllTools()"). `builtin` tools → the
+  `pi.builtin` toolset, which tbox auto-registers but **never manages**
+  (never toggled, grouped, focused, or offered in the picker; the only
+  touch is the `/tbox all off` safety skip that keeps it enabled). `sdk`
+  tools → **out of tbox's domain entirely** (read-only rows in `--flat`,
+  never registered into a toolset, never counted in the status slot's
+  excluded count).
 - **Curation (`requires` closure, group resolution) is tbox-owned.** The
   library does not export a graph helper; the forward/reverse walks live
   privately in `_enableToolset`/`_disableDependents`. Tbox re-implements
@@ -65,7 +68,7 @@ pi-tbox/
     requires-graph.ts     # forward/reverse requires walks (one shared helper)
     groups.ts             # user group config read/write + resolution to units
     list.ts               # /tbox list (grouped/flat, filters, smallest-toolset-wins)
-    toggle.ts             # /tbox toggle <tool>, /tbox all on|off, dev-mode guards
+    toggle.ts             # /tbox toggle <tool>, /tbox all on|off, guards
     focus.ts              # /tbox focus <unit> / focus off (inclusion mode + re-actuation)
     chars.ts              # /tbox chars (serialized char count from getAllTools defs)
     status-slot.ts        # the 4-state tbox slot: render(), excluded-count, listeners
@@ -100,9 +103,14 @@ surfaces tbox exercises that the library's mock lacks:
   last status string per slot so slot-state assertions are exact. `theme`
   can be a passthrough that wraps text in markers (e.g. `<accent>…</accent>`)
   so color is assertable without a real terminal.
-- `ui.notify`, `ui.select`, `ui.confirm` — the picker (Sprint 4) drives
-  `select`; record the options presented and return the test's choice.
-- `getAllTools()` returning tools with **all five** `sourceInfo.source`
+- `ui.custom<T>(factory)` — the picker (Sprint 4) mounts a tbox-owned
+  `GroupEditorComponent` through this; the mock instantiates the
+  component from the factory, drains a queued key sequence through
+  `handleInput`, and returns the captured `done()` result. A `keyFor(action)`
+  helper maps logical actions (`down`/`up`/`confirm`/`save`/`cancel`/
+  `ctrl+a`/`ctrl+x`) to real key bytes, and tests assert on the
+  component's `render()` output rather than a synthetic options array.
+- `getAllTools()` returning tools with **the three** `sourceInfo.source`
   flavors the MVP cares about: `builtin`, `sdk`, and extension tools —
   some inside plugin-declared toolsets, some orphaned — so the
   auto-registration and list logic is exercised against a realistic
@@ -203,7 +211,7 @@ Tests shipped (green): `list`, `command`.
 
 ---
 
-## Sprint 2 — ✅ Done: `/tbox toggle`, `/tbox all`, guards; dev mode deferred to settings
+## Sprint 2 — ✅ Done: `/tbox toggle`, `/tbox all`, guards
 
 Shipped (`src/toggle.ts`, `src/status-slot.ts`):
 
@@ -212,34 +220,21 @@ Shipped (`src/toggle.ts`, `src/status-slot.ts`):
   its `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 2 shipped
   against a catch-all `tbox.tool`, refined by 3.5); re-running
   toggles back.
-- **Guards (normal mode)** — masked-member toggle refused ("part of the
-  sealed group `<group>`; toggle the group, or enable dev mode");
-  `pi.builtin` toggle refused ("builtins are protected; enable dev
-  mode"). Both lifted when dev mode is on. `sdk` exclusion is **never**
-  lifted.
+- **Guards (unconditional — tbox has one mode):** a masked-member
+  toggle is refused ("part of the sealed group `<group>`; toggle the
+  group instead"); a `pi.builtin` toggle is refused ("builtins are
+  protected. tbox does not manage pi's core tools."); `sdk` tools are
+  refused ("SDK tools are host-managed and cannot be toggled"). There
+  is no escape hatch — masking and builtin protection are permanent.
 - **`/tbox all on`** — enable every registered toolset. **`/tbox all off`**
-  — disable every non-builtin toolset (`pi.builtin` protected);
-  `sdk` untouched.
+  — disable every non-builtin toolset (`pi.builtin` skipped as the one
+  safety rail so builtins stay enabled); `sdk` untouched.
 - **Status slot count state** — `● tbox n` (blue) where
   `n` = non-builtin, non-sdk tools minus `getActiveTools()`; pristine
   `○ tbox` when `n === 0`. `changed`/`restored` listeners re-render.
 
-**Dev-mode course correction (recorded):** dev mode is **not** a runtime
-`/tbox dev on|off` toggle — a runtime toggle over a load-time guard flag
-is unrequested state machinery. Dev mode is a single `tbox.dev` boolean
-in `settings.json`, read at load by **Sprint 3's** settings reader
-(`config/settings-reader.ts`). The current code's in-memory
-`setDevMode`/`isDevMode` flag and `/tbox dev on|off` command surface are
-**placeholders to be replaced in Sprint 3**: Sprint 3 swaps them for a
-read of `tbox.dev` at `session_start`, removes the `/tbox dev` command
-entirely, and `/tbox status` reports "Dev mode: on|off" from the read
-value. `dev` is therefore **dropped from the reserved-wordlist**
-(Sprint 3) — with no `/tbox dev` command, `/tbox dev on` is just the
-group shorthand for a group named `dev`.
-
 Tests shipped (green): `toggle`, `all`, `status-slot` (count + event
-re-render), `dev-mode` (exercises the placeholder flag; Sprint 3
-rewrites it to assert the settings.json read).
+re-render).
 
 ---
 
@@ -250,38 +245,31 @@ Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
 
 - **`config/settings-reader.ts`** — tbox's own merged-settings reader
   (library exports none, `design.md` §5.1). Tbox-owned keys live under
-  one `tbox` object: `tbox.dev` (boolean) and `tbox.groups` (group →
-  `{ toolsets: string[], tools: string[] }`). Reads merge global +
-  project (project wins); a test-injectable override avoids fs mocks.
-  **Storage-shape decision (recorded):** groups live under `tbox.groups`
-  in merged settings — a dedicated `~/.pi/agent/pi-tbox/groups.json` was
-  rejected (one config location is simpler, matches the MVP
-  recommendation). The write path lands in Sprint 4's picker-confirm.
-- **Dev-mode swap (lands here, not Sprint 2)** — at `session_start`,
-  tbox reads `tbox.dev` and sets the in-memory flag the guards consult,
-  replacing Sprint 2's placeholder `setDevMode`/`isDevMode` + `/tbox dev`
-  command. The `/tbox dev` command is **removed entirely**; edit
-  `settings.json` and `/reload` to change. `/tbox status` reports "Dev
-  mode: on|off" from the read value. `dev-mode.test.ts` rewritten to
-  assert the settings read (`session_start` with `tbox.dev: true` →
-  guards lifted).
-- **`src/groups.ts`** — `/tbox <group> on` enables each toolset member
-  (library cascade pulls deps on); individual tool members actuate via
-  their containing toolset. `/tbox <group> off` disables each member; the
-  moved set is computed by **diffing `getActiveTools()` before vs.
-  after** (not `reverseClosure` — reflects reality incl. cross-extension
-  companions the static graph wouldn't predict); cascaded non-members
-  are reported in the output. Drift caveat line shipped on every
-  actuation.
+  one `tbox` object: `tbox.groups` (group → `{ toolsets: string[] }`).
+  A group is whole-toolset units only — there is no per-tool field
+  (pi-tool-masking has no per-tool persist primitive, so a `tools[]`
+  field would collapse to `toolsets[]` at actuation and mislead readers).
+  Reads merge global + project (project wins); a test-injectable
+  override avoids fs mocks. **Storage-shape decision (recorded):**
+  groups live under `tbox.groups` in merged settings — a dedicated
+  `~/.pi/agent/pi-tbox/groups.json` was rejected (one config location is
+  simpler, matches the MVP recommendation). The write path lands in
+  Sprint 4's picker-save.
+- **`src/groups.ts`** — `/tbox <group> on` enables each toolset in the
+  group (library cascade pulls deps on). `/tbox <group> off` disables
+  each member; the moved set is computed by **diffing `getActiveTools()`
+  before vs. after** (not `reverseClosure` — reflects reality incl.
+  cross-extension companions the static graph wouldn't predict);
+  cascaded non-members are reported in the output. Drift caveat line
+  shipped on every actuation.
 - **`src/reserved.ts`** — reserved wordlist (`toggle`, `status`,
-  `focus`, `all`, `list`, `chars`, `group`, `on`, `off`); **`dev`
-  dropped** (no `/tbox dev` command). `/tbox <name> on|off` is the group
-  shorthand unless `<name>` is reserved; a reserved-named group is
-  reachable only via `/tbox group <name> on`, and the bare form errors
-  with a pointer to the explicit form.
+  `focus`, `all`, `list`, `chars`, `group`, `on`, `off`). `/tbox <name>
+  on|off` is the group shorthand unless `<name>` is reserved; a
+  reserved-named group is reachable only via `/tbox group <name> on`,
+  and the bare form errors with a pointer to the explicit form.
 - **`/tbox group <name> [on|off]`** — explicit group form (unambiguous
-  path + reserved-name escape). `/tbox group <name> edit` is a stub
-  ("picker coming in Sprint 4").
+  path + reserved-name escape). `/tbox group <name> edit` opens the
+  picker (Sprint 4).
 - **`src/requires-graph.ts`** — the one shared helper for the
   both-direction `requires` closure over `getRegisteredToolsets()`:
   `forwardClosure(ids)` (ids + transitive `requires` targets) and
@@ -291,22 +279,17 @@ Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
   the library throw mid-actuation; forward-references (a `requires` id
   absent from the registry) are skipped, not fatal.
 
-Tests shipped (green): `groups`, `reserved`, `requires-graph`,
-`dev-mode` (rewritten for the settings read).
+Tests shipped (green): `groups`, `reserved`, `requires-graph`.
 
 ---
 
-## Decision record — builtins are preserved, not grouped or focused
+## Decision record — builtins are out of tbox's management scope
 
-> Recorded after Sprint 3, before Sprint 4. This is a **spec
-> clarification**, not a re-design: it sharpens an invariant that was
-> implicit in the MVP and corrects one Sprint 5 claim that became stale
-> once Sprint 0 registered `pi.builtin`. No shipped Sprint 1–3 code is
-> incorrect in any user-reachable path; one one-line hardening in
-> `groups.ts` folds into Sprint 4.
-
-**The invariant:** *Builtins are never the **subject** of a group or
-focus operation; they are always **preserved** by one.*
+**The invariant:** *Builtins are never the **subject** of a group,
+focus, or toggle operation; they are always **preserved**.* tbox
+auto-registers `pi.builtin` (Sprint 0) but never manages it — the only
+place it touches `pi.builtin` is the `/tbox all off` safety skip that
+keeps it enabled.
 
 ### Why (the drift argument)
 
@@ -341,192 +324,117 @@ library consumer (portal, search, host) instead of just tbox users.
 2. **Focus never targets builtins.** `/tbox focus <builtin-tool-or-
    toolset>` errors. Focus on a builtin resolves to the `pi.builtin`
    allowlist, disabling everything else — a weird working set that
-   conflates the preservation invariant with focus intent. A dev who
-   wants to isolate one builtin already has `/tbox toggle` for surgical
-   per-tool control.
-3. **Dev mode's builtin affordance is `/tbox toggle` only, not the
-   picker.** The picker (Sprint 4) never offers builtins as groupable
-   rows, in any mode. Dev mode lifts the `/tbox toggle <builtin>` guard
-   (one tool, deliberate, per-session); it does **not** grant the power
-   to build a group that can later mass-disable builtins — that's a
-   weaponized composition, not an override.
+   conflates the preservation invariant with focus intent.
+3. **Builtins are never toggleable and never groupable rows.**
+   `/tbox toggle <builtin>` is an unconditional refusal (Sprint 2); the
+   picker (Sprint 4) never offers builtins as rows. There is no escape
+   hatch — builtins are always-on by nature, and a group that can
+   mass-disable them is the rule-1 footgun through the back door.
 
 ---
 
-## Sprint 3.5 — Per-source orphan toolsets
+## Sprint 3.5 — ✅ Done: Per-source orphan toolsets
 
-**Goal:** close the focus-granularity asymmetry between plugins that
-call `defineToolset` (e.g. `portal.web`) and plugins that only register
-tools (e.g. pi-lens). A catch-all `tbox.tool` makes per-plugin focus
-impossible — `/tbox focus tbox.tool` keeps *every* orphan or none.
-Per-source registration makes each unclaimed-source plugin its own
-focusable unit. This is a **spec clarification that refines shipped
-Sprint 0 code**, in the same category as the builtins decision record
-above: Sprint 0's idempotent re-registration scaffold is reused, only
-the grouping key changes. No shipped Sprint 1–3 path is incorrect.
+Closes the focus-granularity asymmetry between plugins that call
+`defineToolset` (e.g. `portal.web`) and plugins that only register tools
+(e.g. pi-lens): a catch-all `tbox.tool` made per-plugin focus
+impossible, so each unclaimed-source plugin becomes its own focusable
+unit. Sprint 0's idempotent re-registration scaffold is reused; only the
+grouping key changes.
 
-**Why a separate sprint, and why now:** Sprint 4's picker renders
-toolsets as rows and Sprint 5's focus resolves "tool → its containing
-toolset" — both depend on the orphan shape. Landing per-source in
-Sprint 7 (publish prep) would force Sprint 4–6 to build against the
-catch-all and rework. Sprint 3.5 lands the structural change before the
-sprints that consume it.
+Shipped (`src/registry.ts`):
 
-### Work
+- **Orphan branch of `autoRegisterBuiltinAndOrphans`** — one toolset
+  per distinct unclaimed `sourceInfo.source` among extension tools,
+  instead of one catch-all:
+  - **Id:** `tbox.tool@<source>` (`<source>` is the extension source
+    metadata from `sourceInfo.source`).
+  - **`names`:** all unclaimed extension tools sharing that source.
+  - **`label`:** derived from `<source>` (the plugin id). `ToolInfo`
+    has no `label` field, so this is derivation, not pass-through.
+  - **`description`:** passed through from the tool **only when the
+    source contributes exactly one orphaned tool** (the common
+    single-tool-plugin case gets a real description for free). When
+    the source contributes multiple tools, `description` is omitted
+    (`ToolsetSpec.description` is optional) — the grouped view already
+    shows members, and misrepresenting one tool's description as the
+    group's would mislabel the others.
+  - **`defaultEnabled: true`, `masked: false`,
+    `persistKey: toolset-state:tbox.tool@<source>`** — per the
+    catch-all plan.
+  - **Skips sdk entirely** — unchanged; sdk tools are never registered
+    into any toolset (out of tbox's domain).
+- **Idempotence preserved** — the library is idempotent-by-content, so
+  re-registration on `/reload` is a no-op for unchanged sources. A
+  source that gains/loses a tool between reloads updates its `names`
+  set; a source that disappears leaves a stale entry (a harmless no-op
+  at restore — Sprint 7's restore-safety pass confirms).
+- **No change to builtins or sdk handling** — `pi.builtin` and the sdk
+  skip are exactly as Sprint 0 shipped them.
 
-1. **`src/registry.ts`** — change the orphan branch of
-   `autoRegisterBuiltinAndOrphans` from one catch-all to one toolset
-   per distinct `sourceInfo.source` among unclaimed extension tools:
-   - **Id:** `tbox.tool@<source>` (stable, addressable; `<source>`
-     is the extension source metadata from `sourceInfo.source`).
-   - **`names`:** all unclaimed extension tools sharing that source.
-   - **`label`:** derived from `<source>` (the plugin id). `ToolInfo`
-     has no `label` field, so this is derivation, not pass-through.
-   - **`description`:** pass through from the tool **only when the
-     source contributes exactly one orphaned tool** (the common
-     single-tool-plugin case gets a real description for free). When
-     the source contributes multiple tools, omit `description`
-     (`ToolsetSpec.description` is optional) rather than synthesize a
-     bland "tools from X" string — the grouped view already shows
-     members, so a missing description costs nothing and
-     misrepresenting one tool's description as the group's would
-     mislabel the others.
-   - **`defaultEnabled: true`, `masked: false`, `persistKey:`**
-     `toolset-state:tbox.tool@<source>` — unchanged from the
-     catch-all plan per field.
-   - **Skips sdk entirely** — unchanged; sdk tools are never registered
-     into any toolset (out of tbox's domain).
-2. **Idempotence preserved:** the library is idempotent-by-content for
-   an unchanged spec, so re-registration on `/reload` is a no-op for
-   unchanged sources. A source that gains/loses a tool between reloads
-   updates its `names` set; a source that disappears leaves a stale
-   entry — Sprint 7's restore-safety pass verifies this is benign (a
-   stale entry with no matching tools is a harmless no-op at restore).
-3. **No change to builtins or sdk handling** — `pi.builtin` and the sdk
-   skip are exactly as Sprint 0 shipped them.
-
-### Acceptance criteria
-
-- [ ] A session with two unclaimed-source plugins (e.g. `pi-lens` with
-      ~15 tools and a single-tool plugin) produces **two** orphan
-      toolsets: `tbox.tool@pi-lens` (multi-tool, `description`
-      omitted) and `tbox.tool@<single>` (one tool, `description`
-      passed through from that tool's `description`).
-- [ ] `/tbox focus tbox.tool@pi-lens` keeps only pi-lens's tools +
-      `pi.builtin`, disabling every other registered toolset including
-      the other orphan toolset — the asymmetry that prompted this
-      sprint is closed.
-- [ ] `/tbox toggle <pi-lens-tool>` still works (the name is in
-      `tbox.tool@pi-lens.spec.names`); per-tool toggle granularity
-      is unchanged from the catch-all design.
-- [ ] Re-running `autoRegisterBuiltinAndOrphans` against an unchanged
-      tool population is a no-op (registry contents unchanged); the
-      idempotent-by-content guarantee from Sprint 0 still holds under
-      the per-source keying.
-- [ ] `/reload` (simulated via `session_tree`) re-registers against
-      the fresh `pi`; a source that gained a tool reflects the new
-      `names` set.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `registry-per-source.test.ts`:
-  - Multi-source population: register builtin tools, sdk tools, two
-    plugins' worth of extension tools (none calling `defineToolset`),
-    and one plugin that *does* call `defineToolset` (its tools must not
-    be claimed by any `tbox.tool@*`). After
-    `autoRegisterBuiltinAndOrphans`: one `pi.builtin`, one
-    `tbox.tool@<source-A>` (multi-tool, no `description`), one
-    `tbox.tool@<source-B>` (single-tool, `description` passed
-    through), zero `tbox.tool` catch-all, sdk tools in no toolset.
-  - Focus granularity: enter focus on `tbox.tool@<source-A>`;
-    assert source-A's tools active, source-B's tools inactive,
-    `pi.builtin` active (allowlist-seeded per Sprint 5's rule — this
-    test pre-pins the rule Sprint 5 will enforce).
-  - Idempotence: call `autoRegisterBuiltinAndOrphans` twice; assert the
-    second call writes no new registry entries and no new `appendEntry`
-    calls.
-  - Single-tool description pass-through: assert
-    `tbox.tool@<source-B>.spec.description === <source-B tool's
-    description>` and `tbox.tool@<source-A>.spec.description` is
-    `undefined`.
+Tests shipped (green): `registry-per-source` (multi-source population,
+focus granularity, idempotence, single-tool description pass-through).
 
 ---
 
-## Sprint 4 — Group editing picker UX
+## Sprint 4 — ✅ Done: Group editing picker UX
 
-**Goal:** point 4 (curation UX). `/tbox group <name> edit` opens a
-filtered check-list (the same UX as pi's scoped-models picker), with the
-`requires` closure auto-maintained in normal mode.
+Shipped (`src/group-editor.ts`, `src/groups.ts`, `index.ts`,
+`__tests__/mock-pi.ts`):
 
-### Work
+- **`GroupEditorComponent`** — a windowed, searchable, keyboard-driven
+  TUI component mounted via `ctx.ui.custom<T>(factory)` on
+  `/tbox group <name> edit`. It mirrors pi's internal
+  `ScopedModelsSelectorComponent` shape using only **public**
+  `@earendil-works/pi-tui` primitives (`Container`, `Input`, `Text`,
+  `fuzzyFilter`, `getKeybindings`, `truncateToWidth`) — no reach into
+  pi's interactive-mode dist path. Requires interactive (`tui`) mode;
+  a non-tui session returns "Group editing requires interactive mode."
+  rather than mounting the component.
+- **Single granularity: toolsets only.** One row per non-`pi.builtin`
+  toolset. Masked toolsets render as one sealed row `(masked, N tools)`;
+  unmasked as `(N tools)`; orphans as their `tbox.tool@<source>` row
+  (Sprint 3.5). **No member rows** — pi-tool-masking has no per-tool
+  persist primitive, so per-tool rows would collapse to the containing
+  toolset at actuation (theater). `pi.builtin` is absent (decision
+  record: builtins are out of tbox's management scope).
+- **`requires` closure auto-maintained** via `src/requires-graph.ts`
+  (Sprint 3). Checking a toolset forward-closes its deps; unchecking
+  reverse-closes dependents. Cues render **inline in the component
+  footer** (`auto-checked: portal.web (required by selection)` /
+  `auto-unchecked: portal.learn (they depend on portal.web)`), fading
+  on the next keypress — replacing the old `ui.notify` calls.
+- **Keyboard shortcuts** (all remappable via user keybindings through
+  `getKeybindings()`): `↑`/`↓` navigate, **Enter** toggle the focused
+  row, **Ctrl+A** enable all (filtered set if search active),
+  **Ctrl+X** clear all (filtered set if search active), **Ctrl+S**
+  save to config, **Esc**/**Ctrl+C** cancel (clears search first if a
+  filter is active, scoped-models' exact behavior).
+- **Windowed list** — `maxVisible = 8`, scroll keeps the selection
+  centered (math copied from scoped-models' `updateList`). A search
+  `Input` at the top narrows items by `fuzzyFilter` on the unit label.
+  The footer shows keybinding hints + `N/M enabled` + an `(unsaved)`
+  dirty indicator.
+- **Save path** — `Ctrl+S` calls `writeGroupToConfig(name, { toolsets })`
+  (Sprint 3's storage path), flips the dirty flag off. The group is
+  immediately actuate-able via `/tbox <name> on|off`. Re-opening `edit`
+  reflects the saved checks.
+- **`toggleToolsetUnit`** returns `{ cue: string }` so the component can
+  render the cue inline; the `PickerUI` interface is removed and
+  `editGroup` takes the full `ctx` (for `ctx.ui.custom` + `ctx.mode`).
+  `toggleToolUnit`, `effectiveToolsetIds`, and `autoCheckedToolsetIds`
+  are deleted (no tool rows / no `checkedTools` → no callers).
+- **`emitMemberEvents` is not used** — membership derives from
+  `getRegisteredToolsets()` and refreshes on
+  `TOOLSET_EVENTS.changed`/`restored` (recorded deferral, code comment).
+- **MockPI** gained a `ui.custom` stub with `setCustomKeySequence` +
+  `keyFor(action)` so tests drive the component via key sequences and
+  assert on `render()` output (stronger than the old options-array
+  model: it tests the actual windowed render, incl. the windowing cap).
 
-1. The picker: present every **addressable unit** as a check row.
-   - **Normal mode:** masked toolsets show as **one sealed row** (the
-     group); members are not surfaced. Builtins are not shown (protected
-     — they only surface in dev mode). Unmasked toolsets show as one row
-     per toolset **and** their member tools as individual rows (so a
-     group can include a whole toolset or cherry-pick members). Orphans
-     show as individual tool-rows under their `tbox.tool@<source>`
-     toolset (per Sprint 3.5).
-   - **Dev mode:** masked toolsets expand to show individual members as
-     checkable rows; the `requires` closure is **not** auto-applied (raw
-     behavior; the library still resolves `requires` at actuation, so an
-     unclosed group just pulls deps on anyway — documented in the
-     picker's dev-mode help line). **`pi.builtin` is never a groupable
-     row, in any mode** (decision record above): builtins are preserved
-     by groups/focus, never the subject of them. Dev mode's builtin
-     access is `/tbox toggle <builtin>` only.
-2. **`requires` closure auto-maintained (normal mode):**
-   - Check `portal.learn` → `portal.web` auto-checks (forward closure).
-   - Uncheck `portal.web` while `portal.learn` is checked →
-     `portal.learn` auto-unchecks (reverse closure).
-   - Use `src/requires-graph.ts` from Sprint 3. Surface the auto-check
-     to the user (the MVP leaves the interaction detail open —
-     recommend: the auto-checked row flips visibly and a one-line note
-     "enabled: requires portal.web" appears; auto-uncheck shows
-     "disabled: portal.learn depends on this"). Decide and record.
-3. On confirm: write the curated `{toolsets, tools}` back to tbox user
-   config (via Sprint 3's chosen storage path). The group is then
-   immediately actuate-able via `/tbox <name> on|off`.
-4. `emitMemberEvents` is **not** used by the MVP picker
-   (`manager-mvp.md` §4). Derive membership from
-   `getRegisteredToolsets()` and refresh on `TOOLSET_EVENTS.changed`/
-   `restored`. Record the deferral in a code comment.
-
-### Acceptance criteria
-
-- [ ] `/tbox group newgroup edit` opens a check-list of addressable
-      units; masked toolsets are sealed rows in normal mode; builtins
-      absent; orphans present as individual tools.
-- [ ] Checking `portal.learn` auto-checks `portal.web` (forward closure)
-      with a visible cue; unchecking `portal.web` auto-unchecks
-      `portal.learn` (reverse closure) with a visible cue.
-- [ ] In dev mode, masked toolsets expand to member rows; no closure
-      auto-apply. **`pi.builtin` is absent from the row list in both
-      modes** (decision record).
-- [ ] Confirming writes the group to config; `/tbox newgroup on`
-      immediately actuates the curated set.
-- [ ] Re-opening `edit` shows the previously-saved checks.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `picker.test.ts` (drive via MockPI's `ui.select` recording the options
-  presented and returning a controlled selection):
-  - Normal-mode option list: masked toolset present as one row, its
-    members **absent** from the option list; builtin toolset absent;
-    orphan tool present.
-  - Dev-mode option list: masked members present; `pi.builtin` **absent**
-    (builtins are never groupable — decision record).
-  - Selecting `portal.learn` → the selection passed back through
-    forwardClosure includes `portal.web`; the group written to config
-    contains both.
-  - Selecting `portal.web` only (with `portal.learn` previously
-    selected) → reverseClosure removes `portal.learn`; written group
-    has only `portal.web`.
-  - Confirm → config write call recorded with the expected shape.
-  - Re-open → presented checks reflect the saved config.
+Tests shipped (green): `picker` (option-list/row presence, forward +
+reverse closure with cue, save → config write, re-open reflects saved
+state, cancel, windowing cap).
 
 ---
 
@@ -541,8 +449,8 @@ hard requirement.
 1. `src/focus.ts`: focus is **single-unit** — the `<unit>` is one group
    name, one toolset id, or one tool name — **but never a builtin**
    (decision record above). `/tbox focus <builtin-tool-or-toolset>`
-   errors with "builtins are preserved during focus, not focused on;
-   use `/tbox toggle` to adjust one." Resolve a non-builtin unit to an
+   errors with "builtins are out of tbox's scope; focus on an extension
+   toolset or group instead." Resolve a non-builtin unit to an
    allowlist of toolset ids:
    - group → the group's toolsets (from config) plus their `requires`
      closure (forward) — focus on a group must keep deps on;
@@ -708,16 +616,13 @@ swapping the library dep to the published version.
 
 ### Work
 
-1. **Restore safety.** Tbox's auto-registration (Sprint 0) and dev-mode
-   setting (Sprint 3) must survive `/reload` and `session_tree`. Verify:
+1. **Restore safety.** Tbox's auto-registration (Sprint 0) must survive
+   `/reload` and `session_tree`. Verify:
    - Auto-registration re-runs against the fresh `pi` on `/reload`
      (jiti re-evaluates the module; the factory re-invokes; the
      `session_start` handler re-scans). The library's registry is
      idempotent-by-content so re-registration is a no-op for unchanged
      specs.
-   - Dev mode survives `/reload` trivially: it is re-read from
-     `tbox.dev` in `settings.json` at every `session_start`, so no
-     in-memory flag or persist entry is involved.
    - The `ctx.ui` capture-ordering fix (`render()` at the end of the
      capture handler) is in place — assert the first paint lands on
      post-restore state even if tbox's `session_start` handler runs
@@ -737,9 +642,8 @@ swapping the library dep to the published version.
    (exactly the stated reason for building the manager early).
 3. **Reserved-wordlist finalization.** Confirm the seed set
    (`toggle`, `status`, `focus`, `all`, `list`, `chars`, `group`,
-   `on`, `off`) against the shipped command surface; `dev` is **not**
-   reserved (the `/tbox dev` command was removed in Sprint 3). Add any
-   discovered collisions; document the final list in the README.
+   `on`, `off`) against the shipped command surface. Add any discovered
+   collisions; document the final list in the README.
 4. **`tbox.tool` shape** — **closed in Sprint 3.5**: per-source is
    the default, not "promote if noisy." Verify the per-source toolsets
    behave correctly under `/reload` and `session_tree` (a source that
@@ -754,8 +658,7 @@ swapping the library dep to the published version.
    no test files, and that `pi-tool-masking` resolves in the dep tree.
 6. **README** with the `/tbox` command reference, the 4-state slot
    legend, the drift caveat (`on`/`off` drifts, `focus` doesn't), and
-   the dev-mode explanation (a `tbox.dev` setting in `settings.json`,
-   read at load — no runtime toggle; edit + `/reload` to change).
+   the picker's remappable keyboard shortcuts.
 
 ### Acceptance criteria
 
@@ -764,8 +667,8 @@ swapping the library dep to the published version.
       reporting and focus re-actuation.
 - [ ] **Manual:** `/reload` in a real pi session with tbox + a sibling
       (portal) installed → slot re-paints correctly, auto-registration
-      re-runs, no duplicate toolsets in `getRegisteredToolsets()`, dev
-      mode persists. Steps documented in the PR.
+      re-runs, no duplicate toolsets in `getRegisteredToolsets()`.
+      Steps documented in the PR.
 - [ ] **Manual:** `/resume` or `/tree` navigation → tbox slot reflects
       the restored branch state on first paint.
 - [ ] Final reserved-wordlist documented in README; every reserved word
@@ -787,8 +690,8 @@ swapping the library dep to the published version.
     read-only in `--flat`).
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →
     `on` → `portal.web` cascades on; status reports both.
-  - `toggle <portal.web member>` in normal mode → refused (masked);
-    with `tbox.dev: true` in settings → allowed.
+  - `toggle <portal.web member>` → refused (masked);
+    `toggle <pi.builtin tool>` → refused (out of scope).
   - `all off` → every non-builtin toolset off; `pi.builtin` on; sdk
     untouched.
   - `focus host.api` → inclusion mode, only `host.api` (+ closure) on,
@@ -797,9 +700,8 @@ swapping the library dep to the published version.
   - `chars` deterministic across two calls in the same state.
 - `restore.test.ts`: simulate `/reload` by re-invoking the factory
   against a fresh MockPI sharing the same `globalThis`; assert
-  auto-registration re-runs, registry has no duplicates, dev mode
-  re-read from `tbox.dev` in settings, slot re-paints once on the
-  capture handler.
+  auto-registration re-runs, registry has no duplicates, slot re-paints
+  once on the capture handler.
 - `capture-order.test.ts`: register tbox's `session_start` handler both
   before and after a simulated sibling's (which fires `restored`
   events); assert the first slot paint is correct in both orders (the
@@ -837,11 +739,12 @@ swapping the library dep to the published version.
 
 | Decision | Sprint | Recommendation |
 |---|---|---|
-| **Builtins: preserved not grouped/focused** | 4, 5 | Decision record above — picker never offers builtins (Sprint 4); focus allowlist seeds `pi.builtin` + rejects builtin targets (Sprint 5); one-line `groups.ts` disable-guard folds into Sprint 4 |
+| **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** toggle refuses builtins unconditionally (Sprint 2); picker never offers builtins (Sprint 4); focus rejects builtin targets and seeds `pi.builtin` in the allowlist (Sprint 5). The only `pi.builtin` touch is the `/tbox all off` safety skip |
 | Final reserved-wordlist | 7 | Seed set + any discovered collisions |
-| Group config storage shape | 3 | `tbox.groups` key in merged settings, or dedicated `~/.pi/agent/pi-tbox/groups.json` if settings writes are too risky |
+| Group config storage shape | 3 | **Closed:** `tbox.groups` key in merged settings; `GroupSpec = { toolsets: string[] }` (whole-toolset units only — no per-tool field) |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
-| `requires`-closure picker interaction | 4 | Visible auto-check/auto-uncheck + one-line cue |
+| `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
+| Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
 | `/tbox chars` serialization shape | 6 | `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed |
 | Whether `chars` counts builtin/sdk active tools | 6 | Yes — the count is the honest serialized size of what the LLM sees |

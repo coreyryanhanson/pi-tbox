@@ -36,7 +36,7 @@ a user who names a group `focus` gets a clear error pointing at
 `/tbox group focus`.
 
 **Reserved words:** `toggle`, `status`, `focus`, `all`, `list`, `chars`,
-`dev`, `group`, `on`, `off`. (Finalized during implementation; this is
+`group`, `on`, `off`. (Finalized during implementation; this is
 the seed set.)
 
 | Command | Effect |
@@ -51,7 +51,7 @@ the seed set.)
 | `/tbox focus off` | exit focus → flip inclusion back to exclusion, restore defaults |
 | `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 8) |
 | `/tbox chars` | print the serialized char count of the active tool set (point 5) |
-| `/tbox status` | full status: toolsets, groups, focus, dev mode, char count |
+| `/tbox status` | full status: toolsets, groups, focus, char count |
 
 ## The 8-point surface
 
@@ -82,13 +82,15 @@ appear individually.
 
 ### 2. User groups + focus
 
-A **user group** is a curated, named set of addressable units (whole
-toolsets and/or individual tools) stored in tbox's own user config. The
+A **user group** is a curated, named set of whole toolsets stored in
+tbox's own user config (`{ toolsets: string[] }` — there is no per-tool
+field; pi-tool-masking has no per-tool persist primitive, so a per-tool
+field would collapse to its containing toolset at actuation). The
 library never knows what a group is. `/tbox <group> on` resolves the
-group → its units → calls `toolset.enable/disable` per member; focus
+group → its toolsets → calls `toolset.enable/disable` per member; focus
 additionally flips the library's default-resolution mode to inclusion.
 
-**`requires` closure at curation (non-dev mode).** The portal graph
+**`requires` closure at curation.** The portal graph
 (`portal.learn requires portal.web`) leaks into curation: a group
 containing `{portal.learn}` but not `portal.web` is incoherent, because
 enabling learn silently pulls web on via the library's forward cascade
@@ -101,9 +103,7 @@ closure in **both directions**:
 
 The curated group is then always a closed set under the dependency
 graph, so `/tbox <group> on` enables exactly what's visible — no hidden
-enables. **Dev mode skips closure** (raw behavior; the library still
-resolves `requires` at actuation, so enabling an unclosed group just
-pulls deps on anyway).
+enables.
 
 **Disable cascade reaches outside the group — and tbox can't stop it.**
 `/tbox <group> off` on a `{portal.web}`-only group disables web, which
@@ -127,7 +127,7 @@ can drift, `focus` won't.
 toolset, or a single tool. One label, clean allowlist. Multi-unit focus
 deferred.
 
-**Builtins are preserved, not grouped or focused.** Once tbox
+**Builtins are out of tbox's management scope.** Once tbox
 auto-registers `pi.builtin` (point 8), the §13.2 emergent-preservation
 argument (builtins survive focus because they're in no `defineToolset`
 toolset) no longer holds — `pi.builtin` *is* a registered toolset, so a
@@ -137,12 +137,13 @@ until tbox ships a new release. The fix is tbox-owned, one line in
 `src/focus.ts`: seed the focus allowlist with `pi.builtin` (or skip it
 in the disable pass). The library stays source-agnostic — moving
 builtin registration into the library would propagate the drift bug to
-every library consumer. Three rules follow:
+every library consumer. Four rules follow:
 (a) groups never contain builtins (a group that can mass-disable
 builtins is the point-3 footgun through the back door); (b) focus never
-targets builtins (`/tbox focus <builtin>` errors — use `/tbox toggle`
-for surgical control); (c) the picker never offers builtins as groupable
-rows in any mode — dev mode's builtin affordance is `/tbox toggle` only.
+targets builtins (`/tbox focus <builtin>` errors); (c) the picker never
+offers builtins as rows; (d) `/tbox toggle <builtin>` is an
+unconditional refusal. The only place tbox touches `pi.builtin` is the
+`/tbox all off` safety skip that keeps it enabled.
 
 **Focus exit is re-actuation, not a mode flip.** `/tbox focus off` does
 more than flip inclusion→exclusion: while in focus, tbox writes
@@ -167,26 +168,26 @@ re-implements them. This is consistent with the design split (curation is
 tbox-owned "user intent"), but the duplicated logic must live in one
 shared helper inside tbox, not be inlined per command.
 
-### 3. Developer mode + default guards
+### 3. Default guards
 
-Developer mode is a single `tbox.dev` boolean in `settings.json`, read at
-load (no runtime toggle — toggling it would be unrequested state
-machinery, and a settings key is the natural home for a load-time
-guard flag). `/tbox status` reports whether it's on. Enabling it lifts
-three guards:
+Tbox has one mode. Two guards are unconditional — there is no escape
+hatch and no runtime toggle:
 
-1. **Pi builtin tools are their own toolset and untoggleable** unless dev
-   mode is on. Tbox auto-registers `pi.builtin` (see point 8) and treats
-   it as protected; dev mode exposes it for **individual `/tbox toggle`
-   only** — builtins are never groupable rows in the picker and never
-   focus targets (see "Builtins are preserved, not grouped or focused"
-   below).
-2. **`masked` toolset members are not individually toggleable** unless
-   dev mode is on. In normal mode, tbox honors `spec.masked` — a masked
-   toolset is a sealed unit (members hidden in the picker, only the
-   group toggles). Dev mode lifts masking so members become individually
-   addressable and toggleable.
-3. (Reserved for future guards as they arise.)
+1. **Pi builtin tools are protected.** Tbox auto-registers
+   `pi.builtin` (see point 8) but never manages it: `/tbox toggle
+   <builtin>` is refused ("builtins are protected. tbox does not
+   manage pi's core tools."), builtins are never groupable rows in the
+   picker, and never focus targets (see "Builtins are out of tbox's
+   management scope" in point 2). The only place tbox touches
+   `pi.builtin` is the `/tbox all off` safety skip that keeps it
+   enabled. Builtins are always-on by nature; grouping them is
+   meaningless for `on` and dangerous for `off`, and a newly shipped
+   Pi builtin must stay active during focus.
+2. **`masked` toolset members are not individually toggleable.** Tbox
+   honors `spec.masked` — a masked toolset is a sealed unit (members
+   hidden in the picker, only the group toggles). `/tbox toggle
+   <masked member>` is refused with a pointer to toggle the group.
+   Masking is permanent; there is no per-member addressability escape.
 
 **`masked` is the single source of truth** — no library split into
 `masked`+`atomic`. The sealed-unit behavior (`masked: true` = members
@@ -204,17 +205,32 @@ expanding the library.
 
 ### 4. Group editing UX
 
-Curating a group (`/tbox group <name> edit`) uses the same UX as setting
-pi's scoped models: a filtered list the user checks/unchecked. The
-filtered list depends on dev mode:
+Curating a group (`/tbox group <name> edit`) opens a windowed,
+searchable, keyboard-driven TUI component (`GroupEditorComponent`)
+mounted through pi's documented `ctx.ui.custom<T>(factory)` extension
+API. It mirrors the shape of pi's internal scoped-models picker using
+only **public** `@earendil-works/pi-tui` primitives — no reach into
+pi's interactive-mode internals (those are not re-exported from the
+SDK and would break across updates). Requires interactive (`tui`) mode.
 
-- **Normal mode:** masked toolsets show as sealed units (one check row);
-  individual members are not surfaced. Builtins not shown (protected).
-  `requires` closure auto-maintained (point 2).
-- **Dev mode:** masked toolsets expand to show individual members as
-  checkable rows; no closure auto-apply. **Builtins are still not shown**
-  — dev mode's builtin access is `/tbox toggle <builtin>` only, not the
-  picker (see "Builtins are preserved, not grouped or focused" below).
+**One granularity: toolsets only.** Every addressable unit is one
+check row per toolset. Masked toolsets render as one sealed row
+(members suppressed); unmasked toolsets as one row; orphans as their
+`tbox.tool@<source>` row (point 8). There are no member rows —
+pi-tool-masking has no per-tool persist primitive, so per-tool rows
+would collapse to the containing toolset at actuation. Builtins are
+not shown (protected, out of scope — point 2/3).
+
+**`requires` closure auto-maintained** (point 2): checking a toolset
+forward-closes its deps; unchecking reverse-closes dependents. Cues
+render inline in the component footer (`auto-checked: ...` /
+`auto-unchecked: ...`), fading on the next keypress.
+
+**Keyboard** (all remappable via user keybindings): `↑`/`↓` navigate,
+Enter toggle, Ctrl+A enable all, Ctrl+X clear all, Ctrl+S save, Esc /
+Ctrl+C cancel (clears search first if a filter is active). The list is
+windowed (`maxVisible = 8`) with a fuzzy-filter search input, so it
+never exceeds the viewport regardless of how many toolsets exist.
 
 **`emitMemberEvents` is not used by the MVP picker.** The library offers
 `spec.emitMemberEvents` (§13.1) for per-tool UI fanout on enable/disable.
@@ -236,12 +252,14 @@ on-demand surface.
 
 ### 6. Individual tool toggle
 
-`/tbox toggle <tool>` toggles a single tool. In normal mode, masked
-toolset members are not toggleable here (the guard from point 3); dev
-mode lifts it. A **short prefix** may be required to avoid namespace
-collisions (e.g. `web:click` vs `api:click`) — resolved against
-`pi.getAllTools()` names. User-defined groups are the seamless path
-(point 2); individual toggle is the power-user escape hatch.
+`/tbox toggle <tool>` toggles a single tool (by resolving it to its
+containing toolset and toggling that toolset). Masked toolset members
+are not toggleable here (the guard from point 3 — toggle the group
+instead); builtins are refused (out of scope, point 2/3); sdk tools are
+refused (host-managed). A **short prefix** may be required to avoid
+namespace collisions (e.g. `web:click` vs `api:click`) — resolved
+against `pi.getAllTools()` names. User-defined groups are the seamless
+path (point 2); individual toggle is the power-user escape hatch.
 
 ### 7. Session drift (scoping)
 
@@ -304,11 +322,9 @@ Registered toolsets at load:
   persisting `{ enabled }` state for a toolset whose membership the host
   may swap next session is semantically broken, and `/tbox all off`
   must not clobber host intent (e.g. a deliberately-restricted
-  read-only session's `customTools`). Dev mode does **not** lift this —
-  it only unseals `masked` members and exposes `pi.builtin`, both of
-  which concern tools that are always present; sdk tools are not
-  guaranteed present next session. If a future need arises, a future
-  escalation can add sdk toggling — YAGNI now.
+  read-only session's `customTools`). sdk tools are not guaranteed
+  present next session. If a future need arises, a future escalation
+  can add sdk toggling — YAGNI now.
 
 Everything routes through the frozen library API (including
 `getRegisteredToolsets()`); no new persist shape, and tbox never touches
@@ -321,7 +337,7 @@ Tbox owns one status-bar slot (`tbox`). Four states, one glance each:
 | State | Glyph | Color | Meaning |
 |---|---|---|---|
 | Exclusion, nothing excluded | `○ tbox` | dim/default | pristine — all defaults, nothing toggled |
-| Exclusion, n tools excluded | `● tbox n` | blue (accent) | normal mode, n non-builtin tools turned off |
+| Exclusion, n tools excluded | `● tbox n` | blue (accent) | exclusion mode, n non-builtin tools turned off |
 | Focus on | `● focus:<unit>` | green (success) | deliberate focus mode engaged |
 | Focus on, empty allowlist | `● focus:∅` | red (error) | focus is on but nothing's allowed — broken |
 
@@ -375,9 +391,9 @@ handles the composition.
 |---|---|
 | Registry enumeration | library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
 | Orphans/builtins | tbox auto-registers `pi.builtin` (via `sourceInfo.source === "builtin"`) + one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
-| Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; dev mode lifts it |
+| Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; members sealed, group-toggled only — no escape hatch |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
-| Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); dev mode skips |
+| Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); cues inline in the picker footer |
 | Command collisions | reserved wordlist; `/tbox <group> on` bare for non-reserved |
 | Focus | single-unit; green glyph; drift-free via inclusion mode |
 | Status slot | `○ tbox` pristine / `● tbox n` blue / `● focus:<unit>` green / `● focus:∅` red |
@@ -411,8 +427,8 @@ handles the composition.
 ## MVP scope
 
 **Expanded to all 8 points.** The earlier list+toggle proposal is
-superseded — the MVP ships groups, focus, the picker, dev mode, and the
-char counter together. This validates more of the frozen library API
+superseded — the MVP ships groups, focus, the picker, and the char
+counter together. This validates more of the frozen library API
 against a real consumer before publish (the stated reason for building
 the manager early, per `implementation-plan.md`). The cost is more
 surface to get right under review; the benefit is de-risking the whole
@@ -421,14 +437,17 @@ API surface, not just list+toggle.
 ## Open for implementation
 
 - Final reserved-wordlist (seed set above; may grow).
-- Group config storage shape in tbox's user config (tbox-owned, not
-  library).
+- ~~Group config storage shape in tbox's user config~~ — **resolved:**
+  `tbox.groups` in merged settings; `GroupSpec = { toolsets: string[] }`
+  (whole-toolset units only). See `manager-sprints.md` Sprint 3.
 - ~~Whether `tbox.tool` is one catch-all or per-source-plugin groupings~~
   — **resolved:** per-source (`tbox.tool@<source>`) is the default. A
   catch-all makes per-plugin focus impossible for plugins that only
   register tools (the `tbox.tool@<source>` shape is what closes that
   asymmetry); see `manager-sprints.md` Sprint 3.5 for the landing.
-- `requires`-closure picker interaction details (how the auto-check /
-  auto-uncheck surfaces to the user — animated? logged? silent?).
+- ~~`requires`-closure picker interaction details~~ — **resolved:**
+  inline footer cues in the `GroupEditorComponent`
+  (`auto-checked:` / `auto-unchecked:` one-liner, fading on next
+  keypress). See `manager-sprints.md` Sprint 4.
 - `emitMemberEvents` left off for the MVP picker (decision recorded in
   point 4); revisit only if live per-row picker animation is needed.
