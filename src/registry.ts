@@ -1,17 +1,16 @@
 /**
- * Auto-register pi.builtin and per-source orphan toolsets at load time.
+ * Auto-register orphan toolsets at load time.
  *
  * Scans pi.getAllTools() after all extensions have loaded (in session_start)
- * and registers:
- *   - pi.builtin: all tools with source === "builtin"
- *   - tbox.tool@<source>: for each distinct source of extension tools not
- *     claimed by any other toolset
+ * and registers per-source orphan toolsets for extension tools not
+ * claimed by any other toolset.
+ *
+ * Builtin tools (source === "builtin") and SDK tools are never registered
+ * as tbox toolsets — they're outside tbox's domain.
  *
  * Returns the set of toolset ids that were registered in this call
  * (so callers can actuate them if the library's restore handler already
  * fired before registration).
- *
- * sdk tools are never registered — they are out of tbox's domain.
  *
  * @module
  */
@@ -28,14 +27,8 @@ import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Canonical toolset id for builtin tools (point-3 protected toolset). */
-export const BUILTIN_TOOLSET_ID = "pi.builtin";
-
 /** Prefix for per-source orphan toolset ids: tbox.tool@<source>. */
 export const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
-
-/** Persist key for the builtin toolset. */
-const BUILTIN_PERSIST_KEY = "toolset-state:pi.builtin";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,13 +49,14 @@ function orphanPersistKey(source: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Classify tools by source and register the appropriate toolsets.
+ * Classify tools by source and register orphan toolsets.
  *
  * This function is idempotent — re-running with the same tool population
  * is a no-op (the library's defineToolset is idempotent-by-content for
  * unchanged specs).
  *
- * Returns the set of toolset ids that were newly registered in this call.
+ * Builtin tools and SDK tools are never registered — they are out of
+ * tbox's domain.
  *
  * @param pi - The extension API
  * @returns Array of newly-registered toolset ids (empty if no new registrations)
@@ -71,12 +65,6 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 	const newIds: string[] = [];
 	const allTools = pi.getAllTools();
 	const existingToolsets = getRegisteredToolsets();
-
-	// --- Collect builtin tools ---
-	const builtinTools = allTools.filter(
-		(t) => t.sourceInfo.source === "builtin",
-	);
-	const builtinNames = builtinTools.map((t) => t.name);
 
 	// --- Collect extension tools (not builtin, not sdk) ---
 	const extensionTools = allTools.filter(
@@ -89,7 +77,6 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 		// Skip toolsets we manage (ourselves) so orphan tools don't look
 		// claimed-by-themselves when we re-register.
 		if (entry.spec.id.startsWith(ORPHAN_TOOLSET_PREFIX)) continue;
-		if (entry.spec.id === BUILTIN_TOOLSET_ID) continue;
 		for (const name of entry.spec.names) {
 			claimedByToolset.add(name);
 		}
@@ -106,26 +93,6 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 		const source = tool.sourceInfo.source;
 		if (!toolsBySource.has(source)) toolsBySource.set(source, []);
 		toolsBySource.get(source)!.push(tool);
-	}
-
-	// --- Register pi.builtin ---
-	if (builtinNames.length > 0) {
-		const builtinSpec: ToolsetSpec = {
-			id: BUILTIN_TOOLSET_ID,
-			label: "Pi Builtins",
-			description: "Core Pi tools that are always available.",
-			names: new Set(builtinNames),
-			persistKey: BUILTIN_PERSIST_KEY,
-			defaultEnabled: true,
-			masked: false,
-		};
-		const existing = existingToolsets.find(
-			(e) => e.spec.id === BUILTIN_TOOLSET_ID,
-		);
-		if (!existing) {
-			newIds.push(BUILTIN_TOOLSET_ID);
-		}
-		defineToolset(pi, builtinSpec);
 	}
 
 	// --- Register per-source orphan toolsets ---

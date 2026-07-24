@@ -3,7 +3,6 @@ import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
-	BUILTIN_TOOLSET_ID,
 	ORPHAN_TOOLSET_PREFIX,
 	orphanToolsetId,
 } from "../src/registry.js";
@@ -19,7 +18,7 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		pi = mock as unknown as ExtensionAPI;
 	});
 
-	it("registers pi.builtin with builtin tools", () => {
+	it("does not register builtin tools as a toolset", () => {
 		mock.registerTool({
 			name: "read",
 			description: "Read files",
@@ -44,14 +43,13 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 
 		const toolsets = getRegisteredToolsets();
-		const builtin = toolsets.find(
-			(e: RegistryEntry) => e.spec.id === BUILTIN_TOOLSET_ID,
-		);
 
-		expect(builtin).toBeDefined();
-		expect(builtin!.spec.names).toEqual(new Set(["read", "bash"]));
-		expect(builtin!.spec.defaultEnabled).toBe(true);
-		expect(builtin!.spec.masked).toBe(false);
+		// Builtins are not registered as a toolset — they are
+		// outside tbox's domain.
+		const builtin = toolsets.find(
+			(e: RegistryEntry) => e.spec.id === "pi.builtin",
+		);
+		expect(builtin).toBeUndefined();
 	});
 
 	it("registers per-source orphan toolsets for unclaimed extension tools", () => {
@@ -205,11 +203,12 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 
 		const toolsets = getRegisteredToolsets();
-		const builtins = toolsets.filter(
-			(e: RegistryEntry) => e.spec.id === BUILTIN_TOOLSET_ID,
-		);
 
-		expect(builtins).toHaveLength(1);
+		// Builtins are not registered — only orphan toolsets
+		// are created, and they must not duplicate either.
+		expect(toolsets.length).toBeGreaterThanOrEqual(0);
+		const ids = new Set(toolsets.map((e: RegistryEntry) => e.spec.id));
+		expect(ids.size).toBe(toolsets.length);
 	});
 
 	it("handles empty tool population", () => {
@@ -276,15 +275,15 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 
 		const toolsets = getRegisteredToolsets();
+		// Builtins are not registered as a toolset
 		const builtin = toolsets.find(
-			(e: RegistryEntry) => e.spec.id === BUILTIN_TOOLSET_ID,
+			(e: RegistryEntry) => e.spec.id === "pi.builtin",
 		);
+		expect(builtin).toBeUndefined();
+
 		const orphanEntry = toolsets.find(
 			(e: RegistryEntry) => e.spec.id === orphanToolsetId("pi-other"),
 		);
-
-		expect(builtin).toBeDefined();
-		expect(builtin!.spec.names).toEqual(new Set(["read"]));
 
 		expect(orphanEntry).toBeDefined();
 		expect(orphanEntry!.spec.names).toEqual(new Set(["orphan-tool"]));

@@ -90,13 +90,18 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 		defaultEnabled: true,
 	});
 
-	// Auto-register pi.builtin + per-source orphan toolsets
+	// Auto-register per-source orphan toolsets
+	// (builtins are not registered as a tbox toolset — they are
+	// platform-managed and always active)
 	autoRegisterBuiltinAndOrphans(pi);
 
-	// Enable all toolsets
+	// Enable all registered toolsets
 	for (const entry of getRegisteredToolsets()) {
 		entry.toolset.enable(pi);
 	}
+
+	// Simulate the real Pi platform: builtins are always active.
+	pi.setActiveTools(["read", "bash"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -123,12 +128,14 @@ describe("toggleAll", () => {
 		const msg = toggleAll(pi, true);
 		expect(msg).toContain("Enabled");
 
-		// Every tool should be active
+		// Extension tools are active
 		const active = mock.getActiveTools();
-		expect(active).toContain("read");
 		expect(active).toContain("web-fetch");
 		expect(active).toContain("web-learn");
 		expect(active).toContain("orphan-tool");
+		// Builtins are platform-managed — always active regardless of toggleAll
+		expect(active).toContain("read");
+		expect(active).toContain("bash");
 	});
 
 	it("all off disables every non-builtin toolset", () => {
@@ -137,7 +144,7 @@ describe("toggleAll", () => {
 		const msg = toggleAll(pi, false);
 		expect(msg).toContain("Disabled");
 
-		// Builtins remain active
+		// Builtins remain active (platform-managed, not in tbox)
 		const active = mock.getActiveTools();
 		expect(active).toContain("read");
 		expect(active).toContain("bash");
@@ -162,15 +169,19 @@ describe("toggleAll", () => {
 		expect(after).not.toContain("custom-x");
 	});
 
-	it("pi.builtin stays enabled after all off in normal mode", () => {
+	it("all off leaves builtins untouched (not in registry)", () => {
 		setupRichMock(mock, pi);
 
 		toggleAll(pi, false);
 
-		// pi.builtin should still be enabled (protected)
+		// Builtins are platform-managed — not in tbox's registry.
+		// toggleAll can only affect registered toolsets.
 		const active = mock.getActiveTools();
 		expect(active).toContain("read");
 		expect(active).toContain("bash");
+		expect(active).not.toContain("web-fetch");
+		expect(active).not.toContain("web-learn");
+		expect(active).not.toContain("orphan-tool");
 	});
 });
 

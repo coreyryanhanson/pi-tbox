@@ -20,6 +20,7 @@ import {
 	render,
 	clearSlot,
 	setFocusUnit,
+	restoreFocusUnit,
 } from "./src/status-slot.js";
 import {
 	formatBareHelp,
@@ -214,6 +215,14 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			};
 		};
 
+		// Restore the focus-unit label from the branch before rendering so
+		// the `● focus:<unit>` glyph repaints on resume (Fix 2 — cosmetic).
+		restoreFocusUnit(
+			ctx as unknown as {
+				sessionManager: { getBranch: () => unknown[] };
+			},
+		);
+
 		// Render the slot at the END of the capture handler (§6 fix)
 		render(pi, lastCtx);
 	});
@@ -232,6 +241,14 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				theme: { fg: (color: string, text: string) => string };
 			};
 		};
+
+		// Restore the focus-unit label from the branch before rendering so
+		// the `● focus:<unit>` glyph repaints on resume (Fix 2 — cosmetic).
+		restoreFocusUnit(
+			ctx as unknown as {
+				sessionManager: { getBranch: () => unknown[] };
+			},
+		);
 
 		// Render the slot at the END of the capture handler (§6 fix)
 		render(pi, lastCtx);

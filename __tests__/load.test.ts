@@ -34,7 +34,7 @@ describe("load.test", () => {
 		}).not.toThrow();
 	});
 
-	it("session_start handler registers pi.builtin and per-source orphan toolsets", () => {
+	it("session_start handler registers per-source orphan toolsets", () => {
 		// Add some tools before loading
 		mock.registerTool({
 			name: "read",
@@ -63,11 +63,12 @@ describe("load.test", () => {
 		mock.fireLifecycleEvent("session_start");
 
 		// Check that toolsets were registered
+		// Builtins are not registered as a toolset.
 		const toolsets = getRegisteredToolsets();
 		const ids = toolsets.map((e: RegistryEntry) => e.spec.id);
 
-		expect(ids).toContain("pi.builtin");
 		expect(ids).toContain("tbox.tool@extension");
+		expect(ids).not.toContain("pi.builtin");
 	});
 
 	it("session_start handler renders the status slot", () => {

@@ -103,8 +103,8 @@ export function toggleTool(pi: ExtensionAPI, input: string): string {
 		return `Cannot toggle "${tool.name}": no toolset contains this tool.`;
 	}
 
-	// --- Guards (always enforced) ---
-	if (entry.spec.id === "pi.builtin") {
+	// --- Builtin guard (always enforced) ---
+	if (tool.sourceInfo.source === "builtin") {
 		return `Cannot toggle "${tool.name}": builtins are protected. tbox does not manage pi's core tools.`;
 	}
 
@@ -148,9 +148,6 @@ export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
 	let changed = 0;
 
 	for (const entry of toolsets) {
-		// pi.builtin is protected when disabling
-		if (!enable && entry.spec.id === "pi.builtin") continue;
-
 		const wasEnabled = entry.toolset.isEnabled(pi);
 
 		if (enable && !wasEnabled) {

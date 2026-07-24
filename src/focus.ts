@@ -19,8 +19,7 @@ import {
 } from "pi-tool-masking";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
 import { resolveGroup } from "./groups.js";
-import { BUILTIN_TOOLSET_ID } from "./registry.js";
-import { setFocusUnit, rerenderSlot } from "./status-slot.js";
+import { setFocusUnit, rerenderSlot, persistFocusUnit } from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
 // Resolution
@@ -41,8 +40,10 @@ type ResolvedUnit =
  *   5. Fallback error.
  */
 function resolveFocusUnit(pi: ExtensionAPI, input: string): ResolvedUnit {
-	// --- Builtin guard ---
-	if (input === BUILTIN_TOOLSET_ID) {
+	// Builtin guard — reject if the input matches a builtin tool name
+	// or the reserved id "pi.builtin". Builtins are out of tbox's scope;
+	// focus on an extension toolset or group instead.
+	if (input === "pi.builtin") {
 		return {
 			ok: false,
 			error:
@@ -152,12 +153,11 @@ function resolveFocusUnit(pi: ExtensionAPI, input: string): ResolvedUnit {
  * 1. Resolves the unit to an allowlist of toolset ids (+ forward requires
  *    + reverse dependents closure, so the library's bi-directional enable
  *    cascade matches the allowlist).
- * 2. Seeds `pi.builtin` into the allowlist (drift fix).
- * 3. Sets inclusion mode so unknown toolsets default off.
- * 4. Enables every toolset in the allowlist (first pass — the library
+ * 2. Sets inclusion mode so unknown toolsets default off.
+ * 3. Enables every toolset in the allowlist (first pass — the library
  *    cascades deps + dependents naturally).
- * 5. Disables every toolset NOT in the allowlist and NOT cascaded by the
- *    library (second pass — pi.builtin is never disabled).
+ * 4. Disables every toolset NOT in the allowlist and NOT cascaded by the
+ *    library (second pass).
  *
  * @returns A human-readable result or error message.
  */
@@ -167,10 +167,6 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 
 	const allowlist = new Set(resolved.toolsetIds);
 
-	// Seed pi.builtin into the allowlist so newly shipped builtins survive
-	// focus (§13.2 drift fix — one line, tbox-owned)
-	allowlist.add(BUILTIN_TOOLSET_ID);
-
 	const registry = getRegisteredToolsets();
 
 	// Set the focus unit BEFORE actuating so the TOOLSET_EVENTS.changed
@@ -178,6 +174,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	// focus glyph, not a one-frame-stale count glyph. The final rerenderSlot
 	// covers the no-event edge case (re-focus on an identical allowlist).
 	setFocusUnit(resolved.label);
+	persistFocusUnit(pi, resolved.label);
 
 	// Set inclusion mode before actuating
 	setDefaultResolutionMode(pi, "inclusion");
@@ -206,7 +203,6 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	for (const entry of registry) {
 		const id = entry.spec.id;
 		if (allowlist.has(id)) continue;
-		if (id === BUILTIN_TOOLSET_ID) continue;
 
 		if (entry.toolset.isEnabled(pi)) {
 			entry.toolset.disable(pi);
@@ -236,6 +232,7 @@ export function focusOff(pi: ExtensionAPI): string {
 	// fanout (emitted synchronously inside enable()/disable()) renders the
 	// post-focus glyph, not a one-frame-stale focus glyph.
 	setFocusUnit(null);
+	persistFocusUnit(pi, null);
 
 	// ponytail: focus-era overwrite is destructive — pre-focus manual toggles
 	// are lost. The MVP confirms this: "the library never remembers pre-focus

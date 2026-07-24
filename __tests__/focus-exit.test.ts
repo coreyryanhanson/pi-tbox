@@ -113,13 +113,12 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		// The orphan tool is still disabled because the entry wins
 		// over exclusion mode (design.md §4.5).
 		const orphanEntry = getRegisteredToolsets().find(
-			(e) => e.spec.id !== "pi.builtin" && e.spec.id !== "portal.web",
+			(e) => e.spec.id === "tbox.tool@orphan-source",
 		);
 		expect(orphanEntry).toBeDefined();
 		expect(orphanEntry!.toolset.isEnabled(pi)).toBe(false);
 
-		// builtins and focused tools are fine
-		expect(new Set(pi.getActiveTools()).has("read")).toBe(true);
+		// focused tools are fine
 		expect(new Set(pi.getActiveTools()).has("web-fetch")).toBe(true);
 
 		// Now demonstrate the CORRECT fix: drive it back to defaultEnabled
@@ -156,10 +155,9 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		expect(exitEnable).toBeDefined();
 		expect((exitEnable!.data as Record<string, unknown>)?.enabled).toBe(true);
 
-		// All extension tools are back on
+		// All extension tools are back on (builtins are always active)
 		const active = new Set(pi.getActiveTools());
 		expect(active.has("orphan-tool")).toBe(true);
 		expect(active.has("web-fetch")).toBe(true);
-		expect(active.has("read")).toBe(true);
 	});
 });

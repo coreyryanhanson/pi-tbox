@@ -73,7 +73,8 @@ describe("restore-timing: actuateNewToolsets", () => {
 		expect(active).toContain("ext-tool-0");
 		expect(active).toContain("ext-tool-1");
 		expect(active).toContain("ext-tool-2");
-		expect(active).toContain("read"); // builtin also actuated
+		// Builtins are not registered as a toolset — they remain
+		// managed by the platform and are not actuated by tbox.
 	});
 
 	it("without actuateNewToolsets, orphans stay inactive (reproduces the bug)", () => {
@@ -320,9 +321,9 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		expect(newIds).toContain("pi.builtin");
 		expect(newIds).toContain(orphanToolsetId("my-source"));
-		expect(newIds).toHaveLength(2);
+		expect(newIds).toHaveLength(1);
+		// pi.builtin is not registered as a toolset.
 
 		// Second call — no new ids (idempotent)
 		const secondIds = autoRegisterBuiltinAndOrphans(pi);

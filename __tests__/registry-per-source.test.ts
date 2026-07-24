@@ -17,7 +17,6 @@ import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
-	BUILTIN_TOOLSET_ID,
 	orphanToolsetId,
 } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
@@ -80,8 +79,9 @@ describe("per-source orphan registration", () => {
 
 		const toolsets = getRegisteredToolsets();
 
-		// Should have: pi.builtin + tbox.tool@pi-lens + tbox.tool@my-plugin = 3
-		expect(toolsets).toHaveLength(3);
+		// Should have: tbox.tool@pi-lens + tbox.tool@my-plugin = 2
+		// (builtins are not registered as a toolset)
+		expect(toolsets).toHaveLength(2);
 
 		const lensToolset = toolsets.find(
 			(e) => e.spec.id === orphanToolsetId("pi-lens"),
@@ -89,7 +89,6 @@ describe("per-source orphan registration", () => {
 		const myPluginToolset = toolsets.find(
 			(e) => e.spec.id === orphanToolsetId("my-plugin"),
 		);
-		const builtin = toolsets.find((e) => e.spec.id === BUILTIN_TOOLSET_ID);
 
 		expect(lensToolset).toBeDefined();
 		expect(lensToolset!.spec.names.size).toBe(3);
@@ -106,9 +105,6 @@ describe("per-source orphan registration", () => {
 		expect(myPluginToolset!.spec.description).toBe(
 			"A single tool from my-plugin",
 		);
-
-		expect(builtin).toBeDefined();
-		expect(builtin!.spec.names).toEqual(new Set(["read"]));
 
 		// No catch-all tbox.orphans or tbox.tool
 		const catchAll = toolsets.find(
@@ -218,7 +214,7 @@ describe("focus granularity with per-source toolsets", () => {
 		pi = mock as unknown as ExtensionAPI;
 	});
 
-	it("entering focus on one tbox.tool@<source> keeps only that source + pi.builtin", () => {
+	it("entering focus on one tbox.tool@<source> keeps only that source active", () => {
 		// Two unclaimed sources: pi-lens (3 tools) and my-plugin (1 tool)
 		for (let i = 0; i < 3; i++) {
 			mock.registerTool({
@@ -243,36 +239,19 @@ describe("focus granularity with per-source toolsets", () => {
 			},
 		});
 
-		// Builtins
-		mock.registerTool({
-			name: "read",
-			description: "Read files",
-			sourceInfo: {
-				path: "builtin.ts",
-				source: "builtin",
-				scope: "user",
-				origin: "top-level",
-			},
-		});
-
 		autoRegisterBuiltinAndOrphans(pi);
 
-		// Enable all so focus can disable
+		// Enable all registered toolsets so focus can disable
 		for (const entry of getRegisteredToolsets()) {
 			entry.toolset.enable(pi);
 		}
 		mock.clearUiRecords();
 
-		// --- Simulate focus on tbox.tool@pi-lens ---
-		// (Sprint 5 will provide the real /tbox focus command)
-		// Pre-pin: the allowlist seeds pi.builtin + the target + its closure.
-		// Here the target has no requires, so allowlist is:
-		//   - tbox.tool@pi-lens (target)
-		//   - pi.builtin (always seeded — the drift fix)
-		//
-		// Disable everything not in the allowlist.
+		// --- Simulate focus: allowlist = tbox.tool@pi-lens only ---
+		// (Builtins are not in tbox's allowlist — they are
+		// platform-managed and always stay active regardless.)
 
-		const allowlist = new Set([orphanToolsetId("pi-lens"), BUILTIN_TOOLSET_ID]);
+		const allowlist = new Set([orphanToolsetId("pi-lens")]);
 
 		setDefaultResolutionMode(pi, "inclusion");
 
@@ -295,8 +274,8 @@ describe("focus granularity with per-source toolsets", () => {
 		// my-plugin tool inactive (its toolset was disabled)
 		expect(active).not.toContain("my-tool");
 
-		// pi.builtin active (allowlist-seeded)
-		expect(active).toContain("read");
+		// Builtins are platform-managed — outside tbox's registry.
+		// (In a real Pi session they remain active independently.)
 
 		// Cleanup
 		setDefaultResolutionMode(pi, "exclusion");

@@ -9,6 +9,9 @@ import {
 	getFocusUnit,
 	clearSlot,
 	wireSlot,
+	persistFocusUnit,
+	restoreFocusUnit,
+	FOCUS_PERSIST_KEY,
 	SLOT_NAME,
 } from "../src/status-slot.js";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
@@ -418,6 +421,73 @@ describe("status-slot", () => {
 
 			const lastStatus = mock.getLastStatus(SLOT_NAME);
 			expect(lastStatus?.text).toBe("");
+		});
+	});
+
+	describe("Fix 2: focus-label persistence across quit/resume", () => {
+		it("persistFocusUnit writes a tbox-focus-state entry", () => {
+			persistFocusUnit(pi, "portal.web");
+			const entries = mock.getEntries(FOCUS_PERSIST_KEY);
+			expect(entries).toHaveLength(1);
+			expect(entries[0]!.data).toEqual({ unit: "portal.web" });
+		});
+
+		it("restoreFocusUnit replays the last focus-state entry before render", () => {
+			// Simulate a resumed process: branch seeded with a focus entry.
+			expect(getFocusUnit()).toBeNull();
+			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: "portal.web" });
+
+			restoreFocusUnit(mock.createContext());
+			expect(getFocusUnit()).toBe("portal.web");
+
+			// A later focus-off entry supersedes an earlier focus-on entry
+			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: null });
+			restoreFocusUnit(mock.createContext());
+			expect(getFocusUnit()).toBeNull();
+		});
+
+		it("a focused session resumed against a fresh process paints the focus glyph", () => {
+			// Process 1: focus writes the durable label entry.
+			const mock1 = new MockPI();
+			const pi1 = mock1 as unknown as ExtensionAPI;
+			persistFocusUnit(pi1, "portal.web");
+			const branch = mock1.getEntries(FOCUS_PERSIST_KEY);
+			expect(branch).toHaveLength(1);
+
+			// Simulate quit + resume: fresh process, branch replayed from disk.
+			// _focusUnit is process-local so it starts null on the new process.
+			setFocusUnit(null);
+			for (const e of branch) {
+				mock.appendEntry(e.customType, e.data);
+			}
+
+			// Seed one active extension tool so the focus state is non-empty.
+			mock.registerTool({
+				name: "web-fetch",
+				description: "Web fetch",
+				sourceInfo: {
+					path: "portal.ts",
+					source: "extension",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.setActiveTools(["web-fetch"]);
+
+			restoreFocusUnit(mock.createContext());
+			expect(getFocusUnit()).toBe("portal.web");
+
+			render(
+				pi,
+				mock.createContext() as unknown as {
+					ui: {
+						setStatus: (slot: string, text: string) => void;
+						theme: { fg: (color: string, text: string) => string };
+					};
+				},
+			);
+			const status = mock.getLastStatus(SLOT_NAME);
+			expect(status!.text).toBe("<success>●</success> focus:portal.web (1)");
 		});
 	});
 });

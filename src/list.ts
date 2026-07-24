@@ -294,8 +294,6 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const tags: string[] = [];
 
 		if (spec.masked) tags.push("masked");
-		if (spec.id === "pi.builtin") tags.push("protected");
-
 		const tagStr =
 			tags.length > 0
 				? ` (${tags.join(", ")}, ${memberCount} members)`
@@ -303,6 +301,19 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const pad = "\u00a0".repeat(Math.max(1, 20 - spec.id.length));
 
 		lines.push(`  ${spec.id}${pad}${enabledStr}${tagStr}`);
+	}
+
+	// Builtins: always-on, shown as a separate group (not in the registry)
+	const builtinTools = pi
+		.getAllTools()
+		.filter((t) => t.sourceInfo.source === "builtin");
+	if (builtinTools.length > 0) {
+		const activeCount = builtinTools.filter((t) =>
+			activeSet.has(t.name),
+		).length;
+		lines.push(
+			`  pi.builtin        enabled  (${builtinTools.length} members, ${activeCount} active)`,
+		);
 	}
 
 	// Subsystems not yet shipped report default-off/none

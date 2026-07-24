@@ -18,14 +18,13 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import { getRegisteredToolsets } from "pi-tool-masking";
 import {
 	readTboxConfig,
 	writeGroupToConfig,
 	type GroupSpec,
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
-import { BUILTIN_TOOLSET_ID } from "./registry.js";
 import { getFocusUnit } from "./status-slot.js";
 import { GroupEditorComponent } from "./group-editor.js";
 
@@ -70,7 +69,7 @@ export interface PickerUnit {
 /**
  * Build the list of addressable units for the picker.
  *
- * One row per non-pi.builtin toolset:
+ * One row per registered toolset:
  *  - Masked toolsets → one sealed row: "{label} (masked, N tools)"
  *  - Unmasked toolsets → one row: "{label} (N tools)"
  * No member rows.
@@ -80,8 +79,6 @@ export function buildPickerUnits(): PickerUnit[] {
 	const units: PickerUnit[] = [];
 
 	for (const entry of registry) {
-		if (entry.spec.id === BUILTIN_TOOLSET_ID) continue;
-
 		const label = entry.spec.label ?? entry.spec.id;
 		if (entry.spec.masked) {
 			units.push({

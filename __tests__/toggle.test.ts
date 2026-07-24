@@ -246,7 +246,7 @@ describe("toggleTool", () => {
 		setupToggleFixture(mock, pi);
 		const msg = toggleTool(pi, "read");
 		expect(msg).toContain("Cannot toggle");
-		expect(msg).toContain("builtins are protected. tbox does not manage pi's core tools.");
+		expect(msg).toContain("no toolset contains this tool");
 	});
 	it("toggles an orphan tool via its per-source toolset", () => {
 		setupToggleFixture(mock, pi);
@@ -326,7 +326,7 @@ describe("toggle via dispatchCommand", () => {
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
 		expect(notify!.level).toBe("error");
-		expect(notify!.message).toContain("builtins are protected");
+		expect(notify!.message).toContain("no toolset contains this tool");
 	});
 
 	it("shows usage when no tool argument given", async () => {

@@ -34,6 +34,9 @@ let _focusUnit: string | null = null;
 /** The slot name used for tbox's status bar entry. */
 export const SLOT_NAME = "tbox";
 
+/** Durable key for the focus-unit label (§13.2 — manager intent persists). */
+export const FOCUS_PERSIST_KEY = "tbox-focus-state";
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -127,10 +130,37 @@ export function render(
 // ---------------------------------------------------------------------------
 
 /**
- * Set the focus unit (called by focus.ts when entering focus).
+ * Set the focus unit (in-memory only). Called by focus.ts when entering/
+ * exiting focus; pair with `persistFocusUnit` to make the label durable.
  */
 export function setFocusUnit(unit: string | null): void {
 	_focusUnit = unit;
+}
+
+/**
+ * Persist the focus-unit label to the session branch so it survives
+ * quit/resume (Fix 2 — cosmetic slot glyph). `{ unit: null }` on exit.
+ */
+export function persistFocusUnit(pi: ExtensionAPI, unit: string | null): void {
+	pi.appendEntry(FOCUS_PERSIST_KEY, { unit });
+}
+
+/**
+ * Restore the focus-unit label from the session branch. Call from the
+ * session_start/session_tree capture handler before `render()` so the
+ * `● focus:<unit>` glyph repaints on resume. No-op if no entry exists.
+ */
+export function restoreFocusUnit(ctx: {
+	sessionManager: { getBranch: () => unknown[] };
+}): void {
+	const branch = ctx.sessionManager.getBranch();
+	const entries = branch.filter(
+		(b: any) =>
+			b.customType === FOCUS_PERSIST_KEY && b.data && "unit" in b.data,
+	);
+	if (entries.length > 0) {
+		_focusUnit = (entries[entries.length - 1] as any).data.unit;
+	}
 }
 
 /**

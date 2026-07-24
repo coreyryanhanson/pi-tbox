@@ -197,7 +197,7 @@ describe("/tbox focus", () => {
 	});
 
 	describe("on a toolset", () => {
-		it("enables target + cascade (deps + dependents), disables others, keeps pi.builtin", () => {
+		it("enables target + cascade (deps + dependents), disables others", () => {
 			setup(pi, mock);
 
 			const result = focusUnit(pi, "portal.web");
@@ -217,25 +217,17 @@ describe("/tbox focus", () => {
 			expect(active.has("lens-tool-1")).toBe(false);
 			expect(active.has("lens-tool-2")).toBe(false);
 			expect(active.has("my-tool")).toBe(false);
-			// builtins stay active
-			expect(active.has("read")).toBe(true);
-			expect(active.has("bash")).toBe(true);
 
 			// Inclusion mode is set
 			expect(getDefaultResolutionMode(pi)).toBe("inclusion");
 		});
 
-		it("writes entries for disabled toolsets but not for pi.builtin", () => {
+		it("writes entries for disabled toolsets", () => {
 			setup(pi, mock);
 
 			focusUnit(pi, "portal.web");
 
 			const entries = mock.getEntries();
-			const persistKeys = entries.map((e) => e.customType);
-
-			// pi.builtin was seeded in the allowlist and already enabled,
-			// so no entry is written for it.
-			expect(persistKeys).not.toContain("toolset-state:pi.builtin");
 
 			// Entries were written for disabled orphan toolsets
 			const disabledKeys = entries
@@ -268,8 +260,6 @@ describe("/tbox focus", () => {
 			expect(active.has("web-fetch")).toBe(true);
 			// orphans are disabled
 			expect(active.has("my-tool")).toBe(false);
-			// builtins stay active
-			expect(active.has("read")).toBe(true);
 		});
 
 		it("errors on empty group", () => {
@@ -300,8 +290,6 @@ describe("/tbox focus", () => {
 			expect(active.has("web-fetch")).toBe(true);
 			// orphans disabled
 			expect(active.has("lens-tool-0")).toBe(false);
-			// builtins stay active
-			expect(active.has("read")).toBe(true);
 		});
 	});
 
@@ -434,13 +422,13 @@ describe("/tbox focus", () => {
 			expect(getDefaultResolutionMode(pi)).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
-			// All toolsets back to defaultEnabled (all were defaultEnabled:true)
+			// All extension toolsets back to defaultEnabled
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("web-fetch")).toBe(true);
 			expect(active.has("web-learn")).toBe(true);
 			expect(active.has("lens-tool-0")).toBe(true);
 			expect(active.has("my-tool")).toBe(true);
-			expect(active.has("read")).toBe(true);
+			// Builtins are platform-managed — not in tbox's toolset registry
 		});
 
 		it("overwrites focus-era disabled entries with default-enabled entries", () => {

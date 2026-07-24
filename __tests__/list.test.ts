@@ -553,10 +553,12 @@ describe("formatStatus", () => {
 
 		const output = formatStatus(pi);
 
-		expect(output).toContain("pi.builtin");
 		expect(output).toContain("portal.web");
 		expect(output).toContain("portal.learn");
 		expect(output).toContain("tbox.tool@extension");
+
+		// Builtins are shown separately (not in the registry)
+		expect(output).toContain("pi.builtin");
 
 		expect(output).toContain("User Groups:");
 		expect(output).toContain("Focus: off");
@@ -576,11 +578,11 @@ describe("formatStatus", () => {
 		expect(output).toContain("masked");
 	});
 
-	it("shows protected flag on pi.builtin", () => {
+	it("does not expose builtins as a toggleable toolset", () => {
 		setupRichMock(mock, pi);
 
 		const output = formatStatus(pi);
-		expect(output).toContain("protected");
+		expect(output).not.toContain("protected");
 	});
 });
 
