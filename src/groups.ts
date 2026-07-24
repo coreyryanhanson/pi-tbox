@@ -59,8 +59,7 @@ export function resolveGroup(
 export interface PickerUnit {
 	id: string;
 	label: string;
-	type: "toolset" | "tool";
-	toolsetId?: string;
+	type: "toolset";
 }
 
 // ---------------------------------------------------------------------------
@@ -70,115 +69,35 @@ export interface PickerUnit {
 /**
  * Build the list of addressable units for the picker.
  *
- * Normal mode:
- *  - Masked toolsets → one sealed row (toolset itself)
- *  - Unmasked toolsets → one row per toolset + one row per member
- *  - Orphans → individual tool-rows under their tbox.tool@<source> toolset
- *  - pi.builtin → not shown
- *
- * Dev mode:
- *  - Masked toolsets → individual member rows (no toolset row)
- *  - Others same as normal mode (but pi.builtin still absent)
+ * One row per non-pi.builtin toolset:
+ *  - Masked toolsets → one sealed row: "{label} (masked, N tools)"
+ *  - Unmasked toolsets → one row: "{label} (N tools)"
+ * No member rows.
  */
-export function buildPickerUnits(devMode: boolean): PickerUnit[] {
+export function buildPickerUnits(): PickerUnit[] {
 	const registry = getRegisteredToolsets();
 	const units: PickerUnit[] = [];
 
 	for (const entry of registry) {
 		if (entry.spec.id === BUILTIN_TOOLSET_ID) continue;
 
+		const label = entry.spec.label ?? entry.spec.id;
 		if (entry.spec.masked) {
-			if (!devMode) {
-				// Normal mode: one sealed row for the whole toolset
-				const label = entry.spec.label ?? entry.spec.id;
-				units.push({
-					id: entry.spec.id,
-					label: `${label} (masked, ${entry.spec.names.size} tools)`,
-					type: "toolset",
-				});
-			} else {
-				// Dev mode: individual member rows (no toolset row)
-				for (const name of entry.spec.names) {
-					units.push({
-						id: name,
-						label: name,
-						type: "tool",
-						toolsetId: entry.spec.id,
-					});
-				}
-			}
+			units.push({
+				id: entry.spec.id,
+				label: `${label} (masked, ${entry.spec.names.size} tools)`,
+				type: "toolset",
+			});
 		} else {
-			// Unmasked toolset: toolset row + member tool rows
-			const label = entry.spec.label ?? entry.spec.id;
 			units.push({
 				id: entry.spec.id,
 				label: `${label} (${entry.spec.names.size} tools)`,
 				type: "toolset",
 			});
-			for (const name of entry.spec.names) {
-				units.push({
-					id: name,
-					label: name,
-					type: "tool",
-					toolsetId: entry.spec.id,
-				});
-			}
 		}
 	}
 
 	return units;
-}
-
-// ---------------------------------------------------------------------------
-// Closure helpers for the picker
-// ---------------------------------------------------------------------------
-
-/**
- * Compute the effective set of toolset IDs from the current selection.
- *
- * Includes both directly-checked toolsets and the containing toolsets of
- * cherry-picked member tools.
- */
-export function effectiveToolsetIds(
-	checkedToolsets: Set<string>,
-	checkedTools: Set<string>,
-): Set<string> {
-	const ids = new Set(checkedToolsets);
-	const registry = getRegisteredToolsets();
-	for (const toolName of checkedTools) {
-		const entry = findContainingToolset(toolName, registry);
-		if (entry) ids.add(entry.spec.id);
-	}
-	return ids;
-}
-
-/**
- * Remove all checked tools that belong to a given toolset.
- */
-function removeToolsInToolset(
-	checkedTools: Set<string>,
-	toolsetId: string,
-): void {
-	const registry = getRegisteredToolsets();
-	const entry = registry.find((e) => e.spec.id === toolsetId);
-	if (!entry) return;
-	for (const name of entry.spec.names) {
-		checkedTools.delete(name);
-	}
-}
-
-/**
- * Compute the auto-checked toolset IDs: those in forwardClosure(effective)
- * but not in the user's direct selection.
- */
-export function autoCheckedToolsetIds(
-	checkedToolsets: Set<string>,
-	checkedTools: Set<string>,
-): Set<string> {
-	const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
-	const closure = forwardClosure(effective);
-	// Auto = in closure but not directly checked
-	return new Set([...closure].filter((id) => !effective.has(id)));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,32 +108,27 @@ export function autoCheckedToolsetIds(
  * Open the group edit picker for a named group.
  *
  * Mounts a GroupEditorComponent via `ctx.ui.custom`.
- * In normal mode, the `requires` closure is auto-maintained
- * (forward on check, reverse on uncheck). In dev mode, raw toggling
- * (the library still resolves `requires` at actuation, but the picker
- * does not pre-apply it).
+ * The `requires` closure is auto-maintained (forward on check, reverse
+ * on uncheck).
  *
- * On save, writes the curated `{toolsets, tools}` to config.
+ * On save, writes the curated `{toolsets}` to config.
  */
 export async function editGroup(
 	name: string,
 	ctx: ExtensionContext,
-	devMode: boolean,
 ): Promise<string> {
 	if (ctx.mode !== "tui") {
 		return "Group editing requires interactive mode.";
 	}
 
 	const resolved = resolveGroup(name);
-	const existingGroup =
-		"group" in resolved ? resolved.group : { toolsets: [], tools: [] };
+	const existingGroup = "group" in resolved ? resolved.group : { toolsets: [] };
 
 	const result = await ctx.ui.custom<{ saved: boolean }>(
 		(_tui, theme, _kb, done) =>
 			new GroupEditorComponent(
 				{
 					groupName: name,
-					devMode,
 					initial: existingGroup,
 					onSave: (spec) => {
 						writeGroupToConfig(name, spec);
@@ -238,8 +152,6 @@ export async function editGroup(
 export function toggleToolsetUnit(
 	unit: PickerUnit,
 	checkedToolsets: Set<string>,
-	checkedTools: Set<string>,
-	devMode: boolean,
 ): { cue: string } {
 	const wasChecked = checkedToolsets.has(unit.id);
 	let cue = "";
@@ -247,91 +159,26 @@ export function toggleToolsetUnit(
 	if (wasChecked) {
 		// --- Unchecking ---
 		checkedToolsets.delete(unit.id);
-
-		if (!devMode) {
-			// Reverse closure: find dependents and uncheck them too
-			const revClosure = reverseClosure([unit.id]);
-			const uncheckDeps = [...revClosure].filter((id) => id !== unit.id);
-			if (uncheckDeps.length > 0) {
-				for (const depId of uncheckDeps) {
-					checkedToolsets.delete(depId);
-					removeToolsInToolset(checkedTools, depId);
-				}
-				cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${unit.id})`;
+		// Reverse closure: find dependents and uncheck them too
+		const revClosure = reverseClosure([unit.id]);
+		const uncheckDeps = [...revClosure].filter((id) => id !== unit.id);
+		if (uncheckDeps.length > 0) {
+			for (const depId of uncheckDeps) {
+				checkedToolsets.delete(depId);
 			}
+			cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${unit.id})`;
 		}
 	} else {
 		// --- Checking ---
 		checkedToolsets.add(unit.id);
-
-		if (!devMode) {
-			// Forward closure: ensure transitive deps are checked
-			const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
-			const closure = forwardClosure(effective);
-			const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
-			for (const depId of newDeps) {
-				checkedToolsets.add(depId);
-			}
-			if (newDeps.length > 0) {
-				cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
-			}
+		// Forward closure: ensure transitive deps are checked
+		const closure = forwardClosure(checkedToolsets);
+		const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
+		for (const depId of newDeps) {
+			checkedToolsets.add(depId);
 		}
-	}
-	return { cue };
-}
-
-export function toggleToolUnit(
-	unit: PickerUnit,
-	checkedToolsets: Set<string>,
-	checkedTools: Set<string>,
-	devMode: boolean,
-): { cue: string } {
-	const wasChecked = checkedTools.has(unit.id);
-	const toolsetId = unit.toolsetId;
-	let cue = "";
-
-	if (wasChecked) {
-		// --- Unchecking ---
-		checkedTools.delete(unit.id);
-
-		if (!devMode && toolsetId) {
-			// If no other tools from this toolset remain checked, apply
-			// reverse closure from the toolset.
-			const registry = getRegisteredToolsets();
-			const entry = registry.find((e) => e.spec.id === toolsetId);
-			if (entry) {
-				const stillChecked = [...entry.spec.names].filter((n) =>
-					checkedTools.has(n),
-				);
-				if (stillChecked.length === 0) {
-					checkedToolsets.delete(toolsetId);
-					const revClosure = reverseClosure([toolsetId]);
-					const uncheckDeps = [...revClosure].filter((id) => id !== toolsetId);
-					for (const depId of uncheckDeps) {
-						checkedToolsets.delete(depId);
-						removeToolsInToolset(checkedTools, depId);
-					}
-					if (uncheckDeps.length > 0) {
-						cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${toolsetId})`;
-					}
-				}
-			}
-		}
-	} else {
-		// --- Checking ---
-		checkedTools.add(unit.id);
-
-		if (!devMode && toolsetId) {
-			// Forward closure from the containing toolset
-			const effective = effectiveToolsetIds(checkedToolsets, checkedTools);
-			const closure = forwardClosure(effective);
-			const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
-			for (const depId of newDeps) {
-				checkedToolsets.add(depId);
-			}
-			if (newDeps.length > 0) {
-				cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
-			}
+		if (newDeps.length > 0) {
+			cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
 		}
 	}
 	return { cue };
@@ -350,24 +197,14 @@ export function describeGroup(name: string): string {
 	const resolved = resolveGroup(name);
 	if ("error" in resolved) return resolved.error;
 	const g = resolved.group;
-	const parts: string[] = [];
-	if (g.toolsets.length > 0) parts.push(`toolsets: ${g.toolsets.join(", ")}`);
-	if (g.tools.length > 0) parts.push(`tools: ${g.tools.join(", ")}`);
-	if (parts.length === 0) parts.push("(empty)");
-	return `Group "${name}" — ${parts.join("; ")}. Use /tbox ${name} on|off.`;
+	if (g.toolsets.length === 0)
+		return `Group "${name}" — (empty). Use /tbox ${name} on|off.`;
+	return `Group "${name}" — toolsets: ${g.toolsets.join(", ")}. Use /tbox ${name} on|off.`;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Find the toolset that contains a given tool name (first match). */
-function findContainingToolset(
-	toolName: string,
-	registry: readonly RegistryEntry[],
-): RegistryEntry | undefined {
-	return registry.find((e) => e.spec.names.has(toolName));
-}
 
 // ---------------------------------------------------------------------------
 // Actuation
@@ -376,12 +213,9 @@ function findContainingToolset(
 /**
  * Actuate a group on or off.
  *
- * - Toolset members: `enable`/`disable` each (the library's `requires`
- *   cascade pulls deps on for `on`; for `off` it reverse-cascades to
- *   dependents outside the group).
- * - Individual tool members: toggle their containing toolset (there is no
- *   per-tool persist primitive — toggling a single tool always goes via
- *   its toolset).
+ * - Activates/deactivates each toolset in the group. The library's
+ *   `requires` cascade pulls deps on for `on`; for `off` it
+ *   reverse-cascades to dependents outside the group.
  *
  * The moved set is computed by diffing `getActiveTools()` before vs. after,
  * so it reflects what the library actually did (including cascaded
@@ -401,15 +235,8 @@ export function actuateGroup(
 	const registry = getRegisteredToolsets();
 	const byId = new Map(registry.map((e) => [e.spec.id, e]));
 
-	// Toolsets this group directly addresses (toolset members + the
-	// containing toolsets of individual tool members).
+	// Toolsets this group directly addresses
 	const targetToolsetIds = new Set<string>(group.toolsets);
-	for (const toolName of group.tools) {
-		const entry = findContainingToolset(toolName, registry);
-		if (entry) targetToolsetIds.add(entry.spec.id);
-		// An individual tool with no containing toolset cannot be actuated
-		// via the persist primitive — surfaced in the summary below.
-	}
 
 	if (targetToolsetIds.size === 0) {
 		return `Group "${name}" has no actuable toolsets.\n${DRIFT_CAVEAT}`;
@@ -432,12 +259,9 @@ export function actuateGroup(
 		: [...before].filter((n) => !after.has(n));
 
 	// Which toolsets own the moved tools — to surface cascaded non-members.
-	// `targetToolsetIds` is the group's direct footprint, so anything outside
-	// it that moved was cascaded by the library (e.g. portal.learn when only
-	// portal.web is in the group).
 	const movedToolsets = new Set<string>();
 	for (const toolName of moved) {
-		const entry = findContainingToolset(toolName, registry);
+		const entry = registry.find((e) => e.spec.names.has(toolName));
 		if (entry) movedToolsets.add(entry.spec.id);
 	}
 
@@ -451,15 +275,6 @@ export function actuateGroup(
 	if (cascaded.length > 0) {
 		lines.push(
 			`Cascaded (moved by library, not in group): ${cascaded.join(", ")}`,
-		);
-	}
-	// Surface any individual tool members that had no containing toolset.
-	const orphanToolMembers = group.tools.filter(
-		(t) => !findContainingToolset(t, registry),
-	);
-	if (orphanToolMembers.length > 0) {
-		lines.push(
-			`Not actuated (no containing toolset): ${orphanToolMembers.join(", ")}`,
 		);
 	}
 	lines.push(DRIFT_CAVEAT);

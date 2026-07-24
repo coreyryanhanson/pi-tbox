@@ -18,13 +18,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { PickerUnit } from "./groups.js";
-import {
-	buildPickerUnits,
-	effectiveToolsetIds,
-	autoCheckedToolsetIds,
-	toggleToolsetUnit,
-	toggleToolUnit,
-} from "./groups.js";
+import { buildPickerUnits, toggleToolsetUnit } from "./groups.js";
 import { forwardClosure } from "./requires-graph.js";
 
 // ---------------------------------------------------------------------------
@@ -33,11 +27,10 @@ import { forwardClosure } from "./requires-graph.js";
 
 export interface GroupEditorConfig {
 	groupName: string;
-	devMode: boolean;
-	initial: { toolsets: string[]; tools: string[] };
-	onSave: (spec: { toolsets: string[]; tools: string[] }) => void;
+	initial: { toolsets: string[] };
+	onSave: (spec: { toolsets: string[] }) => void;
 	onCancel: () => void;
-	/** Inject units for demo/testing (default: buildPickerUnits(devMode)). */
+	/** Inject units for demo/testing (default: buildPickerUnits()). */
 	units?: PickerUnit[];
 }
 
@@ -47,7 +40,6 @@ export interface GroupEditorConfig {
 
 const MAX_VISIBLE = 8;
 const PREFIX_CHECKED = "\u2713"; // ✓
-const PREFIX_AUTO = "\u2713>"; // ✓>
 const PREFIX_UNCHECKED = "\u25CB"; // ○
 
 // ---------------------------------------------------------------------------
@@ -72,7 +64,6 @@ export class GroupEditorComponent {
 
 	allUnits: PickerUnit[];
 	checkedToolsets: Set<string>;
-	checkedTools: Set<string>;
 	selectedIndex = 0;
 	isDirty = false;
 	lastCue = "";
@@ -86,8 +77,7 @@ export class GroupEditorComponent {
 		this.theme = theme;
 		this.kb = getKeybindings();
 		this.checkedToolsets = new Set(config.initial.toolsets);
-		this.checkedTools = new Set(config.initial.tools);
-		this.allUnits = config.units ?? buildPickerUnits(config.devMode);
+		this.allUnits = config.units ?? buildPickerUnits();
 	}
 
 	/** The filtered subset of allUnits based on the current search query. */
@@ -127,20 +117,7 @@ export class GroupEditorComponent {
 			const unit = items[this.selectedIndex];
 			if (!unit) return;
 
-			const result =
-				unit.type === "toolset"
-					? toggleToolsetUnit(
-							unit,
-							this.checkedToolsets,
-							this.checkedTools,
-							this.config.devMode,
-						)
-					: toggleToolUnit(
-							unit,
-							this.checkedToolsets,
-							this.checkedTools,
-							this.config.devMode,
-						);
+			const result = toggleToolsetUnit(unit, this.checkedToolsets);
 			this.lastCue = result.cue;
 			this.isDirty = true;
 			this.invalidate();
@@ -179,7 +156,6 @@ export class GroupEditorComponent {
 		if (matchesKey(data, "ctrl+s")) {
 			this.config.onSave({
 				toolsets: [...this.checkedToolsets],
-				tools: [...this.checkedTools],
 			});
 			this.isDirty = false;
 			return;
@@ -215,37 +191,18 @@ export class GroupEditorComponent {
 	private enableAll(): void {
 		const targets = this.filteredItems;
 		for (const u of targets) {
-			if (u.type === "toolset") {
-				this.checkedToolsets.add(u.id);
-			} else {
-				this.checkedTools.add(u.id);
-			}
+			this.checkedToolsets.add(u.id);
 		}
-		if (!this.config.devMode) {
-			const effective = effectiveToolsetIds(
-				this.checkedToolsets,
-				this.checkedTools,
-			);
-			const closure = forwardClosure(effective);
-			for (const id of closure) {
-				this.checkedToolsets.add(id);
-			}
+		const closure = forwardClosure(this.checkedToolsets);
+		for (const id of closure) {
+			this.checkedToolsets.add(id);
 		}
 	}
 
 	private clearAll(): void {
 		const targets = this.filteredItems;
 		for (const u of targets) {
-			if (u.type === "toolset") {
-				this.checkedToolsets.delete(u.id);
-			} else {
-				this.checkedTools.delete(u.id);
-			}
-		}
-		const activeSearch = this.searchValue.trim().length > 0;
-		if (!this.config.devMode && !activeSearch) {
-			// When clearing all with no filter, also remove all tools
-			this.checkedTools.clear();
+			this.checkedToolsets.delete(u.id);
 		}
 	}
 
@@ -285,9 +242,6 @@ export class GroupEditorComponent {
 		// ── List ──
 		const items = this.filteredItems;
 		const total = items.length;
-		const autoSet: Set<string> = this.config.devMode
-			? new Set()
-			: autoCheckedToolsetIds(this.checkedToolsets, this.checkedTools);
 
 		if (total === 0) {
 			lines.push(trunc("  " + th.fg("dim", "(no items match)")));
@@ -303,33 +257,9 @@ export class GroupEditorComponent {
 			for (const unit of slice) {
 				const isSelected = unit === items[this.selectedIndex];
 				const selMark = isSelected ? th.fg("accent", "\u2192 ") : "  ";
-
-				let checked = false;
-				let isAuto = false;
-				if (unit.type === "toolset") {
-					if (this.checkedToolsets.has(unit.id)) {
-						checked = true;
-					} else if (!this.config.devMode && autoSet.has(unit.id)) {
-						checked = true;
-						isAuto = true;
-					}
-				} else {
-					if (this.checkedTools.has(unit.id)) {
-						checked = true;
-					} else if (
-						!this.config.devMode &&
-						unit.toolsetId &&
-						autoSet.has(unit.toolsetId)
-					) {
-						checked = true;
-						isAuto = true;
-					}
-				}
-
+				const checked = this.checkedToolsets.has(unit.id);
 				const checkMark = checked
-					? isAuto
-						? th.fg("dim", PREFIX_AUTO)
-						: th.fg("success", PREFIX_CHECKED)
+					? th.fg("success", PREFIX_CHECKED)
 					: th.fg("dim", PREFIX_UNCHECKED);
 
 				const labelStyle = isSelected
@@ -365,7 +295,7 @@ export class GroupEditorComponent {
 			th.fg("muted", " \u00B7 ") +
 			th.fg(
 				"dim",
-				`${this.checkedToolsets.size + this.checkedTools.size}/${this.allUnits.length} enabled`,
+				`${this.checkedToolsets.size}/${this.allUnits.length} enabled`,
 			) +
 			cueLine;
 
@@ -415,8 +345,7 @@ function demo(): void {
 	const comp = new GroupEditorComponent(
 		{
 			groupName: "test",
-			devMode: false,
-			initial: { toolsets: [], tools: [] },
+			initial: { toolsets: [] },
 			units: fakeUnits,
 			onSave: () => {},
 			onCancel: () => {},

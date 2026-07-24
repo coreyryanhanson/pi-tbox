@@ -219,85 +219,56 @@ describe("toggleTool", () => {
 		setupToggleFixture(mock, pi);
 
 		// Start: all active → toggle web-learn (in portal.learn, unmasked) → disable
-		const msg1 = toggleTool(pi, "web-learn", false);
+		const msg1 = toggleTool(pi, "web-learn");
 		expect(msg1).toContain('Disabled "web-learn"');
 		expect(mock.getActiveTools()).not.toContain("web-learn");
 
 		// Toggle again → re-enable
-		const msg2 = toggleTool(pi, "web-learn", false);
+		const msg2 = toggleTool(pi, "web-learn");
 		expect(msg2).toContain('Enabled "web-learn"');
 		expect(mock.getActiveTools()).toContain("web-learn");
 	});
 
 	it("refuses sdk tools", () => {
 		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "custom-x", false);
+		const msg = toggleTool(pi, "custom-x");
 		expect(msg).toContain("Cannot toggle");
 		expect(msg).toContain("SDK tools are host-managed");
 	});
-
-	it("refuses sdk tools even in dev mode", () => {
-		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "custom-x", true);
-		expect(msg).toContain("Cannot toggle");
-		expect(msg).toContain("SDK tools are host-managed");
-	});
-
 	it("refuses masked member toggle in normal mode", () => {
 		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "web-fetch", false);
+		const msg = toggleTool(pi, "web-fetch");
 		expect(msg).toContain("Cannot toggle");
 		expect(msg).toContain("sealed group");
 		expect(msg).toContain("Portal Web");
 	});
-
-	it("allows masked member toggle in dev mode", () => {
-		setupToggleFixture(mock, pi);
-
-		const msg1 = toggleTool(pi, "web-fetch", true);
-		expect(msg1).toContain('Disabled "web-fetch"');
-		expect(mock.getActiveTools()).not.toContain("web-fetch");
-
-		const msg2 = toggleTool(pi, "web-fetch", true);
-		expect(msg2).toContain('Enabled "web-fetch"');
-		expect(mock.getActiveTools()).toContain("web-fetch");
-	});
-
 	it("refuses builtin toggle in normal mode", () => {
 		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "read", false);
+		const msg = toggleTool(pi, "read");
 		expect(msg).toContain("Cannot toggle");
-		expect(msg).toContain("builtins are protected");
+		expect(msg).toContain("builtins are protected. tbox does not manage pi's core tools.");
 	});
-
-	it("allows builtin toggle in dev mode", () => {
-		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "read", true);
-		// read is in pi.builtin, which is enabled → should disable
-		expect(msg).toContain('Disabled "read"');
-	});
-
 	it("toggles an orphan tool via its per-source toolset", () => {
 		setupToggleFixture(mock, pi);
 		// orphan-tool has source "extension", so it lives in tbox.tool@extension
-		const msg1 = toggleTool(pi, "orphan-tool", false);
+		const msg1 = toggleTool(pi, "orphan-tool");
 		expect(msg1).toContain('Disabled "orphan-tool"');
 		expect(msg1).toContain("tbox.tool@extension");
 
-		const msg2 = toggleTool(pi, "orphan-tool", false);
+		const msg2 = toggleTool(pi, "orphan-tool");
 		expect(msg2).toContain('Enabled "orphan-tool"');
 		expect(msg2).toContain("tbox.tool@extension");
 	});
 
 	it("returns error for nonexistent tool", () => {
 		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "nonexistent", false);
+		const msg = toggleTool(pi, "nonexistent");
 		expect(msg).toContain("No tool");
 	});
 
 	it("returns error for ambiguous prefix", () => {
 		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "web", false);
+		const msg = toggleTool(pi, "web");
 		expect(msg).toContain("Ambiguous");
 	});
 });

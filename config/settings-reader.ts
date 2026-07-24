@@ -9,21 +9,16 @@
  *
  * ```jsonc
  * "tbox": {
- *   "dev": false,
  *   "groups": {
- *     "mygroup": { "toolsets": ["portal.web"], "tools": ["web-learn"] }
+ *     "mygroup": { "toolsets": ["portal.web"] }
  *   }
  * }
  * ```
  *
- * Storage-shape decision (Sprint 3, "Open" item from `manager-mvp.md`):
- * groups live under `tbox.groups` in merged settings (global + project,
- * project wins). A group resolves to addressable units = whole toolsets
- * (`toolsets[]`) and/or individual tools (`tools[]`). The write path lands
- * in Sprint 4's picker-confirm; it writes back through this same key with
- * a careful merge that preserves sibling keys. A dedicated `groups.json`
- * was rejected — one config location is simpler and matches the MVP
- * recommendation.
+ * Groups live under `tbox.groups` in merged settings (global + project,
+ * project wins). A group resolves to whole-toolset units only. The write
+ * path writes back through this same key with a careful merge that
+ * preserves sibling keys.
  *
  * @module
  */
@@ -43,15 +38,13 @@ const PROJECT_SETTINGS_PATH = ".pi/settings.json";
 // Types
 // ---------------------------------------------------------------------------
 
-/** A user group: addressable units = whole toolsets and/or individual tools. */
+/** A user group: addressable units = whole toolsets. */
 export interface GroupSpec {
 	toolsets: string[];
-	tools: string[];
 }
 
 /** The tbox-owned slice of merged settings. */
 export interface TboxConfig {
-	dev: boolean;
 	groups: Record<string, GroupSpec>;
 }
 
@@ -139,7 +132,6 @@ export function writeGroupToConfig(
 		}
 		(tbox.groups as Record<string, unknown>)[name] = {
 			toolsets: [...spec.toolsets],
-			tools: [...spec.tools],
 		};
 		return;
 	}
@@ -151,7 +143,6 @@ export function writeGroupToConfig(
 	const groups = (tboxSettings.groups as Record<string, unknown>) ?? {};
 	groups[name] = {
 		toolsets: [...spec.toolsets],
-		tools: [...spec.tools],
 	};
 	tboxSettings.groups = groups;
 	current.tbox = tboxSettings;
@@ -163,19 +154,17 @@ export function writeGroupToConfig(
 /**
  * Read the `tbox` slice from merged settings.
  *
- * - `dev` defaults to `false` when absent or not a boolean.
- * - `groups` defaults to `{}` when absent; malformed groups are skipped.
+ * `groups` defaults to `{}` when absent; malformed groups are skipped.
  */
 export function readTboxConfig(): TboxConfig {
 	const merged = readMergedSettings();
 	const tbox = merged["tbox"];
 
 	if (!tbox || typeof tbox !== "object" || Array.isArray(tbox)) {
-		return { dev: false, groups: {} };
+		return { groups: {} };
 	}
 
 	const raw = tbox as Record<string, unknown>;
-	const dev = typeof raw["dev"] === "boolean" ? raw["dev"] : false;
 
 	const groups: Record<string, GroupSpec> = {};
 	const rawGroups = raw["groups"];
@@ -188,12 +177,9 @@ export function readTboxConfig(): TboxConfig {
 			const toolsets = Array.isArray(g["toolsets"])
 				? g["toolsets"].filter((s): s is string => typeof s === "string")
 				: [];
-			const tools = Array.isArray(g["tools"])
-				? g["tools"].filter((s): s is string => typeof s === "string")
-				: [];
-			groups[name] = { toolsets, tools };
+			groups[name] = { toolsets };
 		}
 	}
 
-	return { dev, groups };
+	return { groups };
 }

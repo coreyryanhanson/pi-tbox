@@ -24,13 +24,7 @@ import {
 	formatStatus,
 	parseArgs,
 } from "./src/list.js";
-import {
-	toggleTool,
-	toggleAll,
-	loadDevModeFromSettings,
-	resetDevMode,
-	isDevMode,
-} from "./src/toggle.js";
+import { toggleTool, toggleAll } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
 import { actuateGroup, describeGroup, editGroup } from "./src/groups.js";
 
@@ -104,8 +98,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						);
 						break;
 					}
-					const dev = isDevMode();
-					const result = toggleTool(pi, toolName, dev);
+					const result = toggleTool(pi, toolName);
 					const isErr =
 						result.startsWith("Cannot") ||
 						result.startsWith("Ambiguous") ||
@@ -144,7 +137,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					} else if (sub === "off") {
 						ctx.ui.notify(actuateGroup(pi, name, false), "info");
 					} else if (sub === "edit") {
-						ctx.ui.notify(await editGroup(name, ctx, isDevMode()), "info");
+						ctx.ui.notify(await editGroup(name, ctx), "info");
 					} else {
 						// Bare `/tbox group <name>` — report the group's units.
 						ctx.ui.notify(describeGroup(name), "info");
@@ -196,10 +189,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		// Auto-register toolsets from the current tool population
 		autoRegisterBuiltinAndOrphans(pi);
 
-		// Read dev mode from `tbox.dev` in settings.json (re-read on /reload).
-		// No /tbox dev command — edit settings.json and /reload to change.
-		loadDevModeFromSettings();
-
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
 			ui: {
@@ -215,9 +204,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
 		// Re-run auto-registration for the fresh branch
 		autoRegisterBuiltinAndOrphans(pi);
-
-		// Re-read dev mode for the fresh branch
-		loadDevModeFromSettings();
 
 		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
@@ -238,7 +224,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			},
 		);
 		setFocusUnit(null);
-		resetDevMode();
 		lastCtx = null;
 	});
 

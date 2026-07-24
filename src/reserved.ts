@@ -5,11 +5,6 @@
  * reserved, in which case the subcommand wins. A group named e.g.
  * `focus` is only reachable via the explicit `/tbox group focus on`.
  *
- * `dev` is **not** reserved: the `/tbox dev` command was removed in
- * Sprint 3's dev-mode swap (dev mode is now a `tbox.dev` setting read at
- * load), so `/tbox dev on` is just the group shorthand for a group named
- * `dev`.
- *
  * @module
  */
 

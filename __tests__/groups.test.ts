@@ -128,7 +128,7 @@ describe("group config reading", () => {
 		setSettingsOverrideForTests({
 			tbox: {
 				groups: {
-					mygroup: { toolsets: ["portal.web"], tools: ["web-learn"] },
+					mygroup: { toolsets: ["portal.web"] },
 				},
 			},
 		});
@@ -140,7 +140,6 @@ describe("group config reading", () => {
 		expect("group" in r).toBe(true);
 		if ("group" in r) {
 			expect(r.group.toolsets).toEqual(["portal.web"]);
-			expect(r.group.tools).toEqual(["web-learn"]);
 		}
 	});
 
@@ -157,7 +156,6 @@ describe("group config reading", () => {
 	it("describeGroup lists the units", () => {
 		const out = describeGroup("mygroup");
 		expect(out).toContain("portal.web");
-		expect(out).toContain("web-learn");
 	});
 });
 
@@ -208,11 +206,11 @@ describe("actuateGroup", () => {
 		expect(msg).toContain("portal.learn");
 	});
 
-	it("a group with both a toolset and an individual tool member actuates both", () => {
+	it("actuates multiple toolsets in a group", () => {
 		setSettingsOverrideForTests({
 			tbox: {
 				groups: {
-					mixed: { toolsets: ["host.api"], tools: ["web-learn"] },
+					mixed: { toolsets: ["host.api", "portal.learn"] },
 				},
 			},
 		});
@@ -242,19 +240,6 @@ describe("actuateGroup", () => {
 		});
 		const msg = actuateGroup(pi, "webgroup", true);
 		expect(msg).toContain("drift-free snapshots");
-	});
-
-	it("an individual tool member with no containing toolset is surfaced as not-actuated", () => {
-		setSettingsOverrideForTests({
-			tbox: {
-				groups: {
-					g: { toolsets: ["host.api"], tools: ["ghost-tool"] },
-				},
-			},
-		});
-		const msg = actuateGroup(pi, "g", true);
-		expect(msg).toContain("no containing toolset");
-		expect(msg).toContain("ghost-tool");
 	});
 });
 

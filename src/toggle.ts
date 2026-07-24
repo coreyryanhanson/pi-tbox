@@ -1,55 +1,16 @@
 /**
- * /tbox toggle, /tbox all, and dev mode.
+ * /tbox toggle and /tbox all.
  *
  * Provides:
  *   - resolveTool: find a tool by exact or prefix match
  *   - toggleTool: toggle a tool's containing toolset (with guards)
  *   - toggleAll: enable/disable every registered toolset
- *   - dev mode: read from `tbox.dev` in settings.json at session_start
  *
  * @module
  */
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
-import { readTboxConfig } from "../config/settings-reader.js";
-
-// ---------------------------------------------------------------------------
-// Module-level dev-mode state (in-memory, session-scoped)
-// ---------------------------------------------------------------------------
-
-// Dev mode is a `tbox.dev` boolean in settings.json, read at session_start
-// (and on /reload). There is no `/tbox dev` command — to change it, edit
-// settings.json and `/reload`. This in-memory flag is what the guards
-// consult; it is set from the settings read, not via a runtime command.
-let _devMode = false;
-
-// ---------------------------------------------------------------------------
-// Dev mode
-// ---------------------------------------------------------------------------
-
-/** Whether dev mode is currently active in this session. */
-export function isDevMode(): boolean {
-	return _devMode;
-}
-
-/**
- * Read `tbox.dev` from merged settings and sync the in-memory flag.
- * Called at `session_start` (and on `/reload`, which re-evaluates the
- * module). Returns the read value.
- */
-export function loadDevModeFromSettings(): boolean {
-	_devMode = readTboxConfig().dev;
-	return _devMode;
-}
-
-/**
- * Reset the in-memory dev-mode flag (session_shutdown). Not a settings
- * write — just clears the session-scoped flag.
- */
-export function resetDevMode(): void {
-	_devMode = false;
-}
 
 // ---------------------------------------------------------------------------
 // Tool resolution
@@ -111,19 +72,14 @@ export function findContainingToolset(
 /**
  * Toggle a single tool's containing toolset on or off.
  *
- * Guards (normal mode):
+ * Guards (always enforced):
  *   - SDK tools are always refused.
  *   - Masked toolset members are not individually toggleable.
  *   - pi.builtin is not toggleable.
- *   Dev mode lifts the masked and builtin guards.
  *
  * @returns A human-readable status or error message.
  */
-export function toggleTool(
-	pi: ExtensionAPI,
-	input: string,
-	devMode: boolean,
-): string {
+export function toggleTool(pi: ExtensionAPI, input: string): string {
 	const resolved = resolveTool(pi, input);
 	if ("error" in resolved) return resolved.error;
 	const tool = resolved.tool;
@@ -140,14 +96,14 @@ export function toggleTool(
 		return `Cannot toggle "${tool.name}": no toolset contains this tool.`;
 	}
 
-	// --- Guards (normal mode) ---
-	if (entry.spec.id === "pi.builtin" && !devMode) {
-		return `Cannot toggle "${tool.name}": builtins are protected. Set "tbox.dev": true in settings.json and /reload to toggle builtins.`;
+	// --- Guards (always enforced) ---
+	if (entry.spec.id === "pi.builtin") {
+		return `Cannot toggle "${tool.name}": builtins are protected. tbox does not manage pi's core tools.`;
 	}
 
-	if (entry.spec.masked && !devMode) {
+	if (entry.spec.masked) {
 		const label = entry.spec.label ?? entry.spec.id;
-		return `Cannot toggle "${tool.name}": this tool is part of the sealed group "${label}". Toggle the group, or set "tbox.dev": true in settings.json and /reload.`;
+		return `Cannot toggle "${tool.name}": this tool is part of the sealed group "${label}". Toggle the group instead.`;
 	}
 
 	// --- Toggle ---

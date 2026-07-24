@@ -10,6 +10,7 @@ import {
 } from "../src/list.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
+import { setSettingsOverrideForTests } from "../config/settings-reader.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
@@ -544,6 +545,7 @@ describe("formatStatus", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
+		setSettingsOverrideForTests(null);
 	});
 
 	it("prints a line per subsystem", () => {
@@ -556,9 +558,8 @@ describe("formatStatus", () => {
 		expect(output).toContain("portal.learn");
 		expect(output).toContain("tbox.tool@extension");
 
-		expect(output).toContain("User Groups: no groups defined");
+		expect(output).toContain("User Groups:");
 		expect(output).toContain("Focus: off");
-		expect(output).toContain("Dev Mode: off");
 	});
 
 	it("shows toolset state (enabled/disabled)", () => {
@@ -647,7 +648,6 @@ describe("end-to-end via dispatchCommand", () => {
 		expect(notify!.message).toContain("Toolset Status");
 		expect(notify!.message).toContain("User Groups:");
 		expect(notify!.message).toContain("Focus:");
-		expect(notify!.message).toContain("Dev Mode:");
 	});
 
 	it("non-reserved unknown name is treated as a group shorthand (usage pointer)", async () => {

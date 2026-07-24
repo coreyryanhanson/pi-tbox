@@ -184,14 +184,12 @@ const PREFIX_CHECKED = "\u2713";
 /** Create a GroupEditorComponent for tests. Use generous width to avoid truncation. */
 function createComp(
 	overrides?: Partial<GroupEditorConfig>,
-	devMode = false,
 ): GroupEditorComponent {
 	return new GroupEditorComponent(
 		{
 			groupName: "test",
-			devMode,
-			initial: { toolsets: [], tools: [] },
-			units: buildPickerUnits(devMode),
+			initial: { toolsets: [] },
+			units: buildPickerUnits(),
 			onSave: () => {},
 			onCancel: () => {},
 			...overrides,
@@ -220,7 +218,7 @@ describe("picker — normal mode option list", () => {
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
 		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [], tools: [] } } },
+			tbox: { groups: { mygroup: { toolsets: [] } } },
 		});
 	});
 
@@ -253,16 +251,16 @@ describe("picker — normal mode option list", () => {
 
 		// Check via filteredItems (all units, not windowed render)
 		const ids = comp.filteredItems.map((u) => u.id);
-		expect(ids).toContain("ext-a-tool");
-		expect(ids).toContain("ext-b-tool");
+		expect(ids).toContain("tbox.tool@ext-a");
+		expect(ids).toContain("tbox.tool@ext-b");
 
-		// In the rendered window, at least the visible orphans appear
+		// In the rendered window, at least the visible orphan toolsets appear
 		const lines = comp.render(120);
-		const extA = lines.filter((l) => l.includes("ext-a-tool"));
+		const extA = lines.filter((l) => l.includes("ext-a"));
 		expect(extA.length).toBe(1);
 	});
 
-	it("unmasked toolset appears as toolset row + member rows", () => {
+	it("unmasked toolset appears as a single toolset row", () => {
 		const comp = createComp();
 		const lines = comp.render(120);
 
@@ -270,48 +268,9 @@ describe("picker — normal mode option list", () => {
 		const hostApiRows = lines.filter((l) => l.includes("host.api (1 tools)"));
 		expect(hostApiRows.length).toBe(1);
 
+		// No member rows
 		const hostCallRows = lines.filter((l) => l.includes("host-call"));
-		expect(hostCallRows.length).toBe(1);
-	});
-});
-
-describe("picker — dev mode option list", () => {
-	let mock: MockPI;
-	let pi: ExtensionAPI;
-
-	beforeEach(async () => {
-		MockPI.cleanRegistry();
-		mock = new MockPI();
-		pi = mock as unknown as ExtensionAPI;
-		setupRichRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { dev: true, groups: { mygroup: { toolsets: [], tools: [] } } },
-		});
-	});
-
-	afterEach(() => setSettingsOverrideForTests(null));
-
-	it("masked toolset members are present as individual rows in dev mode", () => {
-		const comp = createComp({}, true);
-		const lines = comp.render(120);
-
-		const webFetchRows = lines.filter((l) => l.includes("web-fetch"));
-		expect(webFetchRows.length).toBe(1);
-
-		const maskedToolsetRow = lines.filter(
-			(l) => l.includes("Portal Web") && l.includes("masked"),
-		);
-		expect(maskedToolsetRow.length).toBe(0);
-	});
-
-	it("pi.builtin is absent in dev mode too", () => {
-		const comp = createComp({}, true);
-		const lines = comp.render(120);
-
-		const builtinRows = lines.filter(
-			(l) => l.includes("Pi Builtins") || l.includes("pi.builtin"),
-		);
-		expect(builtinRows.length).toBe(0);
+		expect(hostCallRows.length).toBe(0);
 	});
 });
 
@@ -325,7 +284,7 @@ describe("picker — forward closure in normal mode", () => {
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
 		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [], tools: [] } } },
+			tbox: { groups: { mygroup: { toolsets: [] } } },
 		});
 	});
 
@@ -335,10 +294,10 @@ describe("picker — forward closure in normal mode", () => {
 	});
 
 	it("selecting portal.learn toolset auto-checks portal.web via forward closure; group saved with both", () => {
-		let savedSpec: { toolsets: string[]; tools: string[] } | null = null;
+		let savedSpec: { toolsets: string[] } | null = null;
 
 		const comp = createComp({
-			initial: { toolsets: [], tools: [] },
+			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
 			},
@@ -377,10 +336,10 @@ describe("picker — reverse closure in normal mode", () => {
 	});
 
 	it("deselecting portal.learn removes it; portal.web stays (user-checked)", () => {
-		let savedSpec: { toolsets: string[]; tools: string[] } | null = null;
+		let savedSpec: { toolsets: string[] } | null = null;
 
 		const comp = createComp({
-			initial: { toolsets: ["portal.learn", "portal.web"], tools: [] },
+			initial: { toolsets: ["portal.learn", "portal.web"] },
 			onSave: (spec) => {
 				savedSpec = spec;
 			},
@@ -409,7 +368,7 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
 		setSettingsOverrideForTests({
-			tbox: { groups: { savetest: { toolsets: [], tools: [] } } },
+			tbox: { groups: { savetest: { toolsets: [] } } },
 		});
 	});
 
@@ -419,11 +378,11 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 	});
 
 	it("confirm saves group spec via onSave callback", () => {
-		let savedSpec: { toolsets: string[]; tools: string[] } | null = null;
+		let savedSpec: { toolsets: string[] } | null = null;
 
 		const comp = createComp({
 			groupName: "savetest",
-			initial: { toolsets: [], tools: [] },
+			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
 			},
@@ -437,28 +396,27 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 
 		expect(savedSpec).not.toBeNull();
 		expect(savedSpec!.toolsets).toContain("host.api");
-		expect(savedSpec!.tools).toEqual([]);
 	});
 
 	it("re-opening shows previously-saved checks", () => {
-		let savedSpec: { toolsets: string[]; tools: string[] } | null = null;
+		let savedSpec: { toolsets: string[] } | null = null;
 
 		const comp1 = createComp({
 			groupName: "savetest",
-			initial: { toolsets: [], tools: [] },
+			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
 			},
 		});
 
-		const idx = comp1.filteredItems.findIndex((u) => u.id === "host-call");
+		const idx = comp1.filteredItems.findIndex((u) => u.id === "host.api");
 		expect(idx).toBeGreaterThanOrEqual(0);
 		comp1.selectedIndex = idx;
 		comp1.handleInput(KEY.enter);
 		comp1.handleInput(KEY.save);
 
 		expect(savedSpec).not.toBeNull();
-		expect(savedSpec!.tools).toContain("host-call");
+		expect(savedSpec!.toolsets).toContain("host.api");
 
 		// Second pass: re-open with saved state
 		const comp2 = createComp({
@@ -467,11 +425,11 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 		});
 		const lines = comp2.render(120);
 
-		// host-call should show as checked (✓ in the line)
-		const checkedHostCall = lines.find(
-			(l) => l.includes(PREFIX_CHECKED) && l.includes("host-call"),
+		// host.api should show as checked (✓ in the line)
+		const checkedHostApi = lines.find(
+			(l) => l.includes(PREFIX_CHECKED) && l.includes("host.api (1 tools)"),
 		);
-		expect(checkedHostCall).toBeDefined();
+		expect(checkedHostApi).toBeDefined();
 	});
 
 	it("cancel discards changes", () => {
@@ -480,7 +438,7 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 
 		const comp = createComp({
 			groupName: "savetest",
-			initial: { toolsets: [], tools: [] },
+			initial: { toolsets: [] },
 			onSave: () => {
 				saved = true;
 			},
@@ -509,7 +467,7 @@ describe("picker — windowing", () => {
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
 		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [], tools: [] } } },
+			tbox: { groups: { mygroup: { toolsets: [] } } },
 		});
 	});
 
