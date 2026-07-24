@@ -438,191 +438,118 @@ state, cancel, windowing cap).
 
 ---
 
-## Sprint 5 — Focus: single-unit, inclusion mode, drift-free exit
+## Sprint 5 — ✅ Done: Focus — single-unit, inclusion mode, drift-free exit
 
-**Goal:** point 2's focus half. `/tbox focus <unit>` and `/tbox focus off`,
-with the **re-actuation exit** (not a mode flip) the MVP confirms as a
-hard requirement.
+Shipped (`src/focus.ts`, `src/status-slot.ts`, `src/toggle.ts`,
+`src/groups.ts`, `index.ts`):
 
-### Work
+- **Single-unit resolution (`resolveFocusUnit`)** — the `<unit>` is one
+  group name, one toolset id, or one tool name, resolved in that order.
+  **Never a builtin:** `pi.builtin` and any builtin tool name error with
+  "builtins are out of tbox's scope; focus on an extension toolset or
+  group instead." SDK tools reached by name error as host-managed. A
+  tool-name input with a unique prefix expands (mirrors `toggle`'s
+  prefix behavior); an ambiguous prefix lists candidates.
+- **Allowlist = forward `requires` closure ∪ reverse `dependents`
+  closure** (not forward-only as the work text suggested). The library's
+  enable cascade is bi-directional, so closing in both directions keeps
+  the allowlist coherent with what the cascade actually enables — a
+  forward-only allowlist would have left dependents enabled by the
+  cascade but "outside" focus, then wrongly disabled them in the second
+  pass. `pi.builtin` is seeded into the allowlist (the §13.2 drift fix,
+  one tbox-owned line) so newly shipped builtins survive focus.
+- **Enter focus (`focusUnit`)** — `setFocusUnit(label)` is called
+  **before** actuating so the synchronous `TOOLSET_EVENTS.changed`
+  fanout (emitted inside `enable()`/`disable()`) renders the focus
+  glyph, not a one-frame-stale count glyph; a final `rerenderSlot`
+  covers the no-event edge case (re-focus on an identical allowlist).
+  Then `setDefaultResolutionMode(pi, "inclusion")`, a two-pass
+  actuation: pass 1 enables every allowlist member (the library cascades
+  deps + dependents on); pass 2 disables every non-allowlist,
+  non-`pi.builtin` toolset that is **still enabled** after the cascade
+  — i.e. only toolsets the cascade did not pull in. `pi.builtin` is
+  never disabled. A `ponytail:` comment flags the two-pass reliance on
+  synchronous `enable()` (upgrade path: flush/tick before pass 2 if the
+  library ever goes async).
+- **Exit focus (`focusOff`) — re-actuation, not a mode flip.**
+  `setFocusUnit(null)` first (same fanout rationale), then every
+  registered toolset is driven back to `spec.defaultEnabled`,
+  **overwriting** the focus-era `{ enabled: false }` entries (the
+  `ExtensionAPI` exposes no `removeEntry`, so an entry always wins
+  regardless of mode — `design.md` §4.5; a mode-flip-only exit is a
+  documented bug). Then `setDefaultResolutionMode(pi, "exclusion")`.
+  A `ponytail:` comment records that pre-focus manual toggles are lost
+  (the MVP confirms the library never remembers pre-focus state);
+  upgrade path: a pre-focus snapshot if users report it.
+- **Status slot focus states** — `● focus:<unit> (n)` (green/success)
+  where `n` is the count of active extension tools; `● focus:∅` (red/
+  error) when the focused allowlist leaves zero active extension tools.
+  The `(n)` suffix is an addition over the work text's `● focus:<unit>`
+  — it mirrors the count slot's affordance and makes an empty focus
+  visually distinct from a one-tool focus without a separate query.
+  Exit returns the slot to pristine / `● tbox n masked`. The slot shows
+  focus state only, never the char count.
+- **`/tbox status`** reports the focus line (`Focus: on (<unit>)` /
+  `Focus: off`).
+- **Mutual exclusion with actuation** — one-line guards at the top of
+  `toggleTool`, `toggleAll`, and `actuateGroup` (root-cause, not
+  dispatch) refuse with a message pointing to `/tbox focus off` while
+  `_focusUnit !== null`. This covers the bare `<group> on|off`
+  shorthand for free (it routes through `actuateGroup`). `group edit`
+  (config-only), `list`/`status`/`chars` (read-only), and `focus
+  <unit>` (re-focus, coherent) are unguarded — the slot never lies
+  about the active set.
 
-1. `src/focus.ts`: focus is **single-unit** — the `<unit>` is one group
-   name, one toolset id, or one tool name — **but never a builtin**
-   (decision record above). `/tbox focus <builtin-tool-or-toolset>`
-   errors with "builtins are out of tbox's scope; focus on an extension
-   toolset or group instead." Resolve a non-builtin unit to an
-   allowlist of toolset ids:
-   - group → the group's toolsets (from config) plus their `requires`
-     closure (forward) — focus on a group must keep deps on;
-   - toolset → that toolset plus its `requires` closure;
-   - tool → its containing toolset plus that toolset's `requires`
-     closure.
-2. **Enter focus:**
-   - `setDefaultResolutionMode(pi, "inclusion")` — unknown toolsets
-     default off, so a future new extension's toolsets don't break
-     focus (drift-free, `design.md` §4.5/§13.2).
-   - **Seed the allowlist with `pi.builtin`** (or skip it in the disable
-     pass) so builtins survive focus regardless of what Pi ships next —
-     this is the drift fix that `design.md` §13.2's emergent-preservation
-     argument can no longer carry once `pi.builtin` is a registered
-     toolset (Sprint 0). One line; tbox-owned (the library stays
-     source-agnostic).
-   - For every registered toolset: if in the allowlist → `enable(pi)`
-     (the library's `requires` cascade pulls deps on); else →
-     `disable(pi)` — **except `pi.builtin`, which is never disabled by
-     focus.** This writes `{ enabled: false }` entries for every
-     non-allowlist, non-builtin toolset (the MVP's confirmed focus-era
-     writes).
-3. **Exit focus (`/tbox focus off`):** this is **re-actuation, not a mode
-   flip.** Flipping inclusion→exclusion alone leaves the focus-era
-   `{ enabled: false }` entries stuck off (the `ExtensionAPI` exposes
-   only `appendEntry`, no `removeEntry`/clear — tbox cannot delete them;
-   an entry always wins regardless of mode, `design.md` §4.5). So:
-   - For every registered toolset, call `enable()`/`disable()` to drive
-     it back to `spec.defaultEnabled`, **overwriting** the focus-era
-     entries with the default's `{ enabled }`.
-   - Then `setDefaultResolutionMode(pi, "exclusion")` — restore the
-     library default mode so unknown toolsets default on again.
-   - "Restore defaults" means each toolset returns to
-     `spec.defaultEnabled` (the library never remembers pre-focus state
-     — confirmed in code, `manager-mvp.md` §2). Document this in the
-     command output.
-4. `src/status-slot.ts`: focus state. In focus → `● focus:<unit>`
-  green; if the allowlist resolves to **empty** → `● focus:∅` red
-  (broken). Exit → back to pristine/`● tbox n`.
-5. `/tbox status` now reports the focus line.
-6. **Mutual exclusion with actuation commands.** While focus is active,
-   the three actuation entry points (`toggleTool`, `toggleAll`,
-   `actuateGroup`) refuse with a message pointing to `/tbox focus off`.
-   Rationale: focus is an inclusion-mode snapshot that promises a known
-   working set (the allowlist). If the user could toggle individual
-   toolsets on/off while the slot still claims `● focus:<unit>`, the
-   active set diverges from what the slot advertises — the slot lies.
-   The three guards are one-liners at the top of each shared function
-   (root-cause, not dispatch), so the bare `<group> on|off` shorthand
-   (which routes through `actuateGroup`) is covered for free. `group
-   edit` (config-only), `list`/`status`/`chars` (read-only), and
-   `focus <unit>` (re-focus, coherent) are all unguarded.
-
-### Acceptance criteria
-
-- [ ] `/tbox focus <builtin-tool-or-toolset>` errors (builtins are
-      preserved, not focused on — decision record).
-- [ ] `/tbox focus portal.web` sets inclusion mode, enables `portal.web`
-      (+ `requires` closure), disables every other registered toolset;
-      `pi.builtin` stays enabled (allowlist-seeded, not emergent);
-      builtins remain active.
-- [ ] `/tbox focus mygroup` (a group) focuses the group's toolsets +
-      their forward closure.
-- [ ] The slot shows `● focus:portal.web` (green) during focus;
-      `● focus:∅` (red) if the allowlist is empty.
-- [ ] `/tbox focus off` re-actuates every registered toolset back to its
-      `spec.defaultEnabled` (overwriting focus-era entries), restores
-      exclusion mode, and the slot returns to pristine or `● tbox n`.
-      **A mode-flip-only exit is a bug** — assert the entries are
-      overwritten, not just the bit flipped.
-- [ ] **Drift-free:** after entering focus, registering a new fake
-      toolset `E` (no entry) and triggering a restore → `E` restores
-      **off** under inclusion mode (focus survives). After `focus off`,
-      the same `E` restores to its `defaultEnabled` under exclusion.
-- [ ] **Mutual exclusion:** `toggle`, `all on|off`, and `<group> on|off`
-      are refused while focus is active with a message pointing to
-      `/tbox focus off`; all three succeed again after `focus off`.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `focus.test.ts`:
-  - Enter focus on `portal.web` with fake `portal.learn` (requires web)
-    - `host.api` registered → `portal.web` enabled, `portal.learn`
-    enabled (closure), `host.api` disabled, `pi.builtin` **kept enabled**
-    (allowlist-seeded, not emergent — this is the drift fix). Inclusion
-    mode set. Entries written for `portal.web`, `portal.learn`,
-    `host.api` — **not** for `pi.builtin`.
-  - Empty allowlist (focus on a group with no toolsets) → slot red, no
-    toolset enabled except via requires-nada.
-  - Exit focus → every toolset driven to `spec.defaultEnabled`; the
-    focus-era `false` entries for non-allowlist toolsets are
-    **overwritten** with the default's `{ enabled }` (assert via
-    MockPI's recorded `appendEntry` sequence: the last write for each
-    persistKey matches the default). Exclusion mode restored.
-  - Drift-free: enter focus, register `E` with `defaultEnabled: true`,
-    fire a `session_tree` restore → `E` is off (inclusion). `focus off`
-    → fire restore → `E` is on (exclusion, default honored). This is
-    integration-level (it drives the library's inclusion/exclusion
-    restore through tbox's focus enter/exit), so it's the one place
-    tbox's tests come closest to re-asserting a library invariant —
-    acceptable because it pins tbox's *use* of the mode API end-to-end,
-    not the mode fallback in isolation (`design.md` §12 owns that).
-  - Slot text asserts the green and red forms exactly.
-  - **Mutual exclusion:** each of `toggleTool`, `toggleAll` (on + off),
-    and `actuateGroup` returns a refusal message containing "Cannot"
-    and `/tbox focus off` when called during focus; after `focus off`
-    the same commands succeed normally.
-- `focus-exit.test.ts`: the **negative** test — explicitly assert that
-  flipping only the mode bit (without re-actuation) leaves a previously-
-  disabled toolset stuck off; this documents why the re-actuation path
-  is mandatory. (This is a regression guard against a future "simpler"
-  refactor.)
+Tests shipped (green): `focus` (enter on toolset/tool/group, builtin +
+sdk refusal, closure, `pi.builtin` kept enabled, exit re-actuation
+overwrites focus-era entries, drift-free restore under inclusion vs
+exclusion, mutual-exclusion refusals across `toggleTool`/`toggleAll`/
+`actuateGroup`), `focus-exit` (the negative regression guard — a
+mode-flip-only exit leaves a disabled toolset stuck off, documenting
+why re-actuation is mandatory).
 
 ---
 
-## Sprint 6 — Char counter + status slot finalization
+## Sprint 6 — ✅ Done: Char counter + status slot finalization
 
-**Goal:** point 5 (char counter) and locking down the full 4-state slot.
+Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
 
-### Work
+- **`/tbox chars` (`computeCharCount` + `formatChars`)** — serializes
+  every **active** tool's full definition via `JSON.stringify({name,
+  description, parameters, promptGuidelines, sourceInfo})` (fixed key
+  order → deterministic across runs) and sums the character counts.
+  **All active tools count, including `builtin` and `sdk`** — the count
+  is the honest serialized size of what the LLM sees, not the
+  tbox-managed subset (MVP: "current active tool set", no exclusion).
+  **The output is a fixed/tools split, not a single integer**
+  (`Char count — fixed: <builtin+sdk> | tools: <extension> (total:
+  <sum>)`): `fixed` is the non-togglable floor (builtin + sdk), `tools`
+  is the togglable extension budget. This is an addition over the work
+  text's "single integer" — the split is more useful for budgeting
+  (you can see how much of the count you can actually move with
+  `/tbox`), and the total is still the contract number. The split shape
+  is recorded in the open-decisions table below.
+- **`/tbox status`** includes the char line via the shared
+  `formatCharSplit` (same string as `/tbox chars`), so the two surfaces
+  never drift.
+- **Status slot finalization (`src/status-slot.ts`)** — all four states
+  wired with colors per the MVP table: `○ tbox` (dim) pristine; `● tbox
+  n masked` (accent/blue) count, where `n` is non-builtin, non-sdk
+  excluded extension tools (Sprint 2's count, re-verified against the
+  focus configuration); `● focus:<unit> (n)` (success/green) focus;
+  `● focus:∅` (error/red) focus-empty. `computeSlotState` +
+  `renderSlotText` are split so tests assert state→text deterministically.
+  The slot shows focus state only when in focus — **never** the char
+  count (the count is ephemeral; `/tbox chars` and the status line are
+  the on-demand surfaces). `rerenderSlot` lets non-event callers
+  (focus enter/exit) repaint synchronously so the glyph never lags a
+  frame behind the actuation that produced it.
 
-1. `src/chars.ts`: `/tbox chars` prints the serialized character count
-   of the current active tool set. Computed from `pi.getAllTools()` full
-   definitions — for each **enabled** tool (in `getActiveTools()`),
-   serialize `name` + `description` + `parameters` (JSON schema) +
-   `promptGuidelines` + `sourceInfo` and sum the character counts.
-   - The exact serialization shape (which fields, JSON vs. line-format)
-     should be **deterministic** so the count is stable and testable —
-     pick one (recommend `JSON.stringify` of `{name, description,
-     parameters, promptGuidelines, sourceInfo}` per tool, summed) and
-     record it. The number is the contract; the shape is an impl detail.
-   - `/tbox status` now includes the char count line.
-2. `src/status-slot.ts` finalization: all four states wired
-   (pristine / `● tbox n` / `● focus:<unit>` / `● focus:∅`), colors per
-   the MVP table (dim / blue-accent / green-success / red-error). The
-   slot shows focus state only — **not** the char count (the count is
-   ephemeral, `/tbox chars` is the on-demand surface).
-3. The excluded count `n` is non-builtin, non-sdk — already correct from
-   Sprint 2; this sprint just re-verifies with focus active (focus
-   disables toolsets, so `n` is large during focus — but the slot shows
-   the focus glyph, not the count, so this is consistent).
-
-### Acceptance criteria
-
-- [ ] `/tbox chars` prints a single integer = sum of serialized chars of
-      every enabled tool's full definition; the number is deterministic
-      across runs with the same tool population + active set.
-- [ ] Toggling a toolset on/off changes `/tbox chars` by exactly the
-      serialized size of that toolset's now-(in)active members.
-- [ ] `/tbox status` includes the char count line.
-- [ ] The slot shows all four states correctly with the right colors and
-      never shows the char count.
-- [ ] `npm test` green; `tsc --noEmit` clean.
-
-### Tests
-
-- `chars.test.ts`:
-  - A known tool population with hand-computed serialized sizes →
-    `/tbox chars` returns the exact sum.
-  - Toggle a toolset → delta equals the serialized size of its members.
-  - Determinism: two runs with identical inputs → identical number.
-  - `sdk` and `builtin` tools, when active, **are** counted (they are
-    active tools with full definitions — the count is "active tool set,"
-    not "tbox-managed tool set"); verify the MVP's intent here — the
-    count is the honest serialized size of what the LLM sees, so all
-    active tools count. (If the team decides otherwise, record the
-    decision; the MVP text says "current active tool set" with no
-    exclusion, so all active tools count.)
-- `status-slot.test.ts`: a table-driven test over all four states —
-  given a registry/active-set/focus configuration, assert the exact slot
-  string + color marker.
+Tests shipped (green): `chars` (hand-computed population → exact sum,
+toggle delta = serialized size of moved members, determinism across
+runs, builtin/sdk counted in `fixed`), `status-slot` (table-driven over
+all four states asserting exact slot string + color marker, focus vs
+count precedence, excluded-count correctness).
 
 ---
 
@@ -765,5 +692,5 @@ swapping the library dep to the published version.
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
-| `/tbox chars` serialization shape | 6 | `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed |
-| Whether `chars` counts builtin/sdk active tools | 6 | Yes — the count is the honest serialized size of what the LLM sees |
+| `/tbox chars` serialization shape | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **fixed/tools split** (`fixed` = builtin+sdk floor, `tools` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget |
+| Whether `chars` counts builtin/sdk active tools | 6 | **Closed:** Yes — the count is the honest serialized size of what the LLM sees (counted under `fixed`) |
