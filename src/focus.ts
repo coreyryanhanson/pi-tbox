@@ -1,8 +1,8 @@
 /**
  * /tbox focus — single-unit focus with inclusion mode and drift-free exit.
  *
- * Focus is **single-unit**: one group name, one toolset id, or one tool
- * name — but never a builtin. The resolved unit + its forward `requires`
+ * Focus is **single-unit**: one group name or one toolset id —
+ * but never a builtin. The resolved unit + its forward `requires`
  * closure AND reverse `dependents` closure (matching the library's
  * bi-directional enable cascade) becomes the allowlist; every other
  * toolset is disabled. On exit,
@@ -33,16 +33,13 @@ type ResolvedUnit =
  * Resolve a focus unit string to a set of toolset ids.
  *
  * Strategy:
- *   1. Builtin guard — reject if it's a builtin tool or `pi.builtin`.
+ *   1. Builtin guard — reject the reserved id `pi.builtin`.
  *   2. Try as a group name (from config).
  *   3. Try as a registered toolset id.
- *   4. Try as a tool name → find its containing toolset.
- *   5. Fallback error.
+ *   4. Fallback error.
  */
-function resolveFocusUnit(pi: ExtensionAPI, input: string): ResolvedUnit {
-	// Builtin guard — reject if the input matches a builtin tool name
-	// or the reserved id "pi.builtin". Builtins are out of tbox's scope;
-	// focus on an extension toolset or group instead.
+function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
+	// Builtin guard — reject the reserved id "pi.builtin".
 	if (input === "pi.builtin") {
 		return {
 			ok: false,
@@ -51,20 +48,7 @@ function resolveFocusUnit(pi: ExtensionAPI, input: string): ResolvedUnit {
 		};
 	}
 
-	const allTools = pi.getAllTools();
 	const registry = getRegisteredToolsets();
-
-	// Check if input matches a builtin tool name
-	const builtinTool = allTools.find(
-		(t) => t.name === input && t.sourceInfo.source === "builtin",
-	);
-	if (builtinTool) {
-		return {
-			ok: false,
-			error:
-				"builtins are out of tbox's scope; focus on an extension toolset or group instead.",
-		};
-	}
 
 	// --- Try as a group name ---
 	const groupResolved = resolveGroup(input);
@@ -92,54 +76,9 @@ function resolveFocusUnit(pi: ExtensionAPI, input: string): ResolvedUnit {
 		return { ok: true, toolsetIds: [...union], label: input };
 	}
 
-	// --- Try as a tool name ---
-	const tool = allTools.find((t) => t.name === input);
-	if (tool) {
-		// SDK tool guard
-		if (tool.sourceInfo.source === "sdk") {
-			return {
-				ok: false,
-				error: `Cannot focus on "${input}": SDK tools are host-managed and out of tbox's scope.`,
-			};
-		}
-
-		const containing = registry.find((e) => e.spec.names.has(input));
-		if (!containing) {
-			return {
-				ok: false,
-				error: `Cannot focus on "${input}": no toolset contains this tool.`,
-			};
-		}
-
-		const union = new Set([
-			...forwardClosure([containing.spec.id]),
-			...reverseClosure([containing.spec.id]),
-		]);
-		return {
-			ok: true,
-			toolsetIds: [...union],
-			label: containing.spec.id,
-		};
-	}
-
-	// --- Prefix-match fallback for tool names (to match toggle's behavior) ---
-	const prefixMatches = allTools.filter((t) => t.name.startsWith(input));
-	if (prefixMatches.length > 1) {
-		const candidates = prefixMatches.map((t) => t.name).join(", ");
-		return {
-			ok: false,
-			error: `Ambiguous "${input}". Candidates: ${candidates}`,
-		};
-	}
-	if (prefixMatches.length === 1) {
-		// Recurse with the full name — re-runs builtin/sdk guards and
-		// closure logic without duplicating them here.
-		return resolveFocusUnit(pi, prefixMatches[0]!.name);
-	}
-
 	return {
 		ok: false,
-		error: `No toolset, group, or tool matching "${input}".`,
+		error: `No toolset or group matching "${input}".`,
 	};
 }
 

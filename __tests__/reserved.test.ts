@@ -111,7 +111,7 @@ describe("reserved-word dispatch via /tbox", () => {
 		// "focus" is a real subcommand, so this goes to the focus handler,
 		// not the group shorthand. "on" as a focus unit won't match anything.
 		expect(notify!.message).not.toContain("Enabled group");
-		expect(notify!.message).toContain("No toolset, group, or tool matching");
+		expect(notify!.message).toContain("No toolset or group matching");
 	});
 
 	it("a group named 'list' is reachable only via /tbox group list on", async () => {

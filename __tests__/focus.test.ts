@@ -177,22 +177,10 @@ describe("/tbox focus", () => {
 			expect(result).toContain("out of tbox's scope");
 		});
 
-		it("rejects a builtin tool name", () => {
-			setup(pi, mock);
-			const result = focusUnit(pi, "read");
-			expect(result).toContain("out of tbox's scope");
-		});
-
-		it("rejects an SDK tool", () => {
-			setup(pi, mock);
-			const result = focusUnit(pi, "custom-x");
-			expect(result).toContain("host-managed");
-		});
-
 		it("errors on unknown input", () => {
 			setup(pi, mock);
 			const result = focusUnit(pi, "nope");
-			expect(result).toContain("No toolset, group, or tool matching");
+			expect(result).toContain("No toolset or group matching");
 		});
 	});
 
@@ -274,22 +262,6 @@ describe("/tbox focus", () => {
 
 			const result = focusUnit(pi, "empty");
 			expect(result).toContain("has no toolsets");
-		});
-	});
-
-	describe("on a tool name", () => {
-		it("focuses the containing toolset + forward/reverse closure", () => {
-			setup(pi, mock);
-
-			const result = focusUnit(pi, "web-learn");
-
-			expect(result).toContain("portal.learn");
-			const active = new Set(pi.getActiveTools());
-			// portal.learn + portal.web (requires closure) active
-			expect(active.has("web-learn")).toBe(true);
-			expect(active.has("web-fetch")).toBe(true);
-			// orphans disabled
-			expect(active.has("lens-tool-0")).toBe(false);
 		});
 	});
 
