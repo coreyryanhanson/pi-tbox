@@ -15,6 +15,7 @@ import {
 	renderSlotText,
 	getFocusUnit,
 } from "./status-slot.js";
+import { computeCharCount } from "./chars.js";
 import { getGroupNames } from "./groups.js";
 
 // ---------------------------------------------------------------------------
@@ -314,6 +315,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 	);
 	const focusUnit = getFocusUnit();
 	lines.push(focusUnit ? `Focus: on (${focusUnit})` : "Focus: off");
+	lines.push(`Char count: ${computeCharCount(pi)}`);
 
 	return lines.join("\n").trimEnd();
 }

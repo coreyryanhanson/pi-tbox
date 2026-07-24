@@ -28,6 +28,7 @@ import { toggleTool, toggleAll } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
 import { actuateGroup, describeGroup, editGroup } from "./src/groups.js";
 import { focusUnit, focusOff } from "./src/focus.js";
+import { formatChars } from "./src/chars.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -143,6 +144,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						// Bare `/tbox group <name>` — report the group's units.
 						ctx.ui.notify(describeGroup(name), "info");
 					}
+					break;
+				}
+				case "chars": {
+					ctx.ui.notify(formatChars(pi), "info");
 					break;
 				}
 				case "focus": {
