@@ -7,6 +7,8 @@ import {
 } from "pi-tool-masking";
 import { focusUnit, focusOff } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
+import { toggleTool, toggleAll } from "../src/toggle.js";
+import { actuateGroup } from "../src/groups.js";
 import {
 	computeSlotState,
 	getFocusUnit,
@@ -312,6 +314,54 @@ describe("/tbox focus", () => {
 			if (state.kind === "focus") {
 				expect(state.unit).toBe("portal.web");
 			}
+		});
+	});
+
+	describe("mutual exclusion with actuation commands", () => {
+		it("refuses toggleTool while focused", () => {
+			setup(pi, mock);
+			focusUnit(pi, "portal.web");
+
+			const msg = toggleTool(pi, "web-learn");
+			expect(msg).toContain("Cannot toggle while in focus mode");
+			expect(msg).toContain("/tbox focus off");
+		});
+
+		it("refuses toggleAll on/off while focused", () => {
+			setup(pi, mock);
+			focusUnit(pi, "portal.web");
+
+			const msgOn = toggleAll(pi, true);
+			expect(msgOn).toContain("Cannot enable all toolsets while in focus mode");
+			expect(msgOn).toContain("/tbox focus off");
+
+			const msgOff = toggleAll(pi, false);
+			expect(msgOff).toContain(
+				"Cannot disable all toolsets while in focus mode",
+			);
+			expect(msgOff).toContain("/tbox focus off");
+		});
+
+		it("refuses actuateGroup while focused", () => {
+			setSettingsOverrideForTests({
+				tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
+			});
+			setup(pi, mock);
+			focusUnit(pi, "portal.web");
+
+			const msg = actuateGroup(pi, "webgroup", true);
+			expect(msg).toContain("Cannot enable a group while in focus mode");
+			expect(msg).toContain("/tbox focus off");
+		});
+
+		it("allows actuation commands after focus off", () => {
+			setup(pi, mock);
+			focusUnit(pi, "portal.web");
+			focusOff(pi);
+
+			// toggle should now work
+			const msg = toggleTool(pi, "web-learn");
+			expect(msg).toContain('Disabled "web-learn"');
 		});
 	});
 

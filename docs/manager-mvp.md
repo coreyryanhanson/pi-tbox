@@ -127,6 +127,17 @@ can drift, `focus` won't.
 toolset, or a single tool. One label, clean allowlist. Multi-unit focus
 deferred.
 
+**Mutual exclusion with actuation commands.** While focus is active,
+the three actuation entry points (`toggle`, `all on|off`, `<group> on|off`)
+are refused with a message pointing to `/tbox focus off`. Focus is an
+inclusion-mode snapshot that promises a known working set (the allowlist).
+If the user could toggle individual toolsets on/off while the slot still
+claims `● focus:<unit>`, the active set would diverge from what the slot
+advertises — the slot would lie. `group edit` (config-only),
+`list`/`status`/`chars` (read-only), and `focus <other-unit>` (re-focus,
+still a coherent focus state) are all unguarded. After `focus off` the
+actuation commands work normally again.
+
 **Builtins are out of tbox's management scope.** Once tbox
 auto-registers `pi.builtin` (point 8), the §13.2 emergent-preservation
 argument (builtins survive focus because they're in no `defineToolset`

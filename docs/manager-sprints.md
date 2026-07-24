@@ -491,6 +491,18 @@ hard requirement.
   green; if the allowlist resolves to **empty** → `● focus:∅` red
   (broken). Exit → back to pristine/`● tbox n`.
 5. `/tbox status` now reports the focus line.
+6. **Mutual exclusion with actuation commands.** While focus is active,
+   the three actuation entry points (`toggleTool`, `toggleAll`,
+   `actuateGroup`) refuse with a message pointing to `/tbox focus off`.
+   Rationale: focus is an inclusion-mode snapshot that promises a known
+   working set (the allowlist). If the user could toggle individual
+   toolsets on/off while the slot still claims `● focus:<unit>`, the
+   active set diverges from what the slot advertises — the slot lies.
+   The three guards are one-liners at the top of each shared function
+   (root-cause, not dispatch), so the bare `<group> on|off` shorthand
+   (which routes through `actuateGroup`) is covered for free. `group
+   edit` (config-only), `list`/`status`/`chars` (read-only), and
+   `focus <unit>` (re-focus, coherent) are all unguarded.
 
 ### Acceptance criteria
 
@@ -513,6 +525,9 @@ hard requirement.
       toolset `E` (no entry) and triggering a restore → `E` restores
       **off** under inclusion mode (focus survives). After `focus off`,
       the same `E` restores to its `defaultEnabled` under exclusion.
+- [ ] **Mutual exclusion:** `toggle`, `all on|off`, and `<group> on|off`
+      are refused while focus is active with a message pointing to
+      `/tbox focus off`; all three succeed again after `focus off`.
 - [ ] `npm test` green; `tsc --noEmit` clean.
 
 ### Tests
@@ -540,6 +555,10 @@ hard requirement.
     acceptable because it pins tbox's *use* of the mode API end-to-end,
     not the mode fallback in isolation (`design.md` §12 owns that).
   - Slot text asserts the green and red forms exactly.
+  - **Mutual exclusion:** each of `toggleTool`, `toggleAll` (on + off),
+    and `actuateGroup` returns a refusal message containing "Cannot"
+    and `/tbox focus off` when called during focus; after `focus off`
+    the same commands succeed normally.
 - `focus-exit.test.ts`: the **negative** test — explicitly assert that
   flipping only the mode bit (without re-actuation) leaves a previously-
   disabled toolset stuck off; this documents why the re-actuation path

@@ -26,6 +26,7 @@ import {
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
 import { BUILTIN_TOOLSET_ID } from "./registry.js";
+import { getFocusUnit } from "./status-slot.js";
 import { GroupEditorComponent } from "./group-editor.js";
 
 // ---------------------------------------------------------------------------
@@ -228,6 +229,12 @@ export function actuateGroup(
 	name: string,
 	enable: boolean,
 ): string {
+	// Focus guard — mutual exclusion with focus mode
+	const fu = getFocusUnit();
+	if (fu !== null) {
+		return `Cannot ${enable ? "enable" : "disable"} a group while in focus mode (${fu}). Run /tbox focus off first.`;
+	}
+
 	const resolved = resolveGroup(name);
 	if ("error" in resolved) return resolved.error;
 	const group = resolved.group;

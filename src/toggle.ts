@@ -11,6 +11,7 @@
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import { getFocusUnit } from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
 // Tool resolution
@@ -80,6 +81,12 @@ export function findContainingToolset(
  * @returns A human-readable status or error message.
  */
 export function toggleTool(pi: ExtensionAPI, input: string): string {
+	// Focus guard — mutual exclusion with focus mode
+	const fu = getFocusUnit();
+	if (fu !== null) {
+		return `Cannot toggle while in focus mode (${fu}). Run /tbox focus off first.`;
+	}
+
 	const resolved = resolveTool(pi, input);
 	if ("error" in resolved) return resolved.error;
 	const tool = resolved.tool;
@@ -131,6 +138,12 @@ export function toggleTool(pi: ExtensionAPI, input: string): string {
  * @returns A summary message.
  */
 export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
+	// Focus guard — mutual exclusion with focus mode
+	const fu = getFocusUnit();
+	if (fu !== null) {
+		return `Cannot ${enable ? "enable" : "disable"} all toolsets while in focus mode (${fu}). Run /tbox focus off first.`;
+	}
+
 	const toolsets = getRegisteredToolsets();
 	let changed = 0;
 
