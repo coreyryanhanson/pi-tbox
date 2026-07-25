@@ -40,17 +40,17 @@
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"
 	},
-	"dependencies": {
-		"pi-tool-masking": "file:./pi-tool-masking"
-	},
+	"dependencies": {},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
+		"pi-tool-masking": "^1.0.0",
 		"typebox": "*"
 	},
 	"devDependencies": {
 		"@earendil-works/pi-coding-agent": "^0.78.0",
 		"@types/node": "^22.0.0",
+		"pi-tool-masking": "^1.0.0",
 		"typescript": "^7.0.2",
 		"vitest": "^4.0.0"
 	}
