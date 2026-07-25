@@ -16,9 +16,8 @@ management surface. It is the §13 manager from `design.md`, built before
 the library is published so the frozen API is validated against a real
 consumer.
 
-The library owns *toolset on/off memory*, the `requires` cascade, the
-`masked` addressability contract, the inclusion/exclusion
-default-resolution mode, and registry enumeration. `pi-tbox` owns
+The library owns *toolset on/off memory*, the `requires` cascade,
+the inclusion/exclusion default-resolution mode, and registry enumeration. `pi-tbox` owns
 *user intent*: which tools are grouped together, which unit is focused,
 how the user sees and toggles everything. The library never learns what a "group" or "focus label" is;
 tbox stores those in its own user config and resolves them to library
@@ -74,11 +73,10 @@ the seed set.)
 Filters: `--active` (only currently enabled), `--inactive` (only
 disabled). Both filters work in both views.
 
-The grouped view honors `masked`: a masked toolset renders as one row
-(the group) with its members suppressed; an unmasked toolset renders its
-members as individual rows. This is the §13.1 addressable-unit
-derivation — masked members are not addressable units, so they don't
-appear individually.
+The grouped view shows each tool under its smallest
+toolset only, no duplication. Every toolset renders its members
+as individual rows. A tool in no registered toolset
+shows under its `tbox.tool@<source>` toolset.
 
 ### 2. User groups + focus
 
@@ -198,25 +196,12 @@ as protected). The `/tbox all off` safety skip is a defense-in-depth
 layer — builtins are always-on by nature; grouping them is
 meaningless for `on` and dangerous for `off`, and a newly shipped
 Pi builtin must stay active during focus.
-2. **`masked` toolset members are not individually toggleable.** Tbox
-   honors `spec.masked` — a masked toolset is a sealed unit (members
-   hidden in the picker, only the group toggles). `/tbox toggle
-   <masked member>` is refused with a pointer to toggle the group.
-   Masking is permanent; there is no per-member addressability escape.
-
-**`masked` is the single source of truth** — no library split into
-`masked`+`atomic`. The sealed-unit behavior (`masked: true` = members
-hidden AND group-toggled only) is the only behavior any plugin needs.
-Off-diagonal cells (visible-but-locked members) have no real consumer;
-building them would expand the frozen library for speculation. The work
-is **updating portal/host toolset specs to set `masked: true`**, not
-expanding the library.
-
-> **Resolved — no library action:** the masking edge case where a plugin
-> wants a cohesive group (e.g. `portal.web`) with a sibling standalone
-> tool (`portal.learn`) is already handled by `requires` (§4.4) — two
-> toolsets, one dependency edge, no new mechanism. See "Edge case:
-> web + learn" below.
+2. **Toolset members are not individually toggleable when the
+toolset itself is toggled.** Tbox toggles toolsets as units —
+toggling one toolset does not toggle its members independently.
+The group is the natural addressability boundary; individual member
+toggles are not needed because the toolset itself is the
+user-facing unit.
 
 ### 4. Group editing UX
 
@@ -229,9 +214,7 @@ pi's interactive-mode internals (those are not re-exported from the
 SDK and would break across updates). Requires interactive (`tui`) mode.
 
 **One granularity: toolsets only.** Every addressable unit is one
-check row per toolset. Masked toolsets render as one sealed row
-(members suppressed); unmasked toolsets as one row; orphans as their
-`tbox.tool@<source>` row (point 8). There are no member rows —
+check row per toolset. There are no member rows —
 pi-tool-masking has no per-tool persist primitive, so per-tool rows
 would collapse to the containing toolset at actuation. Builtins are
 not shown (protected, out of scope — point 2/3).
@@ -396,7 +379,7 @@ owns it).
 The "cohesive web group with a separate learn tool" case needs no
 library expansion. Portal registers two toolsets:
 
-- `portal.web` = {browser-navigate, browser-click, …}, `masked: true`
+- `portal.web` = {browser-navigate, browser-click, …}
 - `portal.learn` = {web-learn}, `requires: ["portal.web"]`
 
 The `requires` cascade (§4.4) gives every composition for free:
@@ -406,8 +389,7 @@ The `requires` cascade (§4.4) gives every composition for free:
 - `/tbox portal.web off` → cascades learn off via requires → no web
 
 Two toolsets, one dependency edge, zero new mechanism. Tbox exposes both
-as addressable units (one sealed, one single-member); the library
-handles the composition.
+as addressable units; the library handles the composition.
 
 ## Decision summary
 
@@ -415,7 +397,7 @@ handles the composition.
 |---|---|
 | Registry enumeration | library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
 | Orphans/builtins | builtins are excluded from the registry entirely (protected by source checks in toggle/focus/all); one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
-| Masking | `masked` is the single knob (sealed unit); portal/host specs set `masked: true`; members sealed, group-toggled only — no escape hatch |
+| Group editing | one row per toolset; members not individually addressable; `requires` closure auto-maintained |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); cues inline in the picker footer |
 | Command collisions | reserved wordlist; `/tbox <group> on` bare for non-reserved |

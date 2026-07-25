@@ -16,7 +16,7 @@ import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 // ---------------------------------------------------------------------------
 
 /**
- * portal.web (masked, 3 members) + portal.learn (requires portal.web) +
+ * portal.web (3 members) + portal.learn (requires portal.web) +
  * host.api (independent) + a builtin + an orphan.
  */
 function setupRegistry(mock: MockPI, pi: ExtensionAPI): void {
@@ -97,7 +97,6 @@ function setupRegistry(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: true,
 	});
 	mock.defineFakeToolset({
 		id: "portal.learn",
@@ -105,7 +104,6 @@ function setupRegistry(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-learn"]),
 		persistKey: "toolset-state:portal.learn",
 		defaultEnabled: true,
-		masked: false,
 		requires: ["portal.web"],
 	});
 	mock.defineFakeToolset({

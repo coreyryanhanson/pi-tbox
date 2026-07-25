@@ -35,7 +35,7 @@ function setupToggleFixture(mock: MockPI, pi: ExtensionAPI): void {
 		},
 	});
 
-	// portal.web — masked, 3 members
+	// portal.web — 3 members
 	mock.registerTool({
 		name: "web-fetch",
 		description: "Fetch web pages",
@@ -67,7 +67,7 @@ function setupToggleFixture(mock: MockPI, pi: ExtensionAPI): void {
 		},
 	});
 
-	// portal.learn — unmasked, 1 member, requires portal.web
+	// portal.learn — 1 member, requires portal.web
 	mock.registerTool({
 		name: "web-learn",
 		description: "Learn from web",
@@ -98,7 +98,6 @@ function setupToggleFixture(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: true,
 	});
 	mock.defineFakeToolset({
 		id: "portal.learn",
@@ -106,7 +105,6 @@ function setupToggleFixture(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-learn"]),
 		persistKey: "toolset-state:portal.learn",
 		defaultEnabled: true,
-		masked: false,
 		requires: ["portal.web"],
 	});
 
@@ -215,10 +213,10 @@ describe("toggleTool", () => {
 		pi = mock as unknown as ExtensionAPI;
 	});
 
-	it("toggles an unmasked tool's containing toolset on/off", () => {
+	it("toggles a toolset member on/off", () => {
 		setupToggleFixture(mock, pi);
 
-		// Start: all active → toggle web-learn (in portal.learn, unmasked) → disable
+		// Start: all active → toggle web-learn → disable
 		const msg1 = toggleTool(pi, "web-learn");
 		expect(msg1).toContain('Disabled "web-learn"');
 		expect(mock.getActiveTools()).not.toContain("web-learn");
@@ -234,13 +232,6 @@ describe("toggleTool", () => {
 		const msg = toggleTool(pi, "custom-x");
 		expect(msg).toContain("Cannot toggle");
 		expect(msg).toContain("SDK tools are host-managed");
-	});
-	it("refuses masked member toggle in normal mode", () => {
-		setupToggleFixture(mock, pi);
-		const msg = toggleTool(pi, "web-fetch");
-		expect(msg).toContain("Cannot toggle");
-		expect(msg).toContain("sealed group");
-		expect(msg).toContain("Portal Web");
 	});
 	it("refuses builtin toggle in normal mode", () => {
 		setupToggleFixture(mock, pi);
@@ -309,15 +300,6 @@ describe("toggle via dispatchCommand", () => {
 		expect(notify).toBeDefined();
 		expect(notify!.level).toBe("error");
 		expect(notify!.message).toContain("SDK tools are host-managed");
-	});
-
-	it("notifies error for masked member in normal mode", async () => {
-		await mock.dispatchCommand("toggle web-fetch");
-
-		const notify = mock.getLastNotify();
-		expect(notify).toBeDefined();
-		expect(notify!.level).toBe("error");
-		expect(notify!.message).toContain("sealed group");
 	});
 
 	it("notifies error for builtin in normal mode", async () => {

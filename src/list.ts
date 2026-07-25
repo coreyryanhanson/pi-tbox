@@ -1,9 +1,8 @@
 /**
  * /tbox list, status, and bare help formatters.
  *
- * Provides the grouped view (smallest-toolset-wins, masked suppression),
- * flat view (all tools with sdk read-only rows), status aggregator,
- * and bare help output.
+ * Provides the grouped view (smallest-toolset-wins), flat view (all
+ * tools with sdk read-only rows), status aggregator, and bare help output.
  *
  * @module
  */
@@ -79,7 +78,6 @@ function toolGroupLabel(
  * Format the grouped list view (default).
  *
  * Each tool appears exactly once under its smallest containing toolset.
- * Masked toolsets render as one sealed row (members hidden).
  * SDK tools are excluded from the grouped view entirely.
  *
  * @param pi  - The extension API
@@ -131,23 +129,8 @@ export function formatGroupedList(
 		}
 
 		const label = entry.spec.label ?? gid;
-		const isMasked = entry.spec.masked ?? false;
 		const totalMembers = entry.spec.names.size;
 
-		// Masked toolset — show one sealed row, no members
-		if (isMasked) {
-			const activeCount = [...entry.spec.names].filter((n) =>
-				activeSet.has(n),
-			).length;
-			lines.push(
-				`  ${label} (masked, ${totalMembers} tool${totalMembers !== 1 ? "s" : ""}, ${activeCount} active)`,
-			);
-			lines.push("    (masked \u2014 members hidden)");
-			lines.push("");
-			continue;
-		}
-
-		// Unmasked toolset — show members
 		lines.push(
 			`  ${label} (${totalMembers} tool${totalMembers !== 1 ? "s" : ""})`,
 		);
@@ -291,13 +274,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const isEnabled = [...spec.names].some((n) => activeSet.has(n));
 		const enabledStr = isEnabled ? "enabled" : "disabled";
 		const memberCount = spec.names.size;
-		const tags: string[] = [];
-
-		if (spec.masked) tags.push("masked");
-		const tagStr =
-			tags.length > 0
-				? ` (${tags.join(", ")}, ${memberCount} members)`
-				: ` (${memberCount} members)`;
+		const tagStr = ` (${memberCount} members)`;
 		const pad = "\u00a0".repeat(Math.max(1, 20 - spec.id.length));
 
 		lines.push(`  ${spec.id}${pad}${enabledStr}${tagStr}`);

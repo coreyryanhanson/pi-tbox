@@ -64,7 +64,6 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 		names: new Set(["web-fetch"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: false,
 	});
 
 	autoRegisterBuiltinAndOrphans(pi);
@@ -95,7 +94,7 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 
 		// --- Enter focus on portal.web ---
 		focusUnit(pi, "portal.web");
-		expect(getDefaultResolutionMode(pi)).toBe("inclusion");
+		expect(getDefaultResolutionMode()).toBe("inclusion");
 		expect(new Set(pi.getActiveTools()).has("web-fetch")).toBe(true);
 
 		// The orphan toolset (tbox.tool@orphan-source) was disabled during focus,

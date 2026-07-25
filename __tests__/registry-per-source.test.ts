@@ -93,14 +93,12 @@ describe("per-source orphan registration", () => {
 		expect(lensToolset).toBeDefined();
 		expect(lensToolset!.spec.names.size).toBe(3);
 		expect(lensToolset!.spec.defaultEnabled).toBe(true);
-		expect(lensToolset!.spec.masked).toBe(false);
 		// Multi-tool source: no description
 		expect(lensToolset!.spec.description).toBeUndefined();
 
 		expect(myPluginToolset).toBeDefined();
 		expect(myPluginToolset!.spec.names.size).toBe(1);
 		expect(myPluginToolset!.spec.defaultEnabled).toBe(true);
-		expect(myPluginToolset!.spec.masked).toBe(false);
 		// Single-tool source: description passed through
 		expect(myPluginToolset!.spec.description).toBe(
 			"A single tool from my-plugin",

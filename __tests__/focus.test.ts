@@ -125,7 +125,6 @@ function defineFakeToolsets(mock: MockPI): void {
 		names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: true,
 	});
 	mock.defineFakeToolset({
 		id: "portal.learn",
@@ -133,7 +132,6 @@ function defineFakeToolsets(mock: MockPI): void {
 		names: new Set(["web-learn"]),
 		persistKey: "toolset-state:portal.learn",
 		defaultEnabled: true,
-		masked: false,
 		requires: ["portal.web"],
 	});
 }
@@ -207,7 +205,7 @@ describe("/tbox focus", () => {
 			expect(active.has("my-tool")).toBe(false);
 
 			// Inclusion mode is set
-			expect(getDefaultResolutionMode(pi)).toBe("inclusion");
+			expect(getDefaultResolutionMode()).toBe("inclusion");
 		});
 
 		it("writes entries for disabled toolsets", () => {
@@ -385,13 +383,13 @@ describe("/tbox focus", () => {
 
 			// Enter focus
 			focusUnit(pi, "portal.web");
-			expect(getDefaultResolutionMode(pi)).toBe("inclusion");
+			expect(getDefaultResolutionMode()).toBe("inclusion");
 
 			// Exit focus
 			const result = focusOff(pi);
 
 			expect(result).toContain("Focus off");
-			expect(getDefaultResolutionMode(pi)).toBe("exclusion");
+			expect(getDefaultResolutionMode()).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// All extension toolsets back to defaultEnabled
@@ -455,7 +453,6 @@ describe("/tbox focus", () => {
 				names: new Set(["new-tool"]),
 				persistKey: "toolset-state:new-plugin",
 				defaultEnabled: true,
-				masked: false,
 			});
 			autoRegisterBuiltinAndOrphans(pi);
 
@@ -494,7 +491,6 @@ describe("/tbox focus", () => {
 				names: new Set(["new-tool"]),
 				persistKey: "toolset-state:new-plugin",
 				defaultEnabled: true,
-				masked: false,
 			});
 			autoRegisterBuiltinAndOrphans(pi);
 

@@ -178,7 +178,6 @@ describe("computeCharCount", () => {
 		defineToolset(mock as any, {
 			id: "test.set",
 			names: new Set(["tool-alpha", "tool-beta"]),
-			masked: false,
 			defaultEnabled: true,
 			persistKey: "toolset-state:test.set",
 		});

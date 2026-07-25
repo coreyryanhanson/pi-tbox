@@ -75,7 +75,6 @@ export function findContainingToolset(
  *
  * Guards (always enforced):
  *   - SDK tools are always refused.
- *   - Masked toolset members are not individually toggleable.
  *   - pi.builtin is not toggleable.
  *
  * @returns A human-readable status or error message.
@@ -106,11 +105,6 @@ export function toggleTool(pi: ExtensionAPI, input: string): string {
 	// --- Builtin guard (always enforced) ---
 	if (tool.sourceInfo.source === "builtin") {
 		return `Cannot toggle "${tool.name}": builtins are protected. tbox does not manage pi's core tools.`;
-	}
-
-	if (entry.spec.masked) {
-		const label = entry.spec.label ?? entry.spec.id;
-		return `Cannot toggle "${tool.name}": this tool is part of the sealed group "${label}". Toggle the group instead.`;
 	}
 
 	// --- Toggle ---

@@ -69,10 +69,7 @@ export interface PickerUnit {
 /**
  * Build the list of addressable units for the picker.
  *
- * One row per registered toolset:
- *  - Masked toolsets → one sealed row: "{label} (masked, N tools)"
- *  - Unmasked toolsets → one row: "{label} (N tools)"
- * No member rows.
+ * One row per registered toolset.
  */
 export function buildPickerUnits(): PickerUnit[] {
 	const registry = getRegisteredToolsets();
@@ -80,19 +77,11 @@ export function buildPickerUnits(): PickerUnit[] {
 
 	for (const entry of registry) {
 		const label = entry.spec.label ?? entry.spec.id;
-		if (entry.spec.masked) {
-			units.push({
-				id: entry.spec.id,
-				label: `${label} (masked, ${entry.spec.names.size} tools)`,
-				type: "toolset",
-			});
-		} else {
-			units.push({
-				id: entry.spec.id,
-				label: `${label} (${entry.spec.names.size} tools)`,
-				type: "toolset",
-			});
-		}
+		units.push({
+			id: entry.spec.id,
+			label: `${label} (${entry.spec.names.size} tools)`,
+			type: "toolset",
+		});
 	}
 
 	return units;

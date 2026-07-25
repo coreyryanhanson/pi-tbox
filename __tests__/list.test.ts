@@ -25,8 +25,8 @@ function fg(color: string, text: string): string {
  * Set up a standard multi-extension tool population for integration tests.
  * Builtins: read, bash
  * SDK: custom-x
- * portal.web (masked, 3 members): web-fetch, browser-navigate, page-read
- * portal.learn (unmasked, 1 member, requires portal.web): web-learn
+ * portal.web (3 members): web-fetch, browser-navigate, page-read
+ * portal.learn (1 member, requires portal.web): web-learn
  * Orphan: orphan-tool
  *
  * After setup, call enableToolsets() to simulate tools being active.
@@ -121,7 +121,6 @@ function defineFakeToolsets(mock: MockPI): void {
 		names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: true,
 	});
 	mock.defineFakeToolset({
 		id: "portal.learn",
@@ -129,7 +128,6 @@ function defineFakeToolsets(mock: MockPI): void {
 		names: new Set(["web-learn"]),
 		persistKey: "toolset-state:portal.learn",
 		defaultEnabled: true,
-		masked: false,
 		requires: ["portal.web"],
 	});
 }
@@ -211,7 +209,7 @@ describe("formatGroupedList", () => {
 		expect(smallSection).toContain("web-learn");
 	});
 
-	it("shows masked toolset as one row with members suppressed", () => {
+	it("shows toolset members as individual rows", () => {
 		for (const name of ["web-fetch", "browser-navigate", "page-read"]) {
 			mock.registerTool({
 				name,
@@ -230,7 +228,7 @@ describe("formatGroupedList", () => {
 			label: "Portal Web",
 			names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 			persistKey: "toolset-state:portal.web",
-			masked: true,
+			defaultEnabled: true,
 		});
 
 		autoRegisterBuiltinAndOrphans(pi);
@@ -238,16 +236,12 @@ describe("formatGroupedList", () => {
 		const output = formatGroupedList(pi);
 
 		expect(output).toContain("Portal Web");
-		expect(output).toContain("(masked");
-		expect(output).toContain("members hidden");
-
-		// Individual member names should NOT appear
-		expect(output).not.toContain("web-fetch");
-		expect(output).not.toContain("browser-navigate");
-		expect(output).not.toContain("page-read");
+		expect(output).toContain("web-fetch");
+		expect(output).toContain("browser-navigate");
+		expect(output).toContain("page-read");
 	});
 
-	it("shows unmasked toolset members as individual rows", () => {
+	it("shows toolset members as individual rows", () => {
 		mock.registerTool({
 			name: "web-learn",
 			description: "Web learn",
@@ -264,7 +258,7 @@ describe("formatGroupedList", () => {
 			label: "Portal Learn",
 			names: new Set(["web-learn"]),
 			persistKey: "toolset-state:portal.learn",
-			masked: false,
+			defaultEnabled: true,
 		});
 
 		autoRegisterBuiltinAndOrphans(pi);
@@ -569,13 +563,6 @@ describe("formatStatus", () => {
 
 		const output = formatStatus(pi);
 		expect(output).toContain("enabled");
-	});
-
-	it("shows masked flag on masked toolsets", () => {
-		setupRichMock(mock, pi);
-
-		const output = formatStatus(pi);
-		expect(output).toContain("masked");
 	});
 
 	it("does not expose builtins as a toggleable toolset", () => {

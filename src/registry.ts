@@ -109,7 +109,6 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 			names: new Set(names),
 			persistKey: orphanPersistKey(source),
 			defaultEnabled: true,
-			masked: false,
 		};
 		const existing = existingToolsets.find(
 			(e) => e.spec.id === orphanToolsetId(source),

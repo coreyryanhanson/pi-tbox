@@ -51,8 +51,9 @@ each independently shippable and testable. Every sprint lists **work**,
   `session_shutdown`. This is verified-correct in `pi-lean-portal` and
   `pi-lean-search` — mirror their shape.
 - **No unrequested abstractions.** No interface-with-one-impl, no factory
-  for one product, no config-for-a-constant. `masked` is the single
-  addressability knob; do not add `atomic`/`visible` siblings.
+  for one product, no config-for-a-constant. Tbox has a single
+  addressability model (all toolsets are togglable as units); do not
+  add `atomic`/`visible` siblings.
 
 ### Repo layout (target, not prescriptive)
 
@@ -195,8 +196,8 @@ Tests shipped (green): `mock-pi`, `registry`, `status-slot`, `load`.
 Shipped (`src/list.ts`):
 
 - **`--grouped` (default)** — smallest-toolset-wins: each tool appears
-  once under its smallest (by `names.size`) containing toolset; masked
-  toolset → one sealed row with members suppressed; orphans →
+  once under its smallest (by `names.size`) containing toolset; all
+  toolset members appear as individual rows; orphans →
   their `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 1
   shipped against a catch-all `tbox.tool`, refined by 3.5).
 - **`--flat`** — every tool as a row; `sdk`-source tools present and
@@ -205,7 +206,7 @@ Shipped (`src/list.ts`):
   (`--flat --inactive`). Active iff `getActiveTools().includes(name)`.
 - **Bare `/tbox`** — slot mirror + brief subcommand help.
 - **`/tbox status`** — aggregator: toolsets (id, enabled, member count,
-  masked); groups/focus/chars lines default to "none"/"off"/omitted
+  members); groups/focus/chars lines default to "none"/"off"/omitted
   until their sprints ship.
 
 Tests shipped (green): `list`, `command`.
@@ -221,13 +222,12 @@ Shipped (`src/toggle.ts`, `src/status-slot.ts`):
   its `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 2 shipped
   against a catch-all `tbox.tool`, refined by 3.5); re-running
   toggles back.
-- **Guards (unconditional — tbox has one mode):** a masked-member
-  toggle is refused ("part of the sealed group `<group>`; toggle the
-  group instead"); builtins are refused via source check
+- **Guards (unconditional — tbox has one mode):** builtins are
+  refused via source check
   ("builtins are protected. tbox does not manage pi's core tools.");
   `sdk` tools are refused ("SDK tools are host-managed and cannot be
-  toggled"). There is no escape hatch — masking and builtin protection
-  are permanent.
+  toggled"). There is no escape hatch — builtin protection
+  is permanent, sdk tools are always outside tbox's domain.
 - **`/tbox all on`** — enable every registered toolset. **`/tbox all off`**
   — disable every non-builtin toolset (builtins are outside the
   registry and never registered, so they are naturally skipped);
@@ -355,7 +355,7 @@ Shipped (`src/registry.ts`):
     (`ToolsetSpec.description` is optional) — the grouped view already
     shows members, and misrepresenting one tool's description as the
     group's would mislabel the others.
-  - **`defaultEnabled: true`, `masked: false`,
+  - **`defaultEnabled: true`,
     `persistKey: toolset-state:tbox.tool@<source>`** — per the
     catch-all plan.
   - **Skips sdk entirely** — unchanged; sdk tools are never registered
@@ -388,9 +388,8 @@ Shipped (`src/group-editor.ts`, `src/groups.ts`, `index.ts`,
   pi's interactive-mode dist path. Requires interactive (`tui`) mode;
   a non-tui session returns "Group editing requires interactive mode."
   rather than mounting the component.
-- **Single granularity: toolsets only.** One row per registered toolset.
-  Masked toolsets render as one sealed row `(masked, N tools)`;
-  unmasked as `(N tools)`; orphans as their `tbox.tool@<source>` row
+- **Single granularity: toolsets only.** One row per registered toolset
+  `(N tools)`. Orphans appear as their `tbox.tool@<source>` row
   (Sprint 3.5). **No member rows** — pi-tool-masking has no per-tool
   persist primitive, so per-tool rows would collapse to the containing
   toolset at actuation (theater). Builtins are not in the registry
@@ -602,7 +601,7 @@ swapping the library dep to the published version.
      the count matches `/tbox list --flat --inactive`.
 2. **Multi-extension integration test.** A single
    `integration.test.ts` that stands up a realistic registry: fake
-   `portal.web` (masked) + `portal.learn` (requires web) + `host.api`
+   `portal.web` + `portal.learn` (requires web) + `host.api`
    - `search.web` + tbox's own per-source `tbox.tool@*` toolsets
   (at least two unclaimed-source plugins, to exercise the
   Sprint 3.5 shape), with a
@@ -658,13 +657,11 @@ swapping the library dep to the published version.
 
 - `integration.test.ts`: the big end-to-end (see Work #2). At minimum:
   - `list --grouped` on the realistic registry matches a snapshot of the
-    expected grouped output (smallest-toolset-wins, masked sealed,
-    orphans under their `tbox.tool@<source>` toolsets, sdk
-    read-only in `--flat`).
+    expected grouped output (smallest-toolset-wins, orphans under their
+    `tbox.tool@<source>` toolsets, sdk read-only in `--flat`).
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →
     `on` → `portal.web` cascades on; status reports both.
-  - `toggle <portal.web member>` → refused (masked);
-    `toggle <builtin tool>` → refused, builtin source check (out of tbox scope).
+  - `toggle <builtin tool>` → refused, builtin source check (out of tbox scope).
   - `all off` → every non-builtin toolset off; builtins unaffected
     (outside the registry); sdk untouched.
   - `focus host.api` → inclusion mode, only `host.api` (+ closure) on,

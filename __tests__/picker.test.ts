@@ -153,7 +153,6 @@ function setupRichRegistry(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-fetch", "browser-navigate", "page-read"]),
 		persistKey: "toolset-state:portal.web",
 		defaultEnabled: true,
-		masked: true,
 	});
 	mock.defineFakeToolset({
 		id: "portal.learn",
@@ -161,7 +160,6 @@ function setupRichRegistry(mock: MockPI, pi: ExtensionAPI): void {
 		names: new Set(["web-learn"]),
 		persistKey: "toolset-state:portal.learn",
 		defaultEnabled: true,
-		masked: false,
 		requires: ["portal.web"],
 	});
 	mock.defineFakeToolset({
@@ -224,7 +222,7 @@ describe("picker — normal mode option list", () => {
 
 	afterEach(() => setSettingsOverrideForTests(null));
 
-	it("masked toolset appears as one sealed row; its members absent", () => {
+	it("toolset appears as a single row with member count", () => {
 		const comp = createComp();
 		const lines = comp.render(120);
 
@@ -232,6 +230,7 @@ describe("picker — normal mode option list", () => {
 		expect(portalWebRows.length).toBe(1);
 		expect(portalWebRows[0]).toContain("3 tools");
 
+		// Members are not shown as individual rows in the picker
 		const fetchRows = lines.filter((l) => l.includes("web-fetch"));
 		expect(fetchRows.length).toBe(0);
 	});
@@ -260,7 +259,7 @@ describe("picker — normal mode option list", () => {
 		expect(extA.length).toBe(1);
 	});
 
-	it("unmasked toolset appears as a single toolset row", () => {
+	it("toolset appears as a single row", () => {
 		const comp = createComp();
 		const lines = comp.render(120);
 

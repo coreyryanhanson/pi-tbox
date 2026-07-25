@@ -90,14 +90,12 @@ describe("autoRegisterBuiltinAndOrphans", () => {
 		expect(lensToolset).toBeDefined();
 		expect(lensToolset!.spec.names).toEqual(new Set(["lens-search"]));
 		expect(lensToolset!.spec.defaultEnabled).toBe(true);
-		expect(lensToolset!.spec.masked).toBe(false);
 		// Single-tool source gets description passed through
 		expect(lensToolset!.spec.description).toBe("Search codebase");
 
 		expect(deployToolset).toBeDefined();
 		expect(deployToolset!.spec.names).toEqual(new Set(["deploy-run"]));
 		expect(deployToolset!.spec.defaultEnabled).toBe(true);
-		expect(deployToolset!.spec.masked).toBe(false);
 		expect(deployToolset!.spec.description).toBe("Run deployment");
 
 		// No catch-all tbox.orphans
