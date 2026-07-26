@@ -7,7 +7,7 @@ import {
 	describeGroup,
 	getGroupNames,
 } from "../src/groups.js";
-import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
@@ -123,15 +123,11 @@ function setupRegistry(mock: MockPI, pi: ExtensionAPI): void {
 
 describe("group config reading", () => {
 	beforeEach(() => {
-		setSettingsOverrideForTests({
-			tbox: {
-				groups: {
-					mygroup: { toolsets: ["portal.web"] },
-				},
-			},
+		setGroupsOverrideForTests({
+			mygroup: { toolsets: ["portal.web"] },
 		});
 	});
-	afterEach(() => setSettingsOverrideForTests(null));
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	it("resolveGroup returns the spec for a configured group", () => {
 		const r = resolveGroup("mygroup");
@@ -170,15 +166,13 @@ describe("actuateGroup", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRegistry(mock, pi);
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 	});
 
-	afterEach(() => setSettingsOverrideForTests(null));
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	it("on enables every toolset in the group; requires deps come on via cascade", () => {
-		setSettingsOverrideForTests({
-			tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		// Disable portal.web (and its dependent portal.learn) first.
 		const web = getRegisteredToolsets().find(
 			(e) => e.spec.id === "portal.web",
@@ -191,9 +185,7 @@ describe("actuateGroup", () => {
 	});
 
 	it("off disables the group's toolset and reports a cascaded non-member (portal.learn)", () => {
-		setSettingsOverrideForTests({
-			tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		// Everything starts enabled. Disabling portal.web cascades to
 		// portal.learn (which requires portal.web).
 		const msg = actuateGroup(pi, "webgroup", false);
@@ -205,12 +197,8 @@ describe("actuateGroup", () => {
 	});
 
 	it("actuates multiple toolsets in a group", () => {
-		setSettingsOverrideForTests({
-			tbox: {
-				groups: {
-					mixed: { toolsets: ["host.api", "portal.learn"] },
-				},
-			},
+		setGroupsOverrideForTests({
+			mixed: { toolsets: ["host.api", "portal.learn"] },
 		});
 		// Disable both first.
 		const host = getRegisteredToolsets().find((e) => e.spec.id === "host.api")!;
@@ -227,15 +215,13 @@ describe("actuateGroup", () => {
 	});
 
 	it("actuating a non-existent group → clear error", () => {
-		setSettingsOverrideForTests({ tbox: { groups: {} } });
+		setGroupsOverrideForTests({});
 		const msg = actuateGroup(pi, "ghost", true);
 		expect(msg).toContain('No group named "ghost"');
 	});
 
 	it("the drift caveat line appears in the output", () => {
-		setSettingsOverrideForTests({
-			tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		const msg = actuateGroup(pi, "webgroup", true);
 		expect(msg).toContain("drift-free snapshots");
 	});
@@ -254,9 +240,7 @@ describe("group dispatch via /tbox", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 
 		const mod = await import("../index.js");
 		mod.default(pi);
@@ -264,7 +248,7 @@ describe("group dispatch via /tbox", () => {
 		mock.clearUiRecords();
 	});
 
-	afterEach(() => setSettingsOverrideForTests(null));
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	it("/tbox webgroup on enables the group's toolset", async () => {
 		// Disable portal.web first.

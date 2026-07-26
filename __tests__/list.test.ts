@@ -10,7 +10,7 @@ import {
 } from "../src/list.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
-import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
@@ -539,7 +539,7 @@ describe("formatStatus", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 	});
 
 	it("prints a line per subsystem", () => {

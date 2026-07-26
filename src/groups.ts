@@ -20,8 +20,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets } from "pi-tool-masking";
 import {
-	readTboxConfig,
-	writeGroupToConfig,
+	readGroups,
+	writeGroup,
 	type GroupSpec,
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
@@ -45,7 +45,7 @@ const DRIFT_CAVEAT =
 export function resolveGroup(
 	name: string,
 ): { group: GroupSpec } | { error: string } {
-	const { groups } = readTboxConfig();
+	const groups = readGroups();
 	const group = groups[name];
 	if (!group) return { error: `No group named "${name}".` };
 	return { group };
@@ -118,7 +118,7 @@ export async function editGroup(
 					groupName: name,
 					initial: existingGroup,
 					onSave: (spec) => {
-						writeGroupToConfig(name, spec);
+						writeGroup(name, spec);
 						done({ saved: true });
 					},
 					onCancel: () => done({ saved: false }),
@@ -173,7 +173,7 @@ export function toggleToolsetUnit(
 
 /** All configured group names (for status listing). */
 export function getGroupNames(): string[] {
-	return Object.keys(readTboxConfig().groups);
+	return Object.keys(readGroups());
 }
 
 /**

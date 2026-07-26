@@ -75,7 +75,7 @@ pi-tbox/
     status-slot.ts        # the 4-state tbox slot: render(), excluded-count, listeners
     reserved.ts           # reserved-wordlist + collision disambiguation
   config/
-    settings-reader.ts    # local merged-settings reader (groups live under a tbox key)
+    settings-reader.ts    # global groups store (~/.pi/agent/pi-tbox/groups.json)
   __tests__/
     mock-pi.ts            # tbox's MockPI (extended — see Testing below)
     …one test file per src module + integration.test.ts
@@ -246,18 +246,28 @@ re-render).
 Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
 `src/requires-graph.ts`, `index.ts`):
 
-- **`config/settings-reader.ts`** — tbox's own merged-settings reader
-  (library exports none, `design.md` §5.1). Tbox-owned keys live under
-  one `tbox` object: `tbox.groups` (group → `{ toolsets: string[] }`).
-  A group is whole-toolset units only — there is no per-tool field
-  (pi-tool-masking has no per-tool persist primitive, so a `tools[]`
-  field would collapse to `toolsets[]` at actuation and mislead readers).
-  Reads merge global + project (project wins); a test-injectable
-  override avoids fs mocks. **Storage-shape decision (recorded):**
-  groups live under `tbox.groups` in merged settings — a dedicated
-  `~/.pi/agent/pi-tbox/groups.json` was rejected (one config location is
-  simpler, matches the MVP recommendation). The write path lands in
-  Sprint 4's picker-save.
+- **`config/settings-reader.ts`** — tbox's own group store. Groups are
+  **user data** (named collections the user creates and grows), not
+  **config** (how pi behaves), so they live in a dedicated global file
+  `~/.pi/agent/pi-tbox/groups.json` — not in `~/.pi/agent/settings.json`
+  (which holds pi-core config) and not per-project. The whole file is
+  tbox's domain: the top-level object is the groups table directly
+  (`{ "research": { "toolsets": [...] } }`), with no `tbox`/`groups`
+  wrapper key. A group is whole-toolset units only — there is no
+  per-tool field (pi-tool-masking has no per-tool persist primitive, so
+  a `tools[]` field would collapse to `toolsets[]` at actuation and
+  mislead readers). A test-injectable override avoids fs mocks.
+  **Storage-shape decision (recorded, revised):** groups are
+  **global/user-scoped** in a dedicated file, so a group defined in one
+  directory is usable from any other. The earlier `tbox.groups` key in
+  merged settings was rejected on review — it conflated user data with
+  pi-core config and wrote to per-project `.pi/settings.json`, so groups
+  never persisted across directories. **Scope split:** group
+  *definitions* are global (this file); a future repo that wants
+  per-project *actuation defaults* (which groups auto-on in that
+  checkout) would express that in `.pi/settings.json` by *naming*
+  global groups, never redeclaring them — one source of truth, no
+  drift. The write path lands in Sprint 4's picker-save.
 - **`src/groups.ts`** — `/tbox <group> on` enables each toolset in the
   group (library cascade pulls deps on). `/tbox <group> off` disables
   each member; the moved set is computed by **diffing `getActiveTools()`
@@ -412,8 +422,8 @@ Shipped (`src/group-editor.ts`, `src/groups.ts`, `index.ts`,
   `Input` at the top narrows items by `fuzzyFilter` on the unit label.
   The footer shows keybinding hints + `N/M enabled` + an `(unsaved)`
   dirty indicator.
-- **Save path** — `Ctrl+S` calls `writeGroupToConfig(name, { toolsets })`
-  (Sprint 3's storage path), flips the dirty flag off. The group is
+- **Save path** — `Ctrl+S` calls `writeGroup(name, { toolsets })`
+  (Sprint 3's global groups store), flips the dirty flag off. The group is
   immediately actuate-able via `/tbox <name> on|off`. Re-opening `edit`
   reflects the saved checks.
 - **`toggleToolsetUnit`** returns `{ cue: string }` so the component can
@@ -691,7 +701,7 @@ swapping the library dep to the published version.
       `__piToolMaskingModuleState` — `rg "__piToolMasking" src/` is
       empty. All registry access goes through `getRegisteredToolsets()`.
 - [ ] Tbox never imports a settings reader from `pi-tool-masking` (the
-      library exports none, `design.md` §5.1) — `rg "readMergedSettings"
+      library exports none, `design.md` §5.1) — `rg "readGroups|writeGroup"
       src/` matches only tbox's own `config/settings-reader.ts`.
 - [ ] `sdk`-source tools are never registered into a toolset, never
       toggled, never counted in the slot's `n`, and appear only as
@@ -717,7 +727,7 @@ swapping the library dep to the published version.
 |---|---|---|
 | **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely; toggle refuses builtins via source check (Sprint 2); picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5). Builtins are never registered so no safety skip is needed |
 | Final reserved-wordlist | 7 | Seed set + any discovered collisions |
-| Group config storage shape | 3 | **Closed:** `tbox.groups` key in merged settings; `GroupSpec = { toolsets: string[] }` (whole-toolset units only — no per-tool field) |
+| Group config storage shape | 3 | **Closed (revised):** groups are **global/user-scoped** in a dedicated file `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no `tbox`/`groups` wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset units only). Revised from the earlier `tbox.groups` key in merged settings — that wrote per-project and conflated user data with pi-core config. Repo-scoped *actuation defaults*, if ever needed, would name global groups in `.pi/settings.json` without redefining them |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |

@@ -1,24 +1,31 @@
 /**
- * Tbox's own merged-settings reader.
+ * Tbox's group store — a dedicated global file, not merged settings.
  *
- * Mirrors `pi-lean-portal/core/shared/settings-reader.ts` — the library
- * exports no settings reader (`design.md` §5.1), so tbox ships its own.
- * Cross-cutting: `rg "readMergedSettings" src/` matches only this file.
+ * Groups are **user data** (named collections the user creates and grows
+ * over time), not **config** (how pi behaves). They live in their own file
+ * so they follow the user across directories and don't clutter
+ * `~/.pi/agent/settings.json` (which holds pi-core config: providers,
+ * theme, packages — static wiring, not user-authored collections).
  *
- * Tbox-owned keys live under a single `tbox` object in merged settings:
+ * Storage location: `~/.pi/agent/pi-tbox/groups.json`, shape:
  *
  * ```jsonc
- * "tbox": {
- *   "groups": {
- *     "mygroup": { "toolsets": ["portal.web"] }
- *   }
+ * {
+ *   "research": { "toolsets": ["portal.web", "portal.learn"] },
+ *   "host":     { "toolsets": ["host.api"] }
  * }
  * ```
  *
- * Groups live under `tbox.groups` in merged settings (global + project,
- * project wins). A group resolves to whole-toolset units only. The write
- * path writes back through this same key with a careful merge that
- * preserves sibling keys.
+ * The whole file is tbox's domain — no `tbox` wrapper key, no `groups`
+ * wrapper key. One group = `{ toolsets: string[] }` (whole-toolset units
+ * only; pi-tool-masking has no per-tool persist primitive, so a `tools[]`
+ * field would collapse to `toolsets[]` at actuation and mislead readers).
+ *
+ * **Scope decision:** groups are **global/user-scoped**, never
+ * project-scoped. A repo that wants per-project *actuation defaults*
+ * (which groups auto-on in that checkout) would express that in
+ * `.pi/settings.json` by *naming* global groups — it never redeclares
+ * their definitions, so there's one source of truth and no drift.
  *
  * @module
  */
@@ -28,11 +35,20 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
-// Config paths
+// Config path
 // ---------------------------------------------------------------------------
 
-const GLOBAL_SETTINGS_PATH = join(homedir(), ".pi", "agent", "settings.json");
-const PROJECT_SETTINGS_PATH = ".pi/settings.json";
+/**
+ * The single global path where user groups are stored. Deliberately not
+ * derived from `process.cwd()` — groups follow the user, not the repo.
+ */
+export const GROUPS_FILE_PATH = join(
+	homedir(),
+	".pi",
+	"agent",
+	"pi-tbox",
+	"groups.json",
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,134 +59,45 @@ export interface GroupSpec {
 	toolsets: string[];
 }
 
-/** The tbox-owned slice of merged settings. */
-export interface TboxConfig {
-	groups: Record<string, GroupSpec>;
-}
-
 // ---------------------------------------------------------------------------
 // Test-injectable override
 // ---------------------------------------------------------------------------
 
-// ponytail: a module-level override lets tests inject merged settings
-// without touching real disk. Null in production — readMergedSettings()
-// falls through to the file read. One small hook beats per-test fs mocks.
-let _override: Record<string, unknown> | null = null;
+// ponytail: a module-level override lets tests inject the groups table
+// without touching real disk. Null in production — readGroups() falls
+// through to the file read. One small hook beats per-test fs mocks.
+let _override: Record<string, GroupSpec> | null = null;
 
 /**
- * Inject (or clear) merged settings for tests. Pass `null` to restore the
- * disk-read path. Production code never calls this.
+ * Inject (or clear) the groups table for tests. Pass `null` to restore
+ * the disk-read path. Production code never calls this.
  *
  * @internal
  */
-export function setSettingsOverrideForTests(
-	obj: Record<string, unknown> | null,
+export function setGroupsOverrideForTests(
+	groups: Record<string, GroupSpec> | null,
 ): void {
-	_override = obj;
+	_override = groups;
 }
 
 // ---------------------------------------------------------------------------
 // Reader
 // ---------------------------------------------------------------------------
 
-/** Read and parse a JSON settings file. Returns {} on any failure. */
-export function readSettingsFile(path: string): Record<string, unknown> {
+/** Read and parse the groups file. Returns {} on any failure. */
+function readGroupsFile(
+	path: string = GROUPS_FILE_PATH,
+): Record<string, GroupSpec> {
 	try {
 		if (!existsSync(path)) return {};
 		const raw = readFileSync(path, "utf-8");
 		const parsed = JSON.parse(raw);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return {};
 		}
-		return {};
-	} catch {
-		return {};
-	}
-}
-
-/**
- * Read global + project settings and merge them (project overrides global).
- */
-export function readMergedSettings(
-	globalPath: string = GLOBAL_SETTINGS_PATH,
-	projectPath: string = PROJECT_SETTINGS_PATH,
-): Record<string, unknown> {
-	if (_override !== null) return { ..._override };
-	const global = readSettingsFile(globalPath);
-	const project = readSettingsFile(projectPath);
-	return { ...global, ...project };
-}
-
-// ---------------------------------------------------------------------------
-// tbox slice
-// ---------------------------------------------------------------------------
-
-/**
- * Write (or overwrite) a group in the `tbox.groups` config.
- *
- * In test mode (when `setSettingsOverrideForTests` has set an override),
- * updates the override in place. In production, writes to the
- * project-level `.pi/settings.json` file, preserving all other keys.
- *
- * The write prefers the project settings file so groups are
- * project-specific. Global settings are never written.
- */
-export function writeGroupToConfig(
-	name: string,
-	spec: GroupSpec,
-	projectPath?: string,
-): void {
-	if (_override !== null) {
-		// Test mode: update the override object in place.
-		// Nested objects survive the shallow spread in readMergedSettings.
-		if (!_override.tbox || typeof _override.tbox !== "object") {
-			_override.tbox = {};
-		}
-		const tbox = _override.tbox as Record<string, unknown>;
-		if (!tbox.groups || typeof tbox.groups !== "object") {
-			tbox.groups = {};
-		}
-		(tbox.groups as Record<string, unknown>)[name] = {
-			toolsets: [...spec.toolsets],
-		};
-		return;
-	}
-
-	// Production: write to project settings file
-	const projPath = projectPath ?? join(process.cwd(), PROJECT_SETTINGS_PATH);
-	const current = readSettingsFile(projPath);
-	const tboxSettings = (current.tbox as Record<string, unknown>) ?? {};
-	const groups = (tboxSettings.groups as Record<string, unknown>) ?? {};
-	groups[name] = {
-		toolsets: [...spec.toolsets],
-	};
-	tboxSettings.groups = groups;
-	current.tbox = tboxSettings;
-
-	mkdirSync(dirname(projPath), { recursive: true });
-	writeFileSync(projPath, JSON.stringify(current, null, 2) + "\n");
-}
-
-/**
- * Read the `tbox` slice from merged settings.
- *
- * `groups` defaults to `{}` when absent; malformed groups are skipped.
- */
-export function readTboxConfig(): TboxConfig {
-	const merged = readMergedSettings();
-	const tbox = merged["tbox"];
-
-	if (!tbox || typeof tbox !== "object" || Array.isArray(tbox)) {
-		return { groups: {} };
-	}
-
-	const raw = tbox as Record<string, unknown>;
-
-	const groups: Record<string, GroupSpec> = {};
-	const rawGroups = raw["groups"];
-	if (rawGroups && typeof rawGroups === "object" && !Array.isArray(rawGroups)) {
+		const groups: Record<string, GroupSpec> = {};
 		for (const [name, val] of Object.entries(
-			rawGroups as Record<string, unknown>,
+			parsed as Record<string, unknown>,
 		)) {
 			if (!val || typeof val !== "object" || Array.isArray(val)) continue;
 			const g = val as Record<string, unknown>;
@@ -179,7 +106,53 @@ export function readTboxConfig(): TboxConfig {
 				: [];
 			groups[name] = { toolsets };
 		}
+		return groups;
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Read the user's group definitions from the global store.
+ *
+ * In test mode (when `setGroupsOverrideForTests` has set an override),
+ * returns the injected table. In production, reads
+ * `~/.pi/agent/pi-tbox/groups.json`.
+ */
+export function readGroups(
+	path: string = GROUPS_FILE_PATH,
+): Record<string, GroupSpec> {
+	if (_override !== null) return { ..._override };
+	return readGroupsFile(path);
+}
+
+// ---------------------------------------------------------------------------
+// Writer
+// ---------------------------------------------------------------------------
+
+/**
+ * Write (or overwrite) a group in the global store, preserving all other
+ * groups in the file.
+ *
+ * In test mode (when `setGroupsOverrideForTests` has set an override),
+ * updates the override in place. In production, writes to
+ * `~/.pi/agent/pi-tbox/groups.json`.
+ */
+export function writeGroup(
+	name: string,
+	spec: GroupSpec,
+	path: string = GROUPS_FILE_PATH,
+): void {
+	if (_override !== null) {
+		// Test mode: update the override object in place.
+		_override[name] = { toolsets: [...spec.toolsets] };
+		return;
 	}
 
-	return { groups };
+	// Production: read-merge-write the global groups file.
+	const current = readGroupsFile(path);
+	current[name] = { toolsets: [...spec.toolsets] };
+
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
 }

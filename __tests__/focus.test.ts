@@ -17,7 +17,7 @@ import {
 	SLOT_NAME,
 } from "../src/status-slot.js";
 import { formatStatus } from "../src/list.js";
-import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -164,7 +164,7 @@ describe("/tbox focus", () => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 		setFocusUnit(null);
 	});
 
@@ -227,12 +227,8 @@ describe("/tbox focus", () => {
 
 	describe("on a group", () => {
 		it("focuses the group's toolsets + forward/reverse closure", () => {
-			setSettingsOverrideForTests({
-				tbox: {
-					groups: {
-						mylearn: { toolsets: ["portal.learn"] },
-					},
-				},
+			setGroupsOverrideForTests({
+				mylearn: { toolsets: ["portal.learn"] },
 			});
 			setup(pi, mock);
 
@@ -249,12 +245,8 @@ describe("/tbox focus", () => {
 		});
 
 		it("errors on empty group", () => {
-			setSettingsOverrideForTests({
-				tbox: {
-					groups: {
-						empty: { toolsets: [] },
-					},
-				},
+			setGroupsOverrideForTests({
+				empty: { toolsets: [] },
 			});
 			setup(pi, mock);
 
@@ -355,8 +347,8 @@ describe("/tbox focus", () => {
 		});
 
 		it("refuses actuateGroup while focused", () => {
-			setSettingsOverrideForTests({
-				tbox: { groups: { webgroup: { toolsets: ["portal.web"] } } },
+			setGroupsOverrideForTests({
+				webgroup: { toolsets: ["portal.web"] },
 			});
 			setup(pi, mock);
 			focusUnit(pi, "portal.web");

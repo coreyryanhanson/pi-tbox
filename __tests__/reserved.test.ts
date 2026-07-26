@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { RESERVED_WORDS, isReserved } from "../src/reserved.js";
-import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
@@ -50,7 +50,7 @@ describe("reserved-word dispatch via /tbox", () => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 
 		// A tool population so list/status have something to render.
 		mock.registerTool({
@@ -89,7 +89,7 @@ describe("reserved-word dispatch via /tbox", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 	});
 
 	it("/tbox list on (reserved 'list') does NOT actuate a group — dispatches to list", async () => {
@@ -115,9 +115,7 @@ describe("reserved-word dispatch via /tbox", () => {
 	});
 
 	it("a group named 'list' is reachable only via /tbox group list on", async () => {
-		setSettingsOverrideForTests({
-			tbox: { groups: { list: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ list: { toolsets: ["portal.web"] } });
 
 		// Bare form errors (reserved, no group actuation).
 		mock.clearUiRecords();
@@ -140,9 +138,7 @@ describe("reserved-word dispatch via /tbox", () => {
 	});
 
 	it("/tbox group focus on actuates a group named 'focus' (explicit form works)", async () => {
-		setSettingsOverrideForTests({
-			tbox: { groups: { focus: { toolsets: ["portal.web"] } } },
-		});
+		setGroupsOverrideForTests({ focus: { toolsets: ["portal.web"] } });
 		const web = getRegisteredToolsets().find(
 			(e) => e.spec.id === "portal.web",
 		)!;
@@ -155,7 +151,7 @@ describe("reserved-word dispatch via /tbox", () => {
 	});
 
 	it("/tbox group list on with no group named 'list' → clear error", async () => {
-		setSettingsOverrideForTests({ tbox: { groups: {} } });
+		setGroupsOverrideForTests({});
 		mock.clearUiRecords();
 		await mock.dispatchCommand("group list on");
 		const notify = mock.getLastNotify();

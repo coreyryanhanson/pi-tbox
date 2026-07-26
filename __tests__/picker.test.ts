@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets } from "pi-tool-masking";
-import { setSettingsOverrideForTests } from "../config/settings-reader.js";
+import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { GroupEditorComponent } from "../src/group-editor.js";
 import type { GroupEditorConfig } from "../src/group-editor.js";
@@ -215,12 +215,10 @@ describe("picker — normal mode option list", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [] } } },
-		});
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
 	});
 
-	afterEach(() => setSettingsOverrideForTests(null));
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	it("toolset appears as a single row with member count", () => {
 		const comp = createComp();
@@ -282,13 +280,11 @@ describe("picker — forward closure in normal mode", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [] } } },
-		});
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 		MockPI.cleanRegistry();
 	});
 
@@ -330,7 +326,7 @@ describe("picker — reverse closure in normal mode", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 		MockPI.cleanRegistry();
 	});
 
@@ -366,13 +362,11 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { groups: { savetest: { toolsets: [] } } },
-		});
+		setGroupsOverrideForTests({ savetest: { toolsets: [] } });
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
 		MockPI.cleanRegistry();
 	});
 
@@ -465,12 +459,10 @@ describe("picker — windowing", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setupRichRegistry(mock, pi);
-		setSettingsOverrideForTests({
-			tbox: { groups: { mygroup: { toolsets: [] } } },
-		});
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
 	});
 
-	afterEach(() => setSettingsOverrideForTests(null));
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	it("render shows at most 8 item rows with a large fixture", () => {
 		const comp = createComp();

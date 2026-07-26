@@ -443,9 +443,15 @@ API surface, not just list+toggle.
 ## Open for implementation
 
 - Final reserved-wordlist (seed set above; may grow).
-- ~~Group config storage shape in tbox's user config~~ — **resolved:**
-  `tbox.groups` in merged settings; `GroupSpec = { toolsets: string[] }`
-  (whole-toolset units only). See `manager-sprints.md` Sprint 3.
+- ~~Group config storage shape in tbox's user config~~ — **resolved
+  (revised):** groups are **global/user-scoped** in a dedicated file
+  `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no
+  wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset
+  units only). Revised from the earlier `tbox.groups` key in merged
+  settings — that wrote per-project and conflated user data with
+  pi-core config. Repo-scoped *actuation defaults*, if ever needed,
+  would name global groups in `.pi/settings.json` without redefining
+  them. See `manager-sprints.md` Sprint 3.
 - ~~Whether `tbox.tool` is one catch-all or per-source-plugin groupings~~
   — **resolved:** per-source (`tbox.tool@<source>`) is the default. A
   catch-all makes per-plugin focus impossible for plugins that only
