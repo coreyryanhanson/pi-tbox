@@ -28,7 +28,6 @@ import {
 	formatStatus,
 	parseArgs,
 } from "./src/list.js";
-import { toggleTool, toggleAll } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
 import {
 	actuateGroup,
@@ -37,6 +36,7 @@ import {
 	listGroups,
 	describeToolset,
 	actuateToolset,
+	toggleAll,
 } from "./src/groups.js";
 import { removeGroup } from "./config/settings-reader.js";
 import { focusUnit, focusOff } from "./src/focus.js";
@@ -66,7 +66,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
 		description:
-			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
+			"Cross-extension tool manager. Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -86,7 +86,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 			if (!command) {
 				ctx.ui.notify(
-					"Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
+					"Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 					"info",
 				);
 				return;
@@ -101,24 +101,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "status": {
 					const output = formatStatus(pi);
 					ctx.ui.notify(output, "info");
-					break;
-				}
-				case "toggle": {
-					const toolName = rest[1];
-					if (!toolName) {
-						ctx.ui.notify(
-							"Usage: /tbox toggle <tool> — toggle a tool's containing toolset on/off.",
-							"info",
-						);
-						break;
-					}
-					const result = toggleTool(pi, toolName);
-					const isErr =
-						result.startsWith("Cannot") ||
-						result.startsWith("Ambiguous") ||
-						result.startsWith("No tool") ||
-						result.startsWith("Multiple");
-					ctx.ui.notify(result, isErr ? "error" : "info");
 					break;
 				}
 				case "all": {
@@ -205,7 +187,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					// no `+`), the bare form always works.
 					if (isReserved(command)) {
 						ctx.ui.notify(
-							`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
+							`Unknown subcommand: "${command}". Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
 							"error",
 						);
 						break;

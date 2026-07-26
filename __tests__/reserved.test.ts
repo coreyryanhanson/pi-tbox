@@ -21,7 +21,6 @@ describe("reserved wordlist", () => {
 
 	it("seed subcommands are all reserved", () => {
 		for (const w of [
-			"toggle",
 			"status",
 			"focus",
 			"all",
@@ -40,6 +39,8 @@ describe("reserved wordlist", () => {
 	it("non-reserved names are not reserved", () => {
 		expect(isReserved("mygroup")).toBe(false);
 		expect(isReserved("portal")).toBe(false);
+		// "toggle" was freed when the toggle command was removed.
+		expect(isReserved("toggle")).toBe(false);
 	});
 
 	describe("containsPlus", () => {

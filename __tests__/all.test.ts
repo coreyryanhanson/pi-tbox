@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { toggleAll } from "../src/toggle.js";
+import { toggleAll } from "../src/groups.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 

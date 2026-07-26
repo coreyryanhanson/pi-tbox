@@ -186,13 +186,11 @@ export function listGroups(): string {
 	const names = Object.keys(all);
 	if (names.length === 0) return "No groups configured.";
 	return names
-		.sort()
-		.map(
-			(n) =>
-				`  ${n} — ${
-					all[n]!.toolsets.length > 0 ? all[n]!.toolsets.join(", ") : "(empty)"
-				}`,
-		)
+		.sort((a, b) => a.localeCompare(b))
+		.map((n) => {
+			const toolsets = all[n]!.toolsets;
+			return `  ${n} — ${toolsets.length > 0 ? toolsets.join(", ") : "(empty)"}`;
+		})
 		.join("\n");
 }
 
@@ -223,6 +221,41 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 }
 
 /**
+ * Enable or disable every registered toolset (`/tbox all on|off`).
+ *
+ * When disabling, `pi.builtin` is protected (kept enabled) in normal mode.
+ * SDK tools are never touched (they are in no toolset).
+ *
+ * @returns A summary message.
+ */
+export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
+	// Focus guard — mutual exclusion with focus mode
+	const fu = getFocusUnit();
+	if (fu !== null) {
+		return `Cannot ${enable ? "enable" : "disable"} all toolsets while in focus mode (${fu}). Run /tbox focus off first.`;
+	}
+
+	const toolsets = getRegisteredToolsets();
+	let changed = 0;
+
+	for (const entry of toolsets) {
+		const wasEnabled = entry.toolset.isEnabled(pi);
+
+		if (enable && !wasEnabled) {
+			entry.toolset.enable(pi);
+			changed++;
+		} else if (!enable && wasEnabled) {
+			entry.toolset.disable(pi);
+			changed++;
+		}
+	}
+
+	const action = enable ? "Enabled" : "Disabled";
+	const noun = changed === 1 ? "toolset" : "toolsets";
+	return `${action} ${changed} ${noun}.`;
+}
+
+/**
  * Actuate a single toolset on or off (for `/tbox +<toolset> on|off`).
  *
  * @returns A human-readable result, or an error if the toolset doesn't exist
@@ -248,13 +281,12 @@ export function actuateToolset(
 		}
 		entry.toolset.enable(pi);
 		return `Enabled toolset "${id}".`;
-	} else {
-		if (!entry.toolset.isEnabled(pi)) {
-			return `Toolset "${id}" is already disabled.`;
-		}
-		entry.toolset.disable(pi);
-		return `Disabled toolset "${id}".`;
 	}
+	if (!entry.toolset.isEnabled(pi)) {
+		return `Toolset "${id}" is already disabled.`;
+	}
+	entry.toolset.disable(pi);
+	return `Disabled toolset "${id}".`;
 }
 
 // ---------------------------------------------------------------------------

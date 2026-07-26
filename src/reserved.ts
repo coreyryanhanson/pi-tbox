@@ -7,6 +7,9 @@
  * @module
  */
 
+// ponytail: "toggle" was dropped when the toggle command was removed —
+// a group may now be named "toggle" with no subcommand collision.
+
 // ---------------------------------------------------------------------------
 // Wordlist
 // ---------------------------------------------------------------------------
@@ -16,7 +19,6 @@
  * Seed set confirmed against the shipped command surface in Sprint 7.
  */
 export const RESERVED_WORDS: readonly string[] = [
-	"toggle",
 	"status",
 	"focus",
 	"all",

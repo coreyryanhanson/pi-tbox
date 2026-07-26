@@ -7,8 +7,7 @@ import {
 } from "pi-tool-masking";
 import { focusUnit, focusOff } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
-import { toggleTool, toggleAll } from "../src/toggle.js";
-import { actuateGroup } from "../src/groups.js";
+import { actuateGroup, actuateToolset, toggleAll } from "../src/groups.js";
 import {
 	computeSlotState,
 	getFocusUnit,
@@ -322,12 +321,12 @@ describe("/tbox focus", () => {
 	});
 
 	describe("mutual exclusion with actuation commands", () => {
-		it("refuses toggleTool while focused", () => {
+		it("refuses actuateToolset while focused", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msg = toggleTool(pi, "web-learn");
-			expect(msg).toContain("Cannot toggle while in focus mode");
+			const msg = actuateToolset(pi, "portal.web", true);
+			expect(msg).toContain("Cannot enable a toolset while in focus mode");
 			expect(msg).toContain("/tbox focus off");
 		});
 
@@ -363,9 +362,9 @@ describe("/tbox focus", () => {
 			focusUnit(pi, "+portal.web");
 			focusOff(pi);
 
-			// toggle should now work
-			const msg = toggleTool(pi, "web-learn");
-			expect(msg).toContain('Disabled "web-learn"');
+			// direct toolset actuation should now work
+			const msg = actuateToolset(pi, "portal.learn", false);
+			expect(msg).toContain('Disabled toolset "portal.learn"');
 		});
 	});
 
