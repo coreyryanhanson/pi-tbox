@@ -4,9 +4,9 @@
 > user-facing manager extension (`pi-tbox`), reviewed against the
 > `pi-tool-masking` library code and tests and the pi extension docs.
 > The `pi-tool-masking` library API (§5 of `design.md`) is frozen; this
-> doc consumes it. The MVP ships the full 8-point surface below (scope
-> expanded from the earlier list+toggle proposal — see "MVP scope" at the
-> end).
+> doc consumes it. The MVP ships the full 7-point surface below. (The
+> `/tbox toggle` subcommand, shipped in Sprint 2, was later removed —
+> see the group-API revision.)
 
 ## Premise
 
@@ -27,32 +27,46 @@ primitives at actuation time. tbox never reaches into
 
 ## Command surface — `/tbox`
 
-All commands live under the `/tbox` shortcut. A reserved-wordlist policy
-disambiguates subcommands from user-named groups (point 6 collision
-fork): `/tbox <name> on|off` works as the group shorthand **unless**
-`<name>` is a reserved subcommand, in which case the subcommand wins and
-a user who names a group `focus` gets a clear error pointing at
-`/tbox group focus`.
+All commands live under the `/tbox` shortcut. Two addressability rules
+keep the surface unambiguous:
 
-**Reserved words:** `toggle`, `status`, `focus`, `all`, `list`, `chars`,
-`group`, `on`, `off`. (Finalized during implementation; this is
-the seed set.)
+1. **`+` prefix = toolset, bare = group.** The two namespaces can never
+   overlap: group names may not contain `+` (it is the toolset-addressing
+   prefix), so `/tbox +portal.web off` is always a toolset and
+   `/tbox research on` is always a group — even when a group and a
+   toolset share a name (`find` the group vs `+find` the toolset).
+2. **Reserved words are rejected at group creation, not tolerated at
+   actuation.** `writeGroup` refuses a name that is a tbox keyword or
+   contains `+`, so no reserved-named group can ever exist and bare
+   `/tbox <group> on|off` always works. The old explicit
+   `/tbox group <name> on|off` escape hatch is gone — it existed only to
+   reach reserved-named groups, which can no longer be created.
+
+**Reserved words:** `status`, `focus`, `all`, `list`, `chars`, `group`,
+`on`, `off`, `edit`, `remove`. (`edit`/`remove` are reserved so
+`/tbox group edit`, `/tbox group remove`, and `/tbox group list` parse
+unambiguously as subcommands, never "describe the group named edit".
+`toggle` was removed from the set when the toggle command was deleted —
+a group may now be named `toggle`.)
 
 | Command | Effect |
 |---|---|
 | `/tbox` | show current state (slot mirror + brief help) |
 | `/tbox list [--flat\|--by-chars] [--active\|--inactive]` | enumerate tools (point 1) |
-| `/tbox <group> on` / `/tbox <group> off` | toggle a user group (point 2) |
-| `/tbox group <name> [on\|off]` | explicit group form (for reserved-name groups) |
+| `/tbox <group> on` / `/tbox <group> off` | enable / disable every toolset in the group (point 2) |
+| `/tbox +<toolset> on` / `/tbox +<toolset> off` | enable / disable a single toolset directly (point 2) |
+| `/tbox +<toolset>` | describe the toolset (members, state) |
 | `/tbox group <name> edit` | curate a group (point 4) |
-| `/tbox toggle <tool>` | toggle an individual tool (point 6) |
-| `/tbox focus <unit>` | enter focus on a group or toolset (point 2) |
+| `/tbox group <name> remove` | delete the group from the global store |
+| `/tbox group list` | list every group with its toolsets |
+| `/tbox group <name>` | describe a single group (members, actuation hint) |
+| `/tbox focus <group>` / `/tbox focus +<toolset>` | enter focus on a group or toolset (point 2) |
 | `/tbox focus off` | exit focus → flip inclusion back to exclusion, restore defaults |
-| `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 8) |
+| `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 7) |
 | `/tbox chars` | print the serialized char count of the active tool set (point 5) |
 | `/tbox status` | full status: toolsets, groups, focus, char count |
 
-## The 8-point surface
+## The 7-point surface
 
 ### 1. Listing tools
 
@@ -64,12 +78,12 @@ the seed set.)
   (members: `web-learn`) shows `web-learn` under `learn`; `portal.web`'s
   members show under `web`. A tool in no registered toolset shows under
   its `tbox.tool@<source>` toolset — one per unclaimed-source plugin
-  (see point 8). Each group header reports `(a active, b inactive,
+  (see point 7). Each group header reports `(a active, b inactive,
   +c chars)` — the full toolset's state and char contribution (extension
   tools only); a footer total reconciles with `/tbox chars`'s `tools`
   bucket.
 - **`--flat`:** every tool as a row, no grouping. Tools outside
-  tbox's domain (see point 8 — `sdk`-source tools) appear as
+  tbox's domain (see point 7 — `sdk`-source tools) appear as
   read-only rows so the user sees they exist and understands why they
   can't be toggled, but they carry no enable/disable affordance.
 - **`--by-chars`:** budgeting surface — a flat list of toolsets (no tool
@@ -118,7 +132,7 @@ inherent to the peer-composition invariant (§9) and unfixable at the
 tbox layer. Tbox surfaces it: post-actuation status reports everything
 that actually moved, including cascaded non-members.
 
-**Drift model (point 7).** The library persists per-toolset `{ enabled }`
+**Drift model (point 6).** The library persists per-toolset `{ enabled }`
 entries, not "this group is active." So enabling a group writes those
 entries; editing the group later does **not** retroactively change
 saved sessions — only the resulting per-toolset state was stored. Drift
@@ -128,12 +142,12 @@ toolsets default off, so a focus snapshot survives new-extension installs
 without re-applying. This asymmetry is documented to users: `on`/`off`
 can drift, `focus` won't.
 
-**Focus arity: single-unit.** `/tbox focus <one-unit>` — a group
-or a toolset. One label, clean allowlist. Multi-unit focus
-deferred.
+**Focus arity: single-unit.** `/tbox focus <group>` resolves the group;
+`/tbox focus +<toolset>` resolves the toolset directly. One label,
+clean allowlist. Multi-unit focus deferred.
 
 **Mutual exclusion with actuation commands.** While focus is active,
-the three actuation entry points (`toggle`, `all on|off`, `<group> on|off`)
+the three actuation entry points (`all on|off`, `<group> on|off`, `+<toolset> on|off`)
 are refused with a message pointing to `/tbox focus off`. Focus is an
 inclusion-mode snapshot that promises a known working set (the allowlist).
 If the user could toggle individual toolsets on/off while the slot still
@@ -144,7 +158,7 @@ still a coherent focus state) are all unguarded. After `focus off` the
 actuation commands work normally again.
 
 **Builtins are out of tbox's management scope.** Builtins are never
-the subject of a group, focus, or toggle operation; they are always
+the subject of a group, focus, or direct toolset operation; they are always
 preserved. Unlike the old approach where tbox auto-registered
 `pi.builtin` as a toolset and explicitly guarded it, builtins are now
 excluded from registry registration entirely — they live outside
@@ -159,11 +173,9 @@ builtins is the point-3 footgun through the back door — a group of
 always-on builtins is meaningless for `on` and dangerous for `off`);
 (b) focus never targets builtins (`/tbox focus pi.builtin` errors on
 the reserved id `pi.builtin`, which can never be a user group or
-toolset name); (c) the picker never offers builtins as rows;
-(d) `/tbox toggle <builtin>` is an unconditional refusal (sdk-source
-tool in tbox's domain, but this check is a defense-in-depth layer;
-in practice, builtins are not in any registered toolset so
-`findContainingToolset` returns undefined).
+toolset name); (c) the picker never offers builtins as rows.
+(Former rule (d), checking `/tbox toggle <builtin>`, was removed with
+the toggle command itself.)
 
 **Focus exit is re-actuation, not a mode flip.** `/tbox focus off` does
 more than flip inclusion→exclusion: while in focus, tbox writes
@@ -197,12 +209,11 @@ hatch and no runtime toggle:
 tbox's toolset registry entirely (tracked by `sourceInfo.source ===
 "builtin"`, not by toolset membership). Because builtins never
 appear in `getRegisteredToolsets()`, inclusion-mode focus can
-never disable them. `toggleTool` also refuses builtins via source
-check (sdk tools are refused as host-managed; builtins are refused
-as protected). The `/tbox all off` safety skip is a defense-in-depth
-layer — builtins are always-on by nature; grouping them is
-meaningless for `on` and dangerous for `off`, and a newly shipped
-Pi builtin must stay active during focus.
+never disable them and no actuation pass (`actuateToolset`,
+`actuateGroup`, `toggleAll`) can reach them. The `/tbox all off`
+safety skip is a defense-in-depth layer — builtins are always-on
+by nature; grouping them is meaningless for `on` and dangerous for
+`off`, and a newly shipped Pi builtin must stay active during focus.
 2. **Toolset members are not individually toggleable when the
 toolset itself is toggled.** Tbox toggles toolsets as units —
 toggling one toolset does not toggle its members independently.
@@ -259,18 +270,7 @@ number into a decision tool: builtins are immutable overhead, extension
 tools are your budget. Folded into the status slot only indirectly (see
 status slot below); the command is the on-demand surface.
 
-### 6. Individual tool toggle
-
-`/tbox toggle <tool>` toggles a single tool (by resolving it to its
-containing toolset and toggling that toolset). Masked toolset members
-are not toggleable here (the guard from point 3 — toggle the group
-instead); builtins are refused (out of scope, point 2/3); sdk tools are
-refused (host-managed). A **short prefix** may be required to avoid
-namespace collisions (e.g. `web:click` vs `api:click`) — resolved
-against `pi.getAllTools()` names. User-defined groups are the seamless
-path (point 2); individual toggle is the power-user escape hatch.
-
-### 7. Session drift (scoping)
+### 6. Session drift (scoping)
 
 User groups are entirely scoped to tbox. They store references to the
 base components from `pi-tool-masking` (toolset ids, tool names) in
@@ -280,7 +280,7 @@ the user updates their group selections later. The user manually adjusts
 state with `/tbox` commands. Focus (inclusion mode) is the exception —
 it's drift-free by library design (§4.5).
 
-### 8. Enable/disable all
+### 7. Enable/disable all
 
 `/tbox all on` enables every registered toolset. `/tbox all off`
 disables every non-builtin toolset (builtins protected by point 3).
@@ -305,7 +305,8 @@ Registered toolsets at load:
 
 - **`pi.builtin`** — excluded from registry registration entirely.
   Builtins are tracked by `sourceInfo.source === "builtin"` and kept
-  active by tbox's source-based guards in toggle/focus/all — they
+  active by tbox's source-based guards (never registered into any
+  toolset, so no actuation pass can reach them) — they
   never enter the registry as a toolset, so inclusion-mode focus
   never touches them. No hardcoded list, no drift.
 - **`tbox.tool@<source>`** — one toolset per distinct unclaimed
@@ -326,7 +327,7 @@ Registered toolsets at load:
   description costs nothing and misrepresenting one tool's description
   as the group's would mislabel the others.
 - **`sdk`-source tools are not registered into any toolset**, not
-  toggleable via `/tbox toggle`, `/tbox <group> on|off`, or `/tbox all`,
+  toggleable via `/tbox <group> on|off`, `/tbox +<toolset>`, or `/tbox all`,
   and not counted in the status slot's excluded count. They appear as
   read-only rows in `/tbox list --flat` (point 1). Rationale: an sdk
   tool's presence is controlled by the host, not the extension system;
@@ -403,16 +404,16 @@ as addressable units; the library handles the composition.
 | Area | Decision |
 |---|---|
 | Registry enumeration | library exports typed `getRegisteredToolsets()` + `RegistryEntry`; tbox reads registered toolsets through it, never via `globalThis` |
-| Orphans/builtins | builtins are excluded from the registry entirely (protected by source checks in toggle/focus/all); one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
+| Orphans/builtins | builtins are excluded from the registry entirely (protected by source checks in actuateToolset/focusUnit/toggleAll); one `tbox.tool@<source>` toolset per distinct unclaimed extension source (extension tools: `source !== "builtin" && source !== "sdk"`); `sdk`-source tools excluded from management and the slot count; all persist through the library |
 | Group editing | one row per toolset; members not individually addressable; `requires` closure auto-maintained |
 | Overlapping toolsets | smallest-toolset-wins, no duplication in grouped view |
 | Requires at curation | both-direction closure (check dep → forward; uncheck dep → reverse); cues inline in the picker footer |
-| Command collisions | reserved wordlist; `/tbox <group> on` bare for non-reserved |
+| Command collisions | reserved words rejected at group creation; `+` prefix for toolset addressing; bare `<group>` always a group, `+<toolset>` always a toolset |
 | Focus | single-unit; green glyph; drift-free via inclusion mode |
 | Status slot | `○ tbox` pristine / `● tbox n masked` blue / `● focus:<unit> (n)` green / `● focus:∅` red |
 | Char counter | `/tbox chars` command, computed from `getAllTools()` full defs |
 | Session drift | per-toolset state persists; group edits don't retroact; `on`/`off` drift, `focus` doesn't |
-| MVP scope | expanded to all 8 points |
+| MVP scope | expanded to all 7 points |
 
 ## API verification (confirmed against pi)
 
@@ -429,8 +430,8 @@ as addressable units; the library handles the composition.
   from `createAgentSession({ customTools })`), and extension metadata,
   and show the two-sided exclusion `source !== "builtin" &&
   source !== "sdk"` as the canonical "extension tools" filter. tbox's
-  domain follows this: point 8 registers only `builtin` + extension
-  orphans, excludes sdk tools from management, and the status slot's
+  domain follows this: point 7 registers extension orphans (no builtins)
+  and excludes sdk tools from management, and the status slot's
   `n` counts non-builtin/non-sdk excluded only.
 - **Registry enumeration is exported and frozen** — the §5 exports
   include the typed `getRegisteredToolsets()` accessor and `RegistryEntry`
@@ -439,17 +440,21 @@ as addressable units; the library handles the composition.
 
 ## MVP scope
 
-**Expanded to all 8 points.** The earlier list+toggle proposal is
-superseded — the MVP ships groups, focus, the picker, and the char
-counter together. This validates more of the frozen library API
-against a real consumer before publish (the stated reason for building
-the manager early, per `implementation-plan.md`). The cost is more
-surface to get right under review; the benefit is de-risking the whole
-API surface, not just list+toggle.
+**Expanded to all 7 points.** The MVP ships groups, focus, the picker,
+and the char counter together. This validates more of the frozen
+library API against a real consumer before publish (the stated reason
+for building the manager early, per `implementation-plan.md`). The cost
+is more surface to get right under review; the benefit is de-risking
+the whole API surface. (The `/tbox toggle` subcommand was shipped in
+Sprint 2 and later removed, shrinking the original 8-point surface to
+7 — see the group-API revision.)
 
 ## Open for implementation
 
-- Final reserved-wordlist (seed set above; may grow).
+- ~~Final reserved-wordlist (seed set above; may grow).~~ — **resolved
+  (group-API revision):** `edit`/`remove` added as reserved words;
+  `toggle` removed from the set when the toggle command was deleted;
+  `containsPlus()` helper enforces that group names never contain `+`.
 - ~~Group config storage shape in tbox's user config~~ — **resolved
   (revised):** groups are **global/user-scoped** in a dedicated file
   `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no
