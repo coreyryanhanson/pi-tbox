@@ -564,6 +564,7 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("Error");
 		expect(output).toContain("--active");
 		expect(output).toContain("--inactive");
+		expect(output).toContain("See: /tbox list --help.");
 	});
 
 	it("handles combined --flat --inactive flags", () => {
@@ -594,6 +595,7 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("Error");
 		expect(output).toContain("--by-chars");
 		expect(output).toContain("--flat");
+		expect(output).toContain("See: /tbox list --help.");
 	});
 
 	it("errors when --by-chars and --grouped are combined", () => {
@@ -601,6 +603,31 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("Error");
 		expect(output).toContain("--by-chars");
 		expect(output).toContain("--grouped");
+		expect(output).toContain("See: /tbox list --help.");
+	});
+
+	it("--help returns the help text", () => {
+		const output = formatList(pi, "list --help");
+		expect(output).toContain("/tbox list [view] [filter]");
+		expect(output).toContain("--flat");
+		expect(output).toContain("--by-chars");
+		expect(output).toContain("--active");
+		expect(output).toContain("--inactive");
+	});
+
+	it("unknown flag returns error with --help pointer", () => {
+		const output = formatList(pi, "list --foo");
+		expect(output).toContain("Error");
+		expect(output).toContain("--foo");
+		expect(output).toContain("See: /tbox list --help.");
+	});
+
+	it("multiple unknown flags uses plural", () => {
+		const output = formatList(pi, "list --foo --bar");
+		expect(output).toContain("Error");
+		expect(output).toContain("unknown flags");
+		expect(output).toContain("--foo, --bar");
+		expect(output).toContain("See: /tbox list --help.");
 	});
 
 	it("routes --by-chars alone to by-chars view", () => {

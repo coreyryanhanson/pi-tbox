@@ -361,6 +361,34 @@ export function formatFlatList(
 }
 
 // ---------------------------------------------------------------------------
+// Help
+// ---------------------------------------------------------------------------
+
+const LIST_HELP = `\
+/tbox list [view] [filter]
+
+Views (mutually exclusive):
+  (default)   grouped by toolset
+  --flat      one row per tool
+  --by-chars  toolsets ranked by +chars descending (budgeting surface)
+
+Filters:
+  --active    show only active tools (--by-chars: hide +0 groups)
+  --inactive  show only inactive tools
+
+--active and --inactive cannot be combined.
+--by-chars cannot combine with --flat or --grouped.`;
+
+const KNOWN_LIST_FLAGS = new Set([
+	"flat",
+	"grouped",
+	"by-chars",
+	"active",
+	"inactive",
+	"help",
+]);
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -399,17 +427,31 @@ export function parseArgs(input: string): ParsedArgs {
 export function formatList(pi: ExtensionAPI, args: string): string {
 	const { flags } = parseArgs(args);
 
+	// --help before any other checks
+	if (flags.has("help")) {
+		return LIST_HELP;
+	}
+
+	// Reject unknown flags
+	const unknown: string[] = [];
+	for (const f of flags) {
+		if (!KNOWN_LIST_FLAGS.has(f)) unknown.push(`--${f}`);
+	}
+	if (unknown.length > 0) {
+		return `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown.join(", ")}. See: /tbox list --help.`;
+	}
+
 	// Error if both --active and --inactive
 	if (flags.has("active") && flags.has("inactive")) {
-		return "Error: --active and --inactive cannot be used together.";
+		return "Error: --active and --inactive cannot be used together. See: /tbox list --help.";
 	}
 
 	// Error if --by-chars combined with --flat or --grouped
 	if (flags.has("by-chars") && flags.has("flat")) {
-		return "Error: --by-chars and --flat cannot be used together.";
+		return "Error: --by-chars and --flat cannot be used together. See: /tbox list --help.";
 	}
 	if (flags.has("by-chars") && flags.has("grouped")) {
-		return "Error: --by-chars and --grouped cannot be used together.";
+		return "Error: --by-chars and --grouped cannot be used together. See: /tbox list --help.";
 	}
 
 	const options: ListOptions = {
