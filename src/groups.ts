@@ -1,9 +1,11 @@
 /**
- * User groups: load from config, resolve to units, actuate on/off.
+ * User groups + toolset actuation: load from config, resolve to units,
+ * actuate on/off.
  *
- * This is the **actuation** half of point 2 (user groups). Curation UX
- * (the picker) is Sprint 4. This module ships `/tbox <group> on|off` and
- * `/tbox group <name> on|off`.
+ * Ships:
+ *   - `/tbox <group> on|off` — actuate a named group (bare shorthand).
+ *   - `/tbox +<toolset> on|off` — actuate a single toolset directly.
+ *   - Group management: edit (picker), remove, list, describe.
  *
  * Actuation writes per-toolset entries; editing the group later does not
  * retroact (drift, point 7 — documented in the output). The moved set is
@@ -177,6 +179,24 @@ export function getGroupNames(): string[] {
 }
 
 /**
+ * List all groups with their toolsets (for `/tbox group list`).
+ */
+export function listGroups(): string {
+	const all = readGroups();
+	const names = Object.keys(all);
+	if (names.length === 0) return "No groups configured.";
+	return names
+		.sort()
+		.map(
+			(n) =>
+				`  ${n} — ${
+					all[n]!.toolsets.length > 0 ? all[n]!.toolsets.join(", ") : "(empty)"
+				}`,
+		)
+		.join("\n");
+}
+
+/**
  * Describe a named group's units (for `/tbox group <name>` with no action).
  * Returns an error line if the group does not exist.
  */
@@ -187,6 +207,54 @@ export function describeGroup(name: string): string {
 	if (g.toolsets.length === 0)
 		return `Group "${name}" — (empty). Use /tbox ${name} on|off.`;
 	return `Group "${name}" — toolsets: ${g.toolsets.join(", ")}. Use /tbox ${name} on|off.`;
+}
+
+/**
+ * Describe a toolset by id (for `/tbox +<toolset>` with no action).
+ * Returns an error line if the toolset is not registered.
+ */
+export function describeToolset(pi: ExtensionAPI, id: string): string {
+	const registry = getRegisteredToolsets();
+	const entry = registry.find((e) => e.spec.id === id);
+	if (!entry) return `No toolset "${id}".`;
+	const state = entry.toolset.isEnabled(pi) ? "enabled" : "disabled";
+	const toolList = [...entry.spec.names].join(", ");
+	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size !== 1 ? "s" : ""} (${toolList}). State: ${state}.`;
+}
+
+/**
+ * Actuate a single toolset on or off (for `/tbox +<toolset> on|off`).
+ *
+ * @returns A human-readable result, or an error if the toolset doesn't exist
+ *          or focus mode is active.
+ */
+export function actuateToolset(
+	pi: ExtensionAPI,
+	id: string,
+	enable: boolean,
+): string {
+	const fu = getFocusUnit();
+	if (fu !== null) {
+		return `Cannot ${enable ? "enable" : "disable"} a toolset while in focus mode (${fu}). Run /tbox focus off first.`;
+	}
+
+	const registry = getRegisteredToolsets();
+	const entry = registry.find((e) => e.spec.id === id);
+	if (!entry) return `No toolset "${id}".`;
+
+	if (enable) {
+		if (entry.toolset.isEnabled(pi)) {
+			return `Toolset "${id}" is already enabled.`;
+		}
+		entry.toolset.enable(pi);
+		return `Enabled toolset "${id}".`;
+	} else {
+		if (!entry.toolset.isEnabled(pi)) {
+			return `Toolset "${id}" is already disabled.`;
+		}
+		entry.toolset.disable(pi);
+		return `Disabled toolset "${id}".`;
+	}
 }
 
 // ---------------------------------------------------------------------------

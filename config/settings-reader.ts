@@ -33,6 +33,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { isReserved, containsPlus } from "../src/reserved.js";
 
 // ---------------------------------------------------------------------------
 // Config path
@@ -131,8 +132,27 @@ export function readGroups(
 // ---------------------------------------------------------------------------
 
 /**
+ * Validate a group name. Throws if the name is a reserved keyword or
+ * contains `+` (the toolset-addressing prefix).
+ */
+function validateGroupName(name: string): void {
+	if (isReserved(name)) {
+		throw new TypeError(
+			`"${name}" is a reserved word and cannot be used as a group name.`,
+		);
+	}
+	if (containsPlus(name)) {
+		throw new TypeError(
+			`Group name "${name}" must not contain "+" (reserved for toolset addressing).`,
+		);
+	}
+}
+
+/**
  * Write (or overwrite) a group in the global store, preserving all other
  * groups in the file.
+ *
+ * Throws `TypeError` if `name` is a reserved word or contains `+`.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
  * updates the override in place. In production, writes to
@@ -143,6 +163,8 @@ export function writeGroup(
 	spec: GroupSpec,
 	path: string = GROUPS_FILE_PATH,
 ): void {
+	validateGroupName(name);
+
 	if (_override !== null) {
 		// Test mode: update the override object in place.
 		_override[name] = { toolsets: [...spec.toolsets] };
@@ -155,4 +177,33 @@ export function writeGroup(
 
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+}
+
+/**
+ * Remove a group from the global store, preserving all other groups.
+ *
+ * In test mode (when `setGroupsOverrideForTests` has set an override),
+ * removes from the override in place. In production, writes to
+ * `~/.pi/agent/pi-tbox/groups.json`.
+ *
+ * Returns `true` if the group existed and was removed, `false` if it
+ * didn't exist.
+ */
+export function removeGroup(
+	name: string,
+	path: string = GROUPS_FILE_PATH,
+): boolean {
+	if (_override !== null) {
+		if (!(name in _override)) return false;
+		delete _override[name];
+		return true;
+	}
+
+	const current = readGroupsFile(path);
+	if (!(name in current)) return false;
+	delete current[name];
+
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+	return true;
 }

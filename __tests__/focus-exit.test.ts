@@ -93,7 +93,7 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		setup(pi, mock);
 
 		// --- Enter focus on portal.web ---
-		focusUnit(pi, "portal.web");
+		focusUnit(pi, "+portal.web");
 		expect(getDefaultResolutionMode()).toBe("inclusion");
 		expect(new Set(pi.getActiveTools()).has("web-fetch")).toBe(true);
 
@@ -131,7 +131,7 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		const orphanKey = "toolset-state:tbox.tool@orphan-source";
 
 		// Enter focus — the orphan toolset gets disabled
-		focusUnit(pi, "portal.web");
+		focusUnit(pi, "+portal.web");
 
 		const focusDisable = [...mock.getEntries()]
 			.reverse()

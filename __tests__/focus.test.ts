@@ -178,7 +178,7 @@ describe("/tbox focus", () => {
 		it("errors on unknown input", () => {
 			setup(pi, mock);
 			const result = focusUnit(pi, "nope");
-			expect(result).toContain("No toolset or group matching");
+			expect(result).toContain("No group matching");
 		});
 	});
 
@@ -186,7 +186,7 @@ describe("/tbox focus", () => {
 		it("enables target + cascade (deps + dependents), disables others", () => {
 			setup(pi, mock);
 
-			const result = focusUnit(pi, "portal.web");
+			const result = focusUnit(pi, "+portal.web");
 
 			expect(result).toContain("portal.web");
 			const active = new Set(pi.getActiveTools());
@@ -211,7 +211,7 @@ describe("/tbox focus", () => {
 		it("writes entries for disabled toolsets", () => {
 			setup(pi, mock);
 
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const entries = mock.getEntries();
 
@@ -259,7 +259,7 @@ describe("/tbox focus", () => {
 		it("shows green focus glyph when allowlist is non-empty", () => {
 			setup(pi, mock);
 
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const state = computeSlotState(pi);
 			expect(state.kind).toBe("focus");
@@ -289,7 +289,7 @@ describe("/tbox focus", () => {
 			);
 			mock.clearUiRecords();
 
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const last = mock.getLastStatus(SLOT_NAME);
 			expect(last).toBeDefined();
@@ -310,7 +310,7 @@ describe("/tbox focus", () => {
 						},
 					}) as any,
 			);
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 			mock.clearUiRecords();
 
 			focusOff(pi);
@@ -324,7 +324,7 @@ describe("/tbox focus", () => {
 	describe("mutual exclusion with actuation commands", () => {
 		it("refuses toggleTool while focused", () => {
 			setup(pi, mock);
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const msg = toggleTool(pi, "web-learn");
 			expect(msg).toContain("Cannot toggle while in focus mode");
@@ -333,7 +333,7 @@ describe("/tbox focus", () => {
 
 		it("refuses toggleAll on/off while focused", () => {
 			setup(pi, mock);
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const msgOn = toggleAll(pi, true);
 			expect(msgOn).toContain("Cannot enable all toolsets while in focus mode");
@@ -351,7 +351,7 @@ describe("/tbox focus", () => {
 				webgroup: { toolsets: ["portal.web"] },
 			});
 			setup(pi, mock);
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const msg = actuateGroup(pi, "webgroup", true);
 			expect(msg).toContain("Cannot enable a group while in focus mode");
@@ -360,7 +360,7 @@ describe("/tbox focus", () => {
 
 		it("allows actuation commands after focus off", () => {
 			setup(pi, mock);
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 			focusOff(pi);
 
 			// toggle should now work
@@ -374,7 +374,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 
 			// Enter focus
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 			expect(getDefaultResolutionMode()).toBe("inclusion");
 
 			// Exit focus
@@ -396,7 +396,7 @@ describe("/tbox focus", () => {
 		it("overwrites focus-era disabled entries with default-enabled entries", () => {
 			setup(pi, mock);
 
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			// During focus, orphan toolset was disabled (entry has enabled:false)
 			const orphanKey = "toolset-state:tbox.tool@pi-lens";
@@ -426,7 +426,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 
 			// Enter focus
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			// Simulate a new toolset being registered (like a freshly installed extension)
 			mock.registerTool({
@@ -463,7 +463,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 
 			// Enter + exit focus
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 			focusOff(pi);
 
 			// Simulate a new toolset
@@ -519,7 +519,7 @@ describe("/tbox focus", () => {
 
 			// Focus portal.web — portal.learn is already enabled so focus
 			// skips calling enable() on it; my fix explicitly persists the slot.
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			// portal.learn must have a persisted {enabled:true} entry
 			// even though focus didn't toggle it
@@ -546,7 +546,7 @@ describe("/tbox focus", () => {
 		it("/tbox status shows focus line when focused", () => {
 			setup(pi, mock);
 
-			focusUnit(pi, "portal.web");
+			focusUnit(pi, "+portal.web");
 
 			const output = formatStatus(pi);
 			expect(output).toContain("Focus: on");

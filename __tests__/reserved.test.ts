@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { RESERVED_WORDS, isReserved } from "../src/reserved.js";
-import { setGroupsOverrideForTests } from "../config/settings-reader.js";
+import { RESERVED_WORDS, isReserved, containsPlus } from "../src/reserved.js";
+import {
+	setGroupsOverrideForTests,
+	writeGroup,
+} from "../config/settings-reader.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
@@ -27,6 +30,8 @@ describe("reserved wordlist", () => {
 			"group",
 			"on",
 			"off",
+			"edit",
+			"remove",
 		]) {
 			expect(isReserved(w)).toBe(true);
 		}
@@ -35,6 +40,18 @@ describe("reserved wordlist", () => {
 	it("non-reserved names are not reserved", () => {
 		expect(isReserved("mygroup")).toBe(false);
 		expect(isReserved("portal")).toBe(false);
+	});
+
+	describe("containsPlus", () => {
+		it("returns false for names without +", () => {
+			expect(containsPlus("research")).toBe(false);
+			expect(containsPlus("portal.web")).toBe(false);
+		});
+
+		it("returns true for names containing +", () => {
+			expect(containsPlus("tool+set")).toBe(true);
+			expect(containsPlus("+portal")).toBe(true);
+		});
 	});
 });
 
@@ -111,50 +128,23 @@ describe("reserved-word dispatch via /tbox", () => {
 		// "focus" is a real subcommand, so this goes to the focus handler,
 		// not the group shorthand. "on" as a focus unit won't match anything.
 		expect(notify!.message).not.toContain("Enabled group");
-		expect(notify!.message).toContain("No toolset or group matching");
+		expect(notify!.message).toContain("No group matching");
 	});
 
-	it("a group named 'list' is reachable only via /tbox group list on", async () => {
-		setGroupsOverrideForTests({ list: { toolsets: ["portal.web"] } });
-
-		// Bare form errors (reserved, no group actuation).
-		mock.clearUiRecords();
-		await mock.dispatchCommand("list on");
-		const bare = mock.getLastNotify();
-		expect(bare!.message).not.toContain('Enabled group "list"');
-
-		// Explicit form works.
-		mock.clearUiRecords();
-		// Disable portal.web first so actuation has an effect.
-		const web = getRegisteredToolsets().find(
-			(e) => e.spec.id === "portal.web",
-		)!;
-		web.toolset.disable(pi);
-		mock.clearUiRecords();
-
-		await mock.dispatchCommand("group list on");
-		const explicit = mock.getLastNotify();
-		expect(explicit!.message).toContain('Enabled group "list"');
+	it("writeGroup rejects reserved words", () => {
+		expect(() => writeGroup("focus", { toolsets: [] })).toThrow(
+			"reserved word",
+		);
+		expect(() => writeGroup("list", { toolsets: [] })).toThrow("reserved word");
+		expect(() => writeGroup("on", { toolsets: [] })).toThrow("reserved word");
 	});
 
-	it("/tbox group focus on actuates a group named 'focus' (explicit form works)", async () => {
-		setGroupsOverrideForTests({ focus: { toolsets: ["portal.web"] } });
-		const web = getRegisteredToolsets().find(
-			(e) => e.spec.id === "portal.web",
-		)!;
-		web.toolset.disable(pi);
-		mock.clearUiRecords();
-
-		await mock.dispatchCommand("group focus on");
-		const notify = mock.getLastNotify();
-		expect(notify!.message).toContain('Enabled group "focus"');
-	});
-
-	it("/tbox group list on with no group named 'list' → clear error", async () => {
-		setGroupsOverrideForTests({});
-		mock.clearUiRecords();
-		await mock.dispatchCommand("group list on");
-		const notify = mock.getLastNotify();
-		expect(notify!.message).toContain('No group named "list"');
+	it("writeGroup rejects names containing +", () => {
+		expect(() => writeGroup("tool+set", { toolsets: [] })).toThrow(
+			"must not contain",
+		);
+		expect(() => writeGroup("+portal", { toolsets: [] })).toThrow(
+			"must not contain",
+		);
 	});
 });

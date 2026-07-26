@@ -21,6 +21,7 @@ import {
 	GROUPS_FILE_PATH,
 	readGroups,
 	writeGroup,
+	removeGroup,
 	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
@@ -98,5 +99,88 @@ describe("groups store — global, cross-directory", () => {
 		expect(raw.tbox).toBeUndefined();
 		expect(raw.groups).toBeUndefined();
 		expect(raw["research"]).toEqual({ toolsets: ["portal.web"] });
+	});
+
+	describe("removeGroup", () => {
+		let tmp: string;
+
+		beforeEach(() => {
+			setGroupsOverrideForTests(null);
+			tmp = mkdtempSync(join(tmpdir(), "tbox-groups-"));
+		});
+
+		afterEach(() => {
+			setGroupsOverrideForTests(null);
+			rmSync(tmp, { recursive: true, force: true });
+		});
+
+		it("deletes an existing group", () => {
+			const file = join(tmp, "groups.json");
+			writeGroup("research", { toolsets: ["portal.web"] }, file);
+			writeGroup("host", { toolsets: ["host.api"] }, file);
+
+			const removed = removeGroup("research", file);
+			expect(removed).toBe(true);
+
+			const groups = readGroups(file);
+			expect(groups["research"]).toBeUndefined();
+			expect(groups["host"]).toBeDefined();
+		});
+
+		it("returns false for a non-existent group", () => {
+			const file = join(tmp, "groups.json");
+			writeGroup("research", { toolsets: ["portal.web"] }, file);
+
+			expect(removeGroup("ghost", file)).toBe(false);
+			// existing group untouched
+			expect(readGroups(file)["research"]).toBeDefined();
+		});
+
+		it("preserves other groups on remove", () => {
+			const file = join(tmp, "groups.json");
+			writeGroup("a", { toolsets: [] }, file);
+			writeGroup("b", { toolsets: [] }, file);
+
+			removeGroup("a", file);
+			const groups = readGroups(file);
+			expect(Object.keys(groups)).toEqual(["b"]);
+		});
+	});
+
+	describe("writeGroup validation", () => {
+		it("rejects reserved keywords", () => {
+			expect(() => writeGroup("focus", { toolsets: [] })).toThrow(
+				"reserved word",
+			);
+			expect(() => writeGroup("list", { toolsets: [] })).toThrow(
+				"reserved word",
+			);
+			expect(() => writeGroup("on", { toolsets: [] })).toThrow("reserved word");
+			expect(() => writeGroup("remove", { toolsets: [] })).toThrow(
+				"reserved word",
+			);
+		});
+
+		it("rejects names containing +", () => {
+			expect(() => writeGroup("tool+set", { toolsets: [] })).toThrow(
+				"must not contain",
+			);
+			expect(() => writeGroup("+portal", { toolsets: [] })).toThrow(
+				"must not contain",
+			);
+		});
+
+		it("allows valid names including toolset ids", () => {
+			const file = join(tmp, "groups.json");
+			expect(() =>
+				writeGroup("research", { toolsets: [] }, file),
+			).not.toThrow();
+			expect(() =>
+				writeGroup("portal.web", { toolsets: [] }, file),
+			).not.toThrow();
+			expect(() =>
+				writeGroup("my-group", { toolsets: [] }, file),
+			).not.toThrow();
+		});
 	});
 });

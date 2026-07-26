@@ -34,9 +34,10 @@ type ResolvedUnit =
  *
  * Strategy:
  *   1. Builtin guard — reject the reserved id `pi.builtin`.
- *   2. Try as a group name (from config).
- *   3. Try as a registered toolset id.
- *   4. Fallback error.
+ *   2. `+`-prefixed input → strip the prefix and resolve as a registered
+ *      toolset id only.
+ *   3. Bare input → resolve as a group name only (from config).
+ *   4. Neither matches → error (no silent fallback between namespaces).
  */
 function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
 	// Builtin guard — reject the reserved id "pi.builtin".
@@ -50,7 +51,24 @@ function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
 
 	const registry = getRegisteredToolsets();
 
-	// --- Try as a group name ---
+	// --- `+` prefix → toolset ---
+	if (input.startsWith("+")) {
+		const toolsetId = input.slice(1);
+		const toolsetEntry = registry.find((e) => e.spec.id === toolsetId);
+		if (!toolsetEntry) {
+			return {
+				ok: false,
+				error: `No toolset matching "${toolsetId}".`,
+			};
+		}
+		const union = new Set([
+			...forwardClosure([toolsetId]),
+			...reverseClosure([toolsetId]),
+		]);
+		return { ok: true, toolsetIds: [...union], label: toolsetId };
+	}
+
+	// --- Bare → group ---
 	const groupResolved = resolveGroup(input);
 	if ("group" in groupResolved) {
 		const ids = groupResolved.group.toolsets;
@@ -66,19 +84,9 @@ function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
 		return { ok: true, toolsetIds: [...union], label: `group:${input}` };
 	}
 
-	// --- Try as a registered toolset id ---
-	const toolsetEntry = registry.find((e) => e.spec.id === input);
-	if (toolsetEntry) {
-		const union = new Set([
-			...forwardClosure([input]),
-			...reverseClosure([input]),
-		]);
-		return { ok: true, toolsetIds: [...union], label: input };
-	}
-
 	return {
 		ok: false,
-		error: `No toolset or group matching "${input}".`,
+		error: `No group matching "${input}". Use /tbox focus +<toolset> for a toolset.`,
 	};
 }
 

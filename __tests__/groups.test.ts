@@ -6,8 +6,12 @@ import {
 	resolveGroup,
 	describeGroup,
 	getGroupNames,
+	listGroups,
 } from "../src/groups.js";
-import { setGroupsOverrideForTests } from "../config/settings-reader.js";
+import {
+	setGroupsOverrideForTests,
+	removeGroup,
+} from "../config/settings-reader.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
@@ -272,18 +276,6 @@ describe("group dispatch via /tbox", () => {
 		expect(mock.getActiveTools()).not.toContain("web-fetch");
 	});
 
-	it("/tbox group webgroup on behaves identically to the bare form", async () => {
-		const web = getRegisteredToolsets().find(
-			(e: RegistryEntry) => e.spec.id === "portal.web",
-		)!;
-		web.toolset.disable(pi);
-		mock.clearUiRecords();
-
-		await mock.dispatchCommand("group webgroup on");
-		const notify = mock.getLastNotify();
-		expect(notify!.message).toContain('Enabled group "webgroup"');
-	});
-
 	it("/tbox group webgroup edit — save immediately via key sequence", async () => {
 		mock.setCustomKeySequence([mock.keyFor("save")]);
 
@@ -310,5 +302,66 @@ describe("group dispatch via /tbox", () => {
 		const notify = mock.getLastNotify();
 		expect(notify!.message).toContain("Usage");
 		expect(notify!.message).toContain("webgroup on");
+	});
+
+	it("/tbox group list shows configured groups", () => {
+		setGroupsOverrideForTests({
+			webgroup: { toolsets: ["portal.web"] },
+			other: { toolsets: ["host.api"] },
+		});
+		const output = listGroups();
+		expect(output).toContain("webgroup");
+		expect(output).toContain("portal.web");
+		expect(output).toContain("other");
+		expect(output).toContain("host.api");
+	});
+
+	it("/tbox group list with no groups shows placeholder", () => {
+		setGroupsOverrideForTests({});
+		expect(listGroups()).toBe("No groups configured.");
+	});
+
+	it("/tbox group <name> remove deletes the group", () => {
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
+		const existed = removeGroup("webgroup");
+		expect(existed).toBe(true);
+		expect(listGroups()).toBe("No groups configured.");
+	});
+
+	it("/tbox group <name> remove returns false for unknown group", () => {
+		setGroupsOverrideForTests({});
+		expect(removeGroup("nope")).toBe(false);
+	});
+
+	it("/tbox +portal.web on enables the toolset directly", async () => {
+		const web = getRegisteredToolsets().find(
+			(e: RegistryEntry) => e.spec.id === "portal.web",
+		)!;
+		web.toolset.disable(pi);
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("+portal.web on");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('Enabled toolset "portal.web"');
+		expect(mock.getActiveTools()).toContain("web-fetch");
+	});
+
+	it("/tbox +portal.web off disables the toolset directly", async () => {
+		await mock.dispatchCommand("+portal.web off");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('Disabled toolset "portal.web"');
+		expect(mock.getActiveTools()).not.toContain("web-fetch");
+	});
+
+	it("/tbox +unknown on shows error for unknown toolset", async () => {
+		await mock.dispatchCommand("+unknown on");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('No toolset "unknown"');
+	});
+
+	it("/tbox +portal.web describes the toolset", async () => {
+		await mock.dispatchCommand("+portal.web");
+		const notify = mock.getLastNotify();
+		expect(notify!.message).toContain('Toolset "portal.web"');
 	});
 });

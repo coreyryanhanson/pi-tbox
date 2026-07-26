@@ -30,7 +30,15 @@ import {
 } from "./src/list.js";
 import { toggleTool, toggleAll } from "./src/toggle.js";
 import { isReserved } from "./src/reserved.js";
-import { actuateGroup, describeGroup, editGroup } from "./src/groups.js";
+import {
+	actuateGroup,
+	describeGroup,
+	editGroup,
+	listGroups,
+	describeToolset,
+	actuateToolset,
+} from "./src/groups.js";
+import { removeGroup } from "./config/settings-reader.js";
 import { focusUnit, focusOff } from "./src/focus.js";
 import { formatChars } from "./src/chars.js";
 
@@ -58,7 +66,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
 		description:
-			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off",
+			"Cross-extension tool manager. Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -78,7 +86,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 			if (!command) {
 				ctx.ui.notify(
-					"Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off",
+					"Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 					"info",
 				);
 				return;
@@ -128,22 +136,31 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "group": {
-					// /tbox group <name> [on|off|edit]
+					// /tbox group <name> [edit|remove] | /tbox group list
 					const name = rest[1];
 					if (!name) {
 						ctx.ui.notify(
-							"Usage: /tbox group <name> [on|off|edit] — actuate or edit a named group.",
+							"Usage: /tbox group <name> [edit|remove] | /tbox group list — edit or remove a group, or list all groups.",
 							"info",
 						);
 						break;
 					}
+					// /tbox group list — name is "list", no second arg
+					if (name === "list" && !rest[2]) {
+						ctx.ui.notify(listGroups(), "info");
+						break;
+					}
+
 					const sub = rest[2];
-					if (sub === "on") {
-						ctx.ui.notify(actuateGroup(pi, name, true), "info");
-					} else if (sub === "off") {
-						ctx.ui.notify(actuateGroup(pi, name, false), "info");
-					} else if (sub === "edit") {
+					if (sub === "edit") {
 						ctx.ui.notify(await editGroup(name, ctx), "info");
+					} else if (sub === "remove") {
+						ctx.ui.notify(
+							removeGroup(name)
+								? `Group "${name}" removed.`
+								: `No group named "${name}".`,
+							"info",
+						);
 					} else {
 						// Bare `/tbox group <name>` — report the group's units.
 						ctx.ui.notify(describeGroup(name), "info");
@@ -162,20 +179,33 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						ctx.ui.notify(focusUnit(pi, sub), "info");
 					} else {
 						ctx.ui.notify(
-							"Usage: /tbox focus <unit> | /tbox focus off — focus on a toolset, group, or tool.",
+							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off — focus on a group or toolset.",
 							"info",
 						);
 					}
 					break;
 				}
 				default: {
-					// Group shorthand: `/tbox <name> on|off` where <name> is
-					// NOT reserved. Reserved names dispatch to their
-					// subcommand above; a group named e.g. `focus` is only
-					// reachable via `/tbox group focus on`.
+					// `+` prefix → toolset direct toggle
+					if (command.startsWith("+")) {
+						const toolsetId = command.slice(1);
+						const sub = rest[1];
+						if (sub === "on") {
+							ctx.ui.notify(actuateToolset(pi, toolsetId, true), "info");
+						} else if (sub === "off") {
+							ctx.ui.notify(actuateToolset(pi, toolsetId, false), "info");
+						} else {
+							ctx.ui.notify(describeToolset(pi, toolsetId), "info");
+						}
+						break;
+					}
+
+					// Group shorthand: `/tbox <group> on|off`. Since group
+					// names are validated at creation (no reserved words,
+					// no `+`), the bare form always works.
 					if (isReserved(command)) {
 						ctx.ui.notify(
-							`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off`,
+							`Unknown subcommand: "${command}". Usage: /tbox [list|status|toggle|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
 							"error",
 						);
 						break;
@@ -187,7 +217,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						ctx.ui.notify(actuateGroup(pi, command, false), "info");
 					} else {
 						ctx.ui.notify(
-							`Usage: /tbox ${command} on | /tbox ${command} off — or /tbox group ${command} [on|off|edit].`,
+							`Usage: /tbox ${command} on | /tbox ${command} off.`,
 							"info",
 						);
 					}
