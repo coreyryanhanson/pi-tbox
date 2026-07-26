@@ -598,10 +598,10 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("See: /tbox list --help.");
 	});
 
-	it("errors when --by-chars and --grouped are combined", () => {
+	it("errors when unknown flag --grouped is used", () => {
 		const output = formatList(pi, "list --by-chars --grouped");
 		expect(output).toContain("Error");
-		expect(output).toContain("--by-chars");
+		expect(output).toContain("unknown flag");
 		expect(output).toContain("--grouped");
 		expect(output).toContain("See: /tbox list --help.");
 	});

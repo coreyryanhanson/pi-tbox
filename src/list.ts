@@ -27,7 +27,6 @@ import { getGroupNames } from "./groups.js";
 
 export interface ListOptions {
 	flat?: boolean;
-	grouped?: boolean;
 	byChars?: boolean;
 	active?: boolean;
 	inactive?: boolean;
@@ -372,16 +371,12 @@ Views (mutually exclusive):
   --flat      one row per tool
   --by-chars  toolsets ranked by +chars descending (budgeting surface)
 
-Filters:
+Filters (mutually exclusive):
   --active    show only active tools (--by-chars: hide +0 groups)
-  --inactive  show only inactive tools
-
---active and --inactive cannot be combined.
---by-chars cannot combine with --flat or --grouped.`;
+  --inactive  show only inactive tools`;
 
 const KNOWN_LIST_FLAGS = new Set([
 	"flat",
-	"grouped",
 	"by-chars",
 	"active",
 	"inactive",
@@ -446,17 +441,13 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 		return "Error: --active and --inactive cannot be used together. See: /tbox list --help.";
 	}
 
-	// Error if --by-chars combined with --flat or --grouped
+	// Error if --by-chars combined with --flat
 	if (flags.has("by-chars") && flags.has("flat")) {
 		return "Error: --by-chars and --flat cannot be used together. See: /tbox list --help.";
-	}
-	if (flags.has("by-chars") && flags.has("grouped")) {
-		return "Error: --by-chars and --grouped cannot be used together. See: /tbox list --help.";
 	}
 
 	const options: ListOptions = {
 		flat: flags.has("flat"),
-		grouped: flags.has("grouped"),
 		byChars: flags.has("by-chars"),
 		active: flags.has("active"),
 		inactive: flags.has("inactive"),
