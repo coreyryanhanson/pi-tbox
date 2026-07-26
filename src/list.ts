@@ -139,7 +139,7 @@ export function formatGroupedList(
 				}
 				totalActive += activeCount;
 				lines.push(
-					`  pi.builtin (${activeCount} active, +${charCount} chars, fixed)`,
+					`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
 				);
 				for (const t of tools) {
 					const status = activeSet.has(t.name) ? "" : " (inactive)";

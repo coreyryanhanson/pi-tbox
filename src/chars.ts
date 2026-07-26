@@ -9,8 +9,8 @@
  * `{name, description, parameters, promptGuidelines, sourceInfo}`
  * per tool, summed. This is the contract — the shape is an impl detail.
  *
- * Returns a split: `fixed` (builtin + sdk, non-togglable floor) and
- * `tools` (extension tools, togglable budget).
+ * Returns a split: `core` (builtin + sdk, non-togglable floor) and
+ * `extension` (extension tools, togglable budget).
  *
  * @module
  */
@@ -39,12 +39,12 @@ export function serializeToolDef(tool: ToolInfo): string {
 	});
 }
 
-/** Result of computeCharCount: fixed (untoggleable) vs tools (togglable). */
+/** Result of computeCharCount: core (untoggleable) vs extension (togglable). */
 export interface CharCountSplit {
 	/** Active builtin + sdk tool char count — non-togglable floor. */
-	fixed: number;
+	core: number;
 	/** Active extension tool char count — togglable budget. */
-	tools: number;
+	extension: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,16 +52,16 @@ export interface CharCountSplit {
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the serialized character count split into fixed and tools buckets.
+ * Compute the serialized character count split into core and extension buckets.
  *
  * @param pi - The extension API
- * @returns `{ fixed, tools }` where fixed is builtin+sdk and tools is extension
+ * @returns `{ core, extension }` where core is builtin+sdk and extension is extension
  */
 export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	const activeNames = new Set(pi.getActiveTools());
 	const allTools = pi.getAllTools();
 
-	const result: CharCountSplit = { fixed: 0, tools: 0 };
+	const result: CharCountSplit = { core: 0, extension: 0 };
 
 	for (const tool of allTools) {
 		if (!activeNames.has(tool.name)) continue;
@@ -70,9 +70,9 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 			tool.sourceInfo.source === "builtin" ||
 			tool.sourceInfo.source === "sdk"
 		) {
-			result.fixed += len;
+			result.core += len;
 		} else {
-			result.tools += len;
+			result.extension += len;
 		}
 	}
 
@@ -87,9 +87,9 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
  * Format a CharCountSplit into the shared one-line display used by both
  * `/tbox chars` and the `/tbox status` char line.
  */
-export function formatCharSplit({ fixed, tools }: CharCountSplit): string {
-	const total = fixed + tools;
-	return `Char count \u2014 fixed: ${fixed} | tools: ${tools} (total: ${total})`;
+export function formatCharSplit({ core, extension }: CharCountSplit): string {
+	const total = core + extension;
+	return `Char count \u2014 core: ${core} | extension: ${extension} (total: ${total})`;
 }
 
 /**

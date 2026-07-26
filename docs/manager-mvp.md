@@ -253,8 +253,8 @@ active tool set. Computed from `pi.getAllTools()` full definitions
 schema], `promptGuidelines`, `sourceInfo`) — serialize each enabled
 tool's fields and sum (all active tools, including builtin and sdk —
 the honest serialized size of what the LLM sees). Accurate, no upstream
-ask. **The output is a fixed/tools split** (`fixed` = builtin+sdk floor,
-`tools` = togglable extension budget, total reported), turning the
+ask. **The output is a core/extension split** (`core` = builtin+sdk floor,
+`extension` = togglable extension budget, total reported), turning the
 number into a decision tool: builtins are immutable overhead, extension
 tools are your budget. Folded into the status slot only indirectly (see
 status slot below); the command is the on-demand surface.

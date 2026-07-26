@@ -502,7 +502,7 @@ describe("formatByChars", () => {
 		const output = formatByChars(pi);
 
 		expect(output).not.toContain("pi.builtin");
-		expect(output).not.toContain("fixed");
+		expect(output).not.toContain("core");
 	});
 
 	it("--active hides fully-disabled groups", () => {

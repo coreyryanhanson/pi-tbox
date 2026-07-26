@@ -528,9 +528,9 @@ Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
   **All active tools count, including `builtin` and `sdk`** — the count
   is the honest serialized size of what the LLM sees, not the
   tbox-managed subset (MVP: "current active tool set", no exclusion).
-  **The output is a fixed/tools split, not a single integer**
-  (`Char count — fixed: <builtin+sdk> | tools: <extension> (total:
-  <sum>)`): `fixed` is the non-togglable floor (builtin + sdk), `tools`
+  **The output is a core/extension split, not a single integer**
+  (`Char count — core: <builtin+sdk> | extension: <extension> (total:
+  <sum>)`): `core` is the non-togglable floor (builtin + sdk), `extension`
   is the togglable extension budget. This is an addition over the work
   text's "single integer" — the split is more useful for budgeting
   (you can see how much of the count you can actually move with
@@ -554,7 +554,7 @@ Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
 
 Tests shipped (green): `chars` (hand-computed population → exact sum,
 toggle delta = serialized size of moved members, determinism across
-runs, builtin/sdk counted in `fixed`), `status-slot` (table-driven over
+runs, builtin/sdk counted in `core`), `status-slot` (table-driven over
 all four states asserting exact slot string + color marker, focus vs
 count precedence, excluded-count correctness).
 
@@ -732,5 +732,5 @@ swapping the library dep to the published version.
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
-| `/tbox chars` serialization shape | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **fixed/tools split** (`fixed` = builtin+sdk floor, `tools` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget |
-| Whether `chars` counts builtin/sdk active tools | 6 | **Closed:** Yes — the count is the honest serialized size of what the LLM sees (counted under `fixed`) |
+| `/tbox chars` serialization shape | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **core/extension split** (`core` = builtin+sdk floor, `extension` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget |
+| Whether `chars` counts builtin/sdk active tools | 6 | **Closed:** Yes — the count is the honest serialized size of what the LLM sees (counted under `core`) |
