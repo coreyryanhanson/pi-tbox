@@ -617,7 +617,7 @@ swapping the library dep to the published version.
   Sprint 3.5 shape), with a
    tool population spanning builtin/sdk/extension sources. Then drive
    the full `/tbox` surface end-to-end through the MockPI's
-   `registerCommand` dispatch: `list` (grouped + flat + filters), group
+   `registerCommand` dispatch: `list` (grouped + flat + by-chars + filters), group
    on/off with cascade reporting, toggle with guards, all on/off, focus
    on/off with re-actuation, chars, status. This is the test that
    catches integration bugs the library's own MockPI tests cannot
@@ -666,7 +666,7 @@ swapping the library dep to the published version.
 ### Tests
 
 - `integration.test.ts`: the big end-to-end (see Work #2). At minimum:
-  - `list --grouped` on the realistic registry matches a snapshot of the
+  - `list` (default grouped view) on the realistic registry matches a snapshot of the
     expected grouped output (smallest-toolset-wins, orphans under their
     `tbox.tool@<source>` toolsets, sdk read-only in `--flat`).
   - Define a group `{toolsets: ["portal.learn"]}` via the picker →

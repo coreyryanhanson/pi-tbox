@@ -41,7 +41,7 @@ the seed set.)
 | Command | Effect |
 |---|---|
 | `/tbox` | show current state (slot mirror + brief help) |
-| `/tbox list [--grouped\|--flat] [--active\|--inactive]` | enumerate tools (point 1) |
+| `/tbox list [--flat\|--by-chars] [--active\|--inactive]` | enumerate tools (point 1) |
 | `/tbox <group> on` / `/tbox <group> off` | toggle a user group (point 2) |
 | `/tbox group <name> [on\|off]` | explicit group form (for reserved-name groups) |
 | `/tbox group <name> edit` | curate a group (point 4) |
@@ -56,22 +56,29 @@ the seed set.)
 
 ### 1. Listing tools
 
-`/tbox list` enumerates every registered tool. Two views:
+`/tbox list` enumerates every registered tool. Three views:
 
-- **`--grouped` (default):** tools grouped by their toolset. Overlapping
+- **(default, grouped):** tools grouped by their toolset. Overlapping
   toolsets resolve by **smallest-toolset-wins** — each tool appears under
   its most specific (smallest) toolset only, no duplication. `portal.learn`
   (members: `web-learn`) shows `web-learn` under `learn`; `portal.web`'s
   members show under `web`. A tool in no registered toolset shows under
   its `tbox.tool@<source>` toolset — one per unclaimed-source plugin
-  (see point 8).
+  (see point 8). Each group header reports `(a active, b inactive,
+  +c chars)` — the full toolset's state and char contribution (extension
+  tools only); a footer total reconciles with `/tbox chars`'s `tools`
+  bucket.
 - **`--flat`:** every tool as a row, no grouping. Tools outside
   tbox's domain (see point 8 — `sdk`-source tools) appear as
   read-only rows so the user sees they exist and understands why they
   can't be toggled, but they carry no enable/disable affordance.
+- **`--by-chars`:** budgeting surface — a flat list of toolsets (no tool
+  rows) sorted by `+chars` descending, so the most expensive toolsets to
+  disable float to the top. Excludes builtins (non-togglable floor).
+  `--by-chars --active` hides fully-disabled groups.
 
 Filters: `--active` (only currently enabled), `--inactive` (only
-disabled). Both filters work in both views.
+disabled). Both filters work in all views.
 
 The grouped view shows each tool under its smallest
 toolset only, no duplication. Every toolset renders its members
