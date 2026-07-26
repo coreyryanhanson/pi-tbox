@@ -14,7 +14,11 @@ import {
 	renderSlotText,
 	getFocusUnit,
 } from "./status-slot.js";
-import { computeCharCount, formatCharSplit } from "./chars.js";
+import {
+	computeCharCount,
+	formatCharSplit,
+	serializeToolDef,
+} from "./chars.js";
 import { getGroupNames } from "./groups.js";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +27,8 @@ import { getGroupNames } from "./groups.js";
 
 export interface ListOptions {
 	flat?: boolean;
+	grouped?: boolean;
+	byChars?: boolean;
 	active?: boolean;
 	inactive?: boolean;
 }
@@ -91,6 +97,7 @@ export function formatGroupedList(
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
 	const toolToToolset = smallestToolsetMap(toolsets);
+	const allToolsMap = new Map(allTools.map((t) => [t.name, t]));
 
 	// Filter: exclude sdk + apply active/inactive
 	let filtered = allTools.filter((t) => t.sourceInfo.source !== "sdk");
@@ -113,26 +120,85 @@ export function formatGroupedList(
 	// Build lines
 	const lines: string[] = ["Tools by group:\n"];
 
+	// Accumulators for footer summary
+	let totalActive = 0;
+	let totalInactive = 0;
+	let totalChars = 0;
+
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
 		if (!entry) {
-			// tool with a non-toolset group (shouldn't happen normally)
-			lines.push(
-				`  ${gid} (${tools.length} tool${tools.length !== 1 ? "s" : ""})`,
-			);
-			for (const t of tools) {
-				const status = activeSet.has(t.name) ? "" : " (inactive)";
-				lines.push(`    ${t.name}${status}`);
+			// Non-toolset group — builtins or orphan extension tools
+			if (tools[0]?.sourceInfo.source === "builtin") {
+				// Deliberate builtin branch: always-on, non-togglable
+				let activeCount = 0;
+				let charCount = 0;
+				for (const t of tools) {
+					if (!activeSet.has(t.name)) continue;
+					activeCount++;
+					charCount += serializeToolDef(t).length;
+				}
+				totalActive += activeCount;
+				lines.push(
+					`  pi.builtin (${activeCount} active, +${charCount} chars, fixed)`,
+				);
+				for (const t of tools) {
+					const status = activeSet.has(t.name) ? "" : " (inactive)";
+					lines.push(`    ${t.name}${status}`);
+				}
+			} else {
+				// Orphan extension tools not in any toolset
+				let activeCount = 0;
+				let charCount = 0;
+				for (const t of tools) {
+					if (!activeSet.has(t.name)) continue;
+					activeCount++;
+					if (
+						t.sourceInfo.source !== "builtin" &&
+						t.sourceInfo.source !== "sdk"
+					)
+						charCount += serializeToolDef(t).length;
+				}
+				const inactiveCount = tools.length - activeCount;
+				totalActive += activeCount;
+				totalInactive += inactiveCount;
+				totalChars += charCount;
+				lines.push(
+					`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
+				);
+				for (const t of tools) {
+					const status = activeSet.has(t.name) ? "" : " (inactive)";
+					lines.push(`    ${t.name}${status}`);
+				}
 			}
 			lines.push("");
 			continue;
 		}
 
 		const label = entry.spec.label ?? gid;
-		const totalMembers = entry.spec.names.size;
+
+		// header reflects full toolset state; filter controls row visibility only
+		let activeCount = 0;
+		let charCount = 0;
+		for (const name of entry.spec.names) {
+			if (!activeSet.has(name)) continue;
+			activeCount++;
+			const tool = allToolsMap.get(name);
+			if (!tool) continue;
+			if (
+				tool.sourceInfo.source === "builtin" ||
+				tool.sourceInfo.source === "sdk"
+			)
+				continue;
+			charCount += serializeToolDef(tool).length;
+		}
+		const inactiveCount = entry.spec.names.size - activeCount;
+		totalActive += activeCount;
+		totalInactive += inactiveCount;
+		totalChars += charCount;
 
 		lines.push(
-			`  ${label} (${totalMembers} tool${totalMembers !== 1 ? "s" : ""})`,
+			`  ${label} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
 		);
 		for (const t of tools) {
 			const status = activeSet.has(t.name) ? "" : " (inactive)";
@@ -141,7 +207,104 @@ export function formatGroupedList(
 		lines.push("");
 	}
 
+	// Footer summary line
+	if (lines.length > 1) {
+		lines.push(
+			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalChars} chars`,
+		);
+		lines.push("");
+	}
+
 	// If no lines beyond the header, say so
+	if (lines.length <= 1) {
+		lines.push("  (no tools match the current filter)");
+		lines.push("");
+	}
+
+	return lines.join("\n").trimEnd();
+}
+
+// ---------------------------------------------------------------------------
+// By-chars view (budgeting)
+// ---------------------------------------------------------------------------
+
+/**
+ * Format the by-chars budgeting view.
+ *
+ * Flat list of toolsets (no tool rows) sorted by +chars descending.
+ * Excludes builtins.
+ *
+ * @param pi  - The extension API
+ * @param options  - Optional filters
+ */
+export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
+	const allTools = pi.getAllTools();
+	const toolsets = getRegisteredToolsets();
+	const activeSet = new Set(pi.getActiveTools());
+	const allToolsMap = new Map(allTools.map((t) => [t.name, t]));
+
+	interface ToolsetStats {
+		label: string;
+		activeCount: number;
+		inactiveCount: number;
+		charCount: number;
+	}
+
+	const stats: ToolsetStats[] = [];
+
+	for (const entry of toolsets) {
+		const label = entry.spec.label ?? entry.spec.id;
+
+		let activeCount = 0;
+		let charCount = 0;
+		for (const name of entry.spec.names) {
+			if (!activeSet.has(name)) continue;
+			activeCount++;
+			const tool = allToolsMap.get(name);
+			if (!tool) continue;
+			if (
+				tool.sourceInfo.source === "builtin" ||
+				tool.sourceInfo.source === "sdk"
+			)
+				continue;
+			charCount += serializeToolDef(tool).length;
+		}
+		const inactiveCount = entry.spec.names.size - activeCount;
+
+		// --by-chars --active hides fully-disabled groups
+		if (options?.active && activeCount === 0) continue;
+
+		stats.push({ label, activeCount, inactiveCount, charCount });
+	}
+
+	// Sort by charCount descending
+	stats.sort((a, b) => b.charCount - a.charCount);
+
+	const lines: string[] = [
+		"Context budget (toolsets, most expensive first):\n",
+	];
+
+	let totalActive = 0;
+	let totalInactive = 0;
+	let totalChars = 0;
+
+	for (const s of stats) {
+		totalActive += s.activeCount;
+		totalInactive += s.inactiveCount;
+		totalChars += s.charCount;
+		lines.push(
+			`  ${s.label} (${s.activeCount} active, ${s.inactiveCount} inactive, +${s.charCount} chars)`,
+		);
+	}
+
+	// Footer summary line
+	if (lines.length > 1) {
+		lines.push(
+			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalChars} chars`,
+		);
+		lines.push("");
+	}
+
 	if (lines.length <= 1) {
 		lines.push("  (no tools match the current filter)");
 		lines.push("");
@@ -241,12 +404,25 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 		return "Error: --active and --inactive cannot be used together.";
 	}
 
+	// Error if --by-chars combined with --flat or --grouped
+	if (flags.has("by-chars") && flags.has("flat")) {
+		return "Error: --by-chars and --flat cannot be used together.";
+	}
+	if (flags.has("by-chars") && flags.has("grouped")) {
+		return "Error: --by-chars and --grouped cannot be used together.";
+	}
+
 	const options: ListOptions = {
 		flat: flags.has("flat"),
+		grouped: flags.has("grouped"),
+		byChars: flags.has("by-chars"),
 		active: flags.has("active"),
 		inactive: flags.has("inactive"),
 	};
 
+	if (options.byChars) {
+		return formatByChars(pi, options);
+	}
 	if (options.flat) {
 		return formatFlatList(pi, options);
 	}

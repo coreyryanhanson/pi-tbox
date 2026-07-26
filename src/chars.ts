@@ -29,7 +29,7 @@ import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
  * The object keys are in a fixed order so the JSON output is deterministic
  * across runs with the same tool population.
  */
-function serializeToolDef(tool: ToolInfo): string {
+export function serializeToolDef(tool: ToolInfo): string {
 	return JSON.stringify({
 		name: tool.name,
 		description: tool.description,

@@ -7,6 +7,7 @@ import {
 	formatBareHelp,
 	formatGroupedList,
 	formatFlatList,
+	formatByChars,
 } from "../src/list.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
@@ -191,8 +192,8 @@ describe("formatGroupedList", () => {
 		const output = formatGroupedList(pi);
 
 		// Sections are ordered by group insertion
-		const bigIdx = output.indexOf("big (4 tools)");
-		const smallIdx = output.indexOf("small (1 tool)");
+		const bigIdx = output.indexOf("big (0 active, 4 inactive, +0 chars)");
+		const smallIdx = output.indexOf("small (0 active, 1 inactive, +0 chars)");
 
 		expect(bigIdx).toBeGreaterThanOrEqual(0);
 		expect(smallIdx).toBeGreaterThanOrEqual(0);
@@ -286,7 +287,7 @@ describe("formatGroupedList", () => {
 		const output = formatGroupedList(pi);
 
 		// The label from registry.ts is the source string ("extension")
-		expect(output).toContain("extension (1 tool)");
+		expect(output).toContain("extension (0 active, 1 inactive, +0 chars)");
 		expect(output).toContain("orphan-tool");
 	});
 
@@ -453,6 +454,90 @@ describe("formatFlatList", () => {
 	});
 });
 
+describe("formatByChars", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(() => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setFocusUnit(null);
+	});
+
+	it("shows toolsets sorted by char count descending", () => {
+		setupRichMock(mock, pi);
+
+		const output = formatByChars(pi);
+
+		// Header
+		expect(output).toMatch(
+			/^Context budget \(toolsets, most expensive first\):/,
+		);
+
+		// All three extension toolsets present
+		expect(output).toContain("Portal Web");
+		expect(output).toContain("Portal Learn");
+		expect(output).toContain("extension");
+
+		// Builtins excluded
+		expect(output).not.toContain("pi.builtin");
+
+		// Sorted by char count descending (Portal Web > Portal Learn > extension)
+		const webIdx = output.indexOf("Portal Web");
+		const learnIdx = output.indexOf("Portal Learn");
+		const orphanIdx = output.indexOf("extension (1 active");
+		expect(webIdx).toBeGreaterThan(0);
+		expect(learnIdx).toBeGreaterThan(webIdx);
+		expect(orphanIdx).toBeGreaterThan(learnIdx);
+
+		// Footer present with matching total
+		expect(output).toContain("Total:");
+		expect(output).toMatch(/Total: 5 active, 0 inactive, \+722 chars/);
+	});
+
+	it("excludes builtins from by-chars view", () => {
+		setupRichMock(mock, pi);
+
+		const output = formatByChars(pi);
+
+		expect(output).not.toContain("pi.builtin");
+		expect(output).not.toContain("fixed");
+	});
+
+	it("--active hides fully-disabled groups", () => {
+		setupRichMock(mock, pi);
+
+		// All tools are enabled via setupRichMock, so disable one toolset manually
+		// Disable portal.learn by deactivating web-learn
+		mock.setActiveTools([
+			"web-fetch",
+			"browser-navigate",
+			"page-read",
+			"orphan-tool",
+		]);
+
+		const output = formatByChars(pi, { active: true });
+
+		// Portal Web still has active members
+		expect(output).toContain("Portal Web");
+		// extension orphan has active member
+		expect(output).toContain("extension");
+		// Portal Learn has 0 active members → hidden
+		expect(output).not.toContain("Portal Learn");
+
+		// Footer total should match only visible groups
+		expect(output).toMatch(/Total: 4 active, 0 inactive/);
+	});
+
+	it("shows empty message when no tools match", () => {
+		// No tools registered
+		const output = formatByChars(pi);
+
+		expect(output).toContain("no tools match the current filter");
+	});
+});
+
 describe("formatList (dispatch)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
@@ -502,6 +587,27 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("All tools");
 		expect(output).toContain("tool-b");
 		expect(output).not.toContain("tool-a");
+	});
+
+	it("errors when --by-chars and --flat are combined", () => {
+		const output = formatList(pi, "list --by-chars --flat");
+		expect(output).toContain("Error");
+		expect(output).toContain("--by-chars");
+		expect(output).toContain("--flat");
+	});
+
+	it("errors when --by-chars and --grouped are combined", () => {
+		const output = formatList(pi, "list --by-chars --grouped");
+		expect(output).toContain("Error");
+		expect(output).toContain("--by-chars");
+		expect(output).toContain("--grouped");
+	});
+
+	it("routes --by-chars alone to by-chars view", () => {
+		const output = formatList(pi, "list --by-chars");
+		expect(output).toMatch(
+			/^Context budget \(toolsets, most expensive first\):/,
+		);
 	});
 });
 
