@@ -212,39 +212,23 @@ Tests shipped (green): `list`, `command`.
 
 ---
 
-## Sprint 2 — ✅ Done then removed: `/tbox toggle`, `/tbox all`, guards
+## Sprint 2 — ✅ Done: `/tbox all`, guards
 
-> **Deprecated in the group-API revision:** `/tbox toggle <tool>` was
-> removed because tool-name resolution implied per-tool granularity that
-> the library's per-toolset persist layer could not honor (toggling one
-> tool silently kills sibling tools in the same toolset). The honest
-> replacement is `/tbox +<toolset> on|off` (toolset by id) and `/tbox list`
-> (discover which toolset contains a tool). `/tbox all on|off` was
-> preserved and moved to `src/groups.ts`.
+Shipped (`src/status-slot.ts`, `src/groups.ts`):
 
-Originally shipped (`src/toggle.ts`, `src/status-slot.ts`):
-
-- **`/tbox toggle <tool>`** — exact→prefix resolution; ambiguous prefix
-  errors listing candidates; `sdk` tool always refused; orphan →
-  its `tbox.tool@<source>` toolset (per Sprint 3.5; Sprint 2 shipped
-  against a catch-all `tbox.tool`, refined by 3.5); re-running
-  toggles back.
-- **Guards (unconditional — tbox has one mode):** builtins are
-  refused via source check
-  ("builtins are protected. tbox does not manage pi's core tools.");
-  `sdk` tools are refused ("SDK tools are host-managed and cannot be
-  toggled"). There is no escape hatch — builtin protection
-  is permanent, sdk tools are always outside tbox's domain.
 - **`/tbox all on`** — enable every registered toolset. **`/tbox all off`**
   — disable every non-builtin toolset (builtins are outside the
   registry and never registered, so they are naturally skipped);
   `sdk` untouched.
+- **Guards (unconditional):** builtins are outside the registry
+  (never registered into any toolset), so no actuation pass can
+  reach them. `sdk` tools are never registered into any toolset and
+  are always outside tbox's domain.
 - **Status slot count state** — `● tbox n` (blue) where
-  `n` = non-builtin, non-sdk tools minus `getActiveTools()`; pristine
+  `n` = non-builtin, non-sdk excluded extension tools; pristine
   `○ tbox` when `n === 0`. `changed`/`restored` listeners re-render.
 
-Tests shipped (green): `toggle`, `all`, `status-slot` (count + event
-re-render).
+Tests shipped (green): `all`, `status-slot` (count + event re-render).
 
 ---
 
@@ -264,9 +248,9 @@ Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
   per-tool field (pi-tool-masking has no per-tool persist primitive, so
   a `tools[]` field would collapse to `toolsets[]` at actuation and
   mislead readers). A test-injectable override avoids fs mocks.
-  **Storage-shape decision (recorded, revised):** groups are
+  **Storage-shape decision:** groups are
   **global/user-scoped** in a dedicated file, so a group defined in one
-  directory is usable from any other. The earlier `tbox.groups` key in
+  directory is usable from any other. The `tbox.groups` key in
   merged settings was rejected on review — it conflated user data with
   pi-core config and wrote to per-project `.pi/settings.json`, so groups
   never persisted across directories. **Scope split:** group
@@ -274,36 +258,25 @@ Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
   per-project *actuation defaults* (which groups auto-on in that
   checkout) would express that in `.pi/settings.json` by *naming*
   global groups, never redeclaring them — one source of truth, no
-  drift. The write path lands in Sprint 4's picker-save.
-  **Revised (group-API revision):** `writeGroup` now validates group
+  drift. `writeGroup` validates group
   names — throws `TypeError` if the name is a reserved word or contains
-  `+`. `removeGroup(name)` was added for deletion. Both use the
+  `+`. `removeGroup(name)` handles deletion. Both use the
   test-injectable override.
-- **`src/groups.ts`** — `/tbox <group> on` enables each toolset in the
-  group (library cascade pulls deps on). `/tbox <group> off` disables
-  each member; the moved set is computed by **diffing `getActiveTools()`
-  before vs. after** (not `reverseClosure` — reflects reality incl.
-  cross-extension companions the static graph wouldn't predict);
-  cascaded non-members are reported in the output. Drift caveat line
-  shipped on every actuation. **Revised (group-API revision):** added
-  `actuateToolset()`, `describeToolset()`, `listGroups()`, and
-  `toggleAll()` (moved from the deleted `src/toggle.ts`).
-- **`src/reserved.ts`** — reserved wordlist at shipping (`toggle`,
-  `status`, `focus`, `all`, `list`, `chars`, `group`, `on`, `off`).
-  `/tbox <name> on|off` is the group shorthand unless `<name>` is
-  reserved; a reserved-named group was reachable only via
-  `/tbox group <name> on`. **Revised (group-API revision):** `toggle`
-  removed from the list (toggle command deleted); `edit`/`remove` added;
-  `containsPlus()` helper enforces that group names never contain `+`.
-  Reserved names are now rejected at creation (`writeGroup` validates),
-  not tolerated via the explicit form. See `src/reserved.ts` for the
-  current wordlist.
-- **`/tbox group <name> [on|off]`** — explicit group form (unambiguous
-  path + reserved-name escape). **Removed in the group-API revision:**
-  since reserved-named groups can no longer be created, the explicit
-  form had no purpose and was deleted. `/tbox group <name> edit` opens
-  the picker (Sprint 4). `/tbox group <name> remove` and
-  `/tbox group list` were added in the revision.
+- **`src/groups.ts`** — Provides `actuateGroup`, `actuateToolset`,
+  `toggleAll`, `describeGroup`, `describeToolset`, `listGroups`,
+  `editGroup`, `getGroupNames`. Group actuation diffs
+  `getActiveTools()` before vs. after to report the real moved set
+  (including cascaded non-members). Drift caveat on every actuation.
+- **`src/reserved.ts`** — reserved wordlist (`status`, `focus`, `all`,
+  `list`, `chars`, `group`, `on`, `off`, `edit`, `remove`). Reserved
+  names are rejected at group creation (`writeGroup` validates), so
+  bare `/tbox <name> on|off` always works. `containsPlus()` helper
+  enforces that group names never contain `+`. See `src/reserved.ts`
+  for the current list.
+- **`/tbox group <name> edit`** — opens the picker (Sprint 4).
+  **`/tbox group <name> remove`** — deletes the group.
+  **`/tbox group list`** — lists all groups with their toolsets.
+  **`/tbox group <name>`** — describes a single group.
 - **`src/requires-graph.ts`** — the one shared helper for the
   both-direction `requires` closure over `getRegisteredToolsets()`:
   `forwardClosure(ids)` (ids + transitive `requires` targets) and
@@ -471,13 +444,8 @@ state, cancel, windowing cap).
 
 ## Sprint 5 — ✅ Done: Focus — single-unit, inclusion mode, drift-free exit
 
-Shipped (`src/focus.ts`, `src/status-slot.ts`, `src/toggle.ts`,
+Shipped (`src/focus.ts`, `src/status-slot.ts`,
 `src/groups.ts`, `index.ts`):
-
-> **Note:** `src/toggle.ts` was later deleted in the group-API revision.
-> `toggleAll` moved to `src/groups.ts`; `toggleTool` was removed with
-> no replacement (tool-name resolution misled users; the honest path is
-> `/tbox +<toolset> on|off`).
 
 - **Single-unit resolution (`resolveFocusUnit`)** — bare input resolves
   as a group only; `+`-prefixed input resolves as a toolset only.
@@ -648,20 +616,18 @@ swapping the library dep to the published version.
   Sprint 3.5 shape), with a
    tool population spanning builtin/sdk/extension sources. Then drive
    the full `/tbox` surface end-to-end through the MockPI's
-   `registerCommand` dispatch: `list` (grouped + flat + by-chars + filters), group
-   on/off with cascade reporting, direct toolset toggle (`+<toolset>`), all on/off, focus
-   on/off with re-actuation, chars, status. This is the test that
+   `registerCommand` dispatch: `list` (grouped + flat + by-chars + filters), bare group
+   shorthand (`<name> on|off`) with cascade reporting, direct toolset toggle
+   (`+<toolset>`), all on/off, focus on/off with re-actuation, chars, status. This is the test that
    catches integration bugs the library's own MockPI tests cannot
    (exactly the stated reason for building the manager early).
-3. **Reserved-wordlist finalization. — ✅ closed by the group-API revision.**
+3. **Reserved-wordlist finalization. — ✅ closed.**
    The current wordlist (`status`, `focus`, `all`, `list`, `chars`,
-   `group`, `on`, `off`, `edit`, `remove`) was finalized as part of the
-   API revision. `toggle` was removed when the toggle command was
-   deleted; `edit`/`remove` were added so `/tbox group edit`/`remove`/
-   `list` parse unambiguously as subcommands. The
-   `containsPlus()` helper enforces that group names never contain `+`,
-   keeping the toolset-addressing prefix unambiguous. See the README for
-   the final documented list.
+   `group`, `on`, `off`, `edit`, `remove`) is finalized. `edit`/`remove`
+   are reserved so `/tbox group edit`/`remove`/`list` parse unambiguously
+   as subcommands. The `containsPlus()` helper enforces that group names
+   never contain `+`, keeping the toolset-addressing prefix unambiguous.
+   See `src/reserved.ts` for the current list.
 4. **`tbox.tool` shape** — **closed in Sprint 3.5**: per-source is
    the default, not "promote if noisy." Verify the per-source toolsets
    behave correctly under `/reload` and `session_tree` (a source that
@@ -761,9 +727,9 @@ swapping the library dep to the published version.
 
 | Decision | Sprint | Recommendation |
 |---|---|---|
-| **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely (never in `getRegisteredToolsets()`), so no actuation pass can reach them; picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5). The old `toggleTool` source check was removed with the toggle command itself |
-| Final reserved-wordlist | 7 | **Closed by the group-API revision:** `status`, `focus`, `all`, `list`, `chars`, `group`, `on`, `off`, `edit`, `remove`; `toggle` removed, `edit`/`remove` added. See `src/reserved.ts` |
-| Group config storage shape | 3 | **Closed (revised):** groups are **global/user-scoped** in a dedicated file `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no `tbox`/`groups` wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset units only). Revised from the earlier `tbox.groups` key in merged settings — that wrote per-project and conflated user data with pi-core config. Repo-scoped *actuation defaults*, if ever needed, would name global groups in `.pi/settings.json` without redefining them |
+| **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely (never in `getRegisteredToolsets()`), so no actuation pass can reach them; picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5) |
+| Final reserved-wordlist | 7 | **Closed:** `status`, `focus`, `all`, `list`, `chars`, `group`, `on`, `off`, `edit`, `remove`. See `src/reserved.ts` |
+| Group config storage shape | 3 | **Closed:** groups are **global/user-scoped** in a dedicated file `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no `tbox`/`groups` wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset units only). Repo-scoped *actuation defaults*, if ever needed, would name global groups in `.pi/settings.json` without redefining them |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
