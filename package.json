@@ -13,7 +13,7 @@
 	"type": "module",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/coreyryanhanson/pi-tbox.git"
+		"url": "git+https://github.com/coreyryanhanson/pi-tbox.git"
 	},
 	"publishConfig": {
 		"access": "public"
@@ -24,7 +24,7 @@
 			"default": "./index.ts"
 		}
 	},
-  "files": [
+	"files": [
 		"index.ts",
 		"src/",
 		"config/",
@@ -32,7 +32,7 @@
 		"LICENSE",
 		"README.md"
 	],
-  "pi": {
+	"pi": {
 		"extensions": [
 			"./index.ts"
 		],
