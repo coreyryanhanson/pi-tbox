@@ -12,6 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TOOLSET_EVENTS } from "pi-tool-masking";
+import { isExtensionTool } from "./chars.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,12 +50,8 @@ function computeExcludedCount(pi: ExtensionAPI): number {
 	const allTools = pi.getAllTools();
 	const activeTools = new Set(pi.getActiveTools());
 
-	return allTools.filter(
-		(t) =>
-			t.sourceInfo.source !== "builtin" &&
-			t.sourceInfo.source !== "sdk" &&
-			!activeTools.has(t.name),
-	).length;
+	return allTools.filter((t) => isExtensionTool(t) && !activeTools.has(t.name))
+		.length;
 }
 
 /**
@@ -65,10 +62,7 @@ export function computeSlotState(pi: ExtensionAPI): SlotState {
 		const allTools = pi.getAllTools();
 		const activeTools = new Set(pi.getActiveTools());
 		const activeExtensionTools = allTools.filter(
-			(t) =>
-				t.sourceInfo.source !== "builtin" &&
-				t.sourceInfo.source !== "sdk" &&
-				activeTools.has(t.name),
+			(t) => isExtensionTool(t) && activeTools.has(t.name),
 		);
 
 		if (activeExtensionTools.length === 0) {

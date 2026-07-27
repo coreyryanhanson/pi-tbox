@@ -19,6 +19,24 @@
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
+// Tool classification
+// ---------------------------------------------------------------------------
+
+/** Returns true if the tool is an extension tool (not builtin, not sdk). */
+export function isExtensionTool(tool: ToolInfo): boolean {
+	return (
+		tool.sourceInfo.source !== "builtin" && tool.sourceInfo.source !== "sdk"
+	);
+}
+
+/** Returns true if the tool is a core tool (builtin or sdk). */
+export function isCoreTool(tool: ToolInfo): boolean {
+	return (
+		tool.sourceInfo.source === "builtin" || tool.sourceInfo.source === "sdk"
+	);
+}
+
+// ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------
 
@@ -67,10 +85,7 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	for (const tool of allTools) {
 		if (!activeNames.has(tool.name)) continue;
 		const len = serializeToolDef(tool).length;
-		if (
-			tool.sourceInfo.source === "builtin" ||
-			tool.sourceInfo.source === "sdk"
-		) {
+		if (isCoreTool(tool)) {
 			result.core += len;
 		} else {
 			result.extension += len;

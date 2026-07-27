@@ -14,6 +14,7 @@ import {
 	computeCharCount,
 	formatCharSplit,
 	serializeToolDef,
+	isCoreTool,
 } from "./chars.js";
 import { getGroupNames } from "./groups.js";
 
@@ -65,11 +66,7 @@ function activeExtensionChars(
 		activeCount++;
 		const tool = allToolsMap.get(name);
 		if (!tool) continue;
-		if (
-			tool.sourceInfo.source === "builtin" ||
-			tool.sourceInfo.source === "sdk"
-		)
-			continue;
+		if (isCoreTool(tool)) continue;
 		charCount += serializeToolDef(tool).length;
 	}
 	return { activeCount, charCount };

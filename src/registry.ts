@@ -22,6 +22,7 @@ import {
 	TOOLSET_EVENTS,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
+import { isExtensionTool } from "./chars.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -67,9 +68,7 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 	const existingToolsets = getRegisteredToolsets();
 
 	// --- Collect extension tools (not builtin, not sdk) ---
-	const extensionTools = allTools.filter(
-		(t) => t.sourceInfo.source !== "builtin" && t.sourceInfo.source !== "sdk",
-	);
+	const extensionTools = allTools.filter((t) => isExtensionTool(t));
 
 	// --- Find which extension tools are already claimed by a toolset ---
 	const claimedByToolset = new Set<string>();
@@ -142,19 +141,18 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
 	if (ids.length === 0) return;
 
-	const allToolNames = pi.getAllTools().map((t) => t.name);
+	const registry = getRegisteredToolsets();
+	const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
 	const activeSet = new Set(pi.getActiveTools());
 	let changed = false;
 
 	for (const id of ids) {
-		const entry = getRegisteredToolsets().find(
-			(e: RegistryEntry) => e.spec.id === id,
-		);
+		const entry = registry.find((e: RegistryEntry) => e.spec.id === id);
 		if (!entry) continue;
 
 		const enabled = entry.spec.defaultEnabled !== false;
 		const registeredNames = [...entry.spec.names].filter((n) =>
-			allToolNames.includes(n),
+			allToolNames.has(n),
 		);
 
 		if (enabled) {

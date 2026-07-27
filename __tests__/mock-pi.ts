@@ -369,36 +369,7 @@ export class MockPI implements Partial<ExtensionAPI> {
 
 	createCommandContext(): ExtensionCommandContext {
 		return {
-			ui: {
-				setStatus: (slot: string, text: string) => {
-					this._statusRecords.push({ slot, text });
-				},
-				notify: (message: string, level?: string) => {
-					this._notifyRecords.push({ message, level: level ?? "info" });
-				},
-				select: async (message: string, options: string[]): Promise<string> => {
-					const value = this._selectReturnValues.shift() ?? options[0]!;
-					this._selectRecords.push({ message, options, selected: value });
-					return value;
-				},
-				confirm: async (message: string): Promise<boolean> => {
-					const value = this._confirmReturnValues.shift() ?? true;
-					this._confirmRecords.push({ message, result: value });
-					return value;
-				},
-				custom: <T>(
-					factory: (
-						tui: unknown,
-						theme: unknown,
-						kb: unknown,
-						done: (result: T) => void,
-					) => unknown,
-				) => this._mountCustom<T>(factory),
-				theme: {
-					fg: (color: ThemeColor, text: string) =>
-						`<${color}>${text}</${color}>`,
-				},
-			},
+			ui: this.createUiStub(),
 			sessionManager: this.createContext().sessionManager,
 			cwd: "/mock",
 			mode: "tui",
