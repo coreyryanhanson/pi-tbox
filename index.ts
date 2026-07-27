@@ -179,8 +179,8 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 
 					// Group shorthand: `/tbox <group> on|off`. Since group
-					// names are validated at creation (no reserved words,
-					// no `+`), the bare form always works.
+					// names exclude reserved words and `+`, the bare form
+					// never collides with subcommands.
 					if (isReserved(command)) {
 						ctx.ui.notify(
 							`Unknown subcommand: "${command}". Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
@@ -194,10 +194,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					} else if (sub === "off") {
 						ctx.ui.notify(actuateGroup(pi, command, false), "info");
 					} else {
-						ctx.ui.notify(
-							`Usage: /tbox ${command} on | /tbox ${command} off.`,
-							"info",
-						);
+						ctx.ui.notify(describeGroup(command), "info");
 					}
 				}
 			}

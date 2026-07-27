@@ -772,17 +772,19 @@ describe("end-to-end via dispatchCommand", () => {
 		expect(notify!.message).toContain("Focus:");
 	});
 
-	it("non-reserved unknown name is treated as a group shorthand (usage pointer)", async () => {
+	it("non-reserved unknown name shows creation hint when group doesn't exist", async () => {
 		mock.fireLifecycleEvent("session_start");
 		mock.clearUiRecords();
 
-		// Sprint 3: non-reserved names are group shorthand, not errors.
+		// Sprint 3: non-reserved names are group shorthand. If the group
+		// doesn't exist, describeGroup emits a creation hint instead of
+		// a bare usage pointer.
 		await mock.dispatchCommand("unknown-sub");
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("Usage");
-		expect(notify!.message).toContain("unknown-sub on");
+		expect(notify!.message).toContain('No group named "unknown-sub"');
+		expect(notify!.message).toContain("Create one with:");
 	});
 
 	it("/tbox <unknown-group> on → no-group error (not 'Unknown subcommand')", async () => {

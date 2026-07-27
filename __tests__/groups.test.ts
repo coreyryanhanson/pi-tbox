@@ -297,10 +297,10 @@ describe("group dispatch via /tbox", () => {
 		expect(notify!.message).toContain('No group named "ghostgroup"');
 	});
 
-	it("/tbox webgroup (bare, no action) → usage pointer", async () => {
+	it("/tbox webgroup (bare, no action) → describe group", async () => {
 		await mock.dispatchCommand("webgroup");
 		const notify = mock.getLastNotify();
-		expect(notify!.message).toContain("Usage");
+		expect(notify!.message).toContain('Group "webgroup"');
 		expect(notify!.message).toContain("webgroup on");
 	});
 

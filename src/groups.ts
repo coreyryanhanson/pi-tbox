@@ -49,7 +49,10 @@ export function resolveGroup(
 ): { group: GroupSpec } | { error: string } {
 	const groups = readGroups();
 	const group = groups[name];
-	if (!group) return { error: `No group named "${name}".` };
+	if (!group)
+		return {
+			error: `No group named "${name}". Create one with: /tbox group ${name} edit`,
+		};
 	return { group };
 }
 
