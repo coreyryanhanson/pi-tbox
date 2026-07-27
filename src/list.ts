@@ -230,11 +230,11 @@ export function formatGroupedList(
 }
 
 // ---------------------------------------------------------------------------
-// By-chars view (budgeting)
+// Chars view (budgeting)
 // ---------------------------------------------------------------------------
 
 /**
- * Format the by-chars budgeting view.
+ * Format the chars budgeting view.
  *
  * Flat list of toolsets (no tool rows) sorted by +chars descending.
  * Excludes builtins.
@@ -267,7 +267,7 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		);
 		const inactiveCount = entry.spec.names.size - activeCount;
 
-		// --by-chars --active hides fully-disabled groups
+		// --chars --active hides fully-disabled groups
 		if (options?.active && activeCount === 0) continue;
 
 		stats.push({ label, activeCount, inactiveCount, charCount });
@@ -366,15 +366,15 @@ const LIST_HELP = `\
 Views (mutually exclusive):
   (default)   grouped by toolset
   --flat      one row per tool
-  --by-chars  toolsets ranked by +chars descending (budgeting surface)
+  --chars     toolsets ranked by +chars descending (budgeting surface)
 
 Filters (mutually exclusive):
-  --active    show only active tools (--by-chars: hide +0 groups)
+  --active    show only active tools (--chars: hide +0 groups)
   --inactive  show only inactive tools`;
 
 const KNOWN_LIST_FLAGS = new Set([
 	"flat",
-	"by-chars",
+	"chars",
 	"active",
 	"inactive",
 	"help",
@@ -438,14 +438,14 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 		return "Error: --active and --inactive cannot be used together. See: /tbox list --help.";
 	}
 
-	// Error if --by-chars combined with --flat
-	if (flags.has("by-chars") && flags.has("flat")) {
-		return "Error: --by-chars and --flat cannot be used together. See: /tbox list --help.";
+	// Error if --chars combined with --flat
+	if (flags.has("chars") && flags.has("flat")) {
+		return "Error: --chars and --flat cannot be used together. See: /tbox list --help.";
 	}
 
 	const options: ListOptions = {
 		flat: flags.has("flat"),
-		byChars: flags.has("by-chars"),
+		byChars: flags.has("chars"),
 		active: flags.has("active"),
 		inactive: flags.has("inactive"),
 	};

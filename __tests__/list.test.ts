@@ -492,7 +492,7 @@ describe("formatByChars", () => {
 		expect(output).toMatch(/Total: 5 active, 0 inactive, \+722 chars/);
 	});
 
-	it("excludes builtins from by-chars view", () => {
+	it("excludes builtins from chars view", () => {
 		setupRichMock(mock, pi);
 
 		const output = formatByChars(pi);
@@ -586,16 +586,16 @@ describe("formatList (dispatch)", () => {
 		expect(output).not.toContain("tool-a");
 	});
 
-	it("errors when --by-chars and --flat are combined", () => {
-		const output = formatList(pi, "list --by-chars --flat");
+	it("errors when --chars and --flat are combined", () => {
+		const output = formatList(pi, "list --chars --flat");
 		expect(output).toContain("Error");
-		expect(output).toContain("--by-chars");
+		expect(output).toContain("--chars");
 		expect(output).toContain("--flat");
 		expect(output).toContain("See: /tbox list --help.");
 	});
 
 	it("errors when unknown flag --grouped is used", () => {
-		const output = formatList(pi, "list --by-chars --grouped");
+		const output = formatList(pi, "list --chars --grouped");
 		expect(output).toContain("Error");
 		expect(output).toContain("unknown flag");
 		expect(output).toContain("--grouped");
@@ -606,7 +606,7 @@ describe("formatList (dispatch)", () => {
 		const output = formatList(pi, "list --help");
 		expect(output).toContain("/tbox list [view] [filter]");
 		expect(output).toContain("--flat");
-		expect(output).toContain("--by-chars");
+		expect(output).toContain("--chars");
 		expect(output).toContain("--active");
 		expect(output).toContain("--inactive");
 	});
@@ -626,8 +626,8 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("See: /tbox list --help.");
 	});
 
-	it("routes --by-chars alone to by-chars view", () => {
-		const output = formatList(pi, "list --by-chars");
+	it("routes --chars alone to chars view", () => {
+		const output = formatList(pi, "list --chars");
 		expect(output).toMatch(
 			/^Context budget \(toolsets, most expensive first\):/,
 		);

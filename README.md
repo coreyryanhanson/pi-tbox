@@ -105,16 +105,16 @@ creation, so bare `/tbox <group> on|off` always works.
 ### `/tbox list` views and filters
 
 ```
-/tbox list [--flat|--by-chars] [--active|--inactive]
+/tbox list [--flat|--chars] [--active|--inactive]
   --flat      one row per tool, no grouping
-  --by-chars  toolsets ranked by +chars descending (budgeting surface)
-  --active    show only active tools (--by-chars: hide +0 groups)
+  --chars     toolsets ranked by +chars descending (budgeting surface)
+  --active    show only active tools (--chars: hide +0 groups)
   --inactive  show only inactive tools
 ```
 
 The default grouped view resolves overlapping toolsets by
 smallest-toolset-wins: each tool appears once under its most specific
-containing toolset, no duplication. `--by-chars` floats the most expensive
+containing toolset, no duplication. `--chars` floats the most expensive
 toolsets to disable to the top, excluding builtins (the non-togglable
 floor). `--active` / `--inactive` combine with both views.
 
