@@ -9,11 +9,7 @@
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
-import {
-	computeSlotState,
-	renderSlotText,
-	getFocusUnit,
-} from "./status-slot.js";
+import { getFocusUnit } from "./status-slot.js";
 import {
 	computeCharCount,
 	formatCharSplit,
@@ -522,13 +518,11 @@ export function formatStatus(pi: ExtensionAPI): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Format the bare `/tbox` output: slot mirror + brief help.
+ * Format the bare `/tbox` output: subcommands overview.
  */
-export function formatBareHelp(
-	pi: ExtensionAPI,
-	fg: (color: string, text: string) => string,
-): string {
-	const state = computeSlotState(pi);
-	const slotText = renderSlotText(state, fg);
-	return `Slot: ${slotText}\n` + "Subcommands: list, status, all, focus, group";
+export function formatBareHelp(): string {
+	return (
+		"Subcommands: list, status, all, focus, group\n" +
+		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters"
+	);
 }

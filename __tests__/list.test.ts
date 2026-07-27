@@ -18,10 +18,6 @@ import { getRegisteredToolsets } from "pi-tool-masking";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fg(color: string, text: string): string {
-	return `<${color}>${text}</${color}>`;
-}
-
 /**
  * Set up a standard multi-extension tool population for integration tests.
  * Builtins: read, bash
@@ -639,24 +635,8 @@ describe("formatList (dispatch)", () => {
 });
 
 describe("formatBareHelp", () => {
-	let mock: MockPI;
-	let pi: ExtensionAPI;
-
-	beforeEach(() => {
-		MockPI.cleanRegistry();
-		mock = new MockPI();
-		pi = mock as unknown as ExtensionAPI;
-		setFocusUnit(null);
-	});
-
-	it("includes the current slot text", () => {
-		const output = formatBareHelp(pi, fg);
-
-		expect(output).toContain("<dim>○</dim> tbox");
-	});
-
 	it("lists available subcommands", () => {
-		const output = formatBareHelp(pi, fg);
+		const output = formatBareHelp();
 
 		expect(output).toContain("list");
 		expect(output).toContain("status");
