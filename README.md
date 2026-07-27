@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/tbox-dino.svg" alt="pi-tbox logo — a t-rex stuck in a toolbox" width="180" />
+  <img src="docs/tbox-dino.svg" alt="pi-tbox logo — a t-rex stuck in a cardboard box" width="180" />
 </p>
 
 <h1 align="center">pi-tbox</h1>
