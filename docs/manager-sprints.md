@@ -636,12 +636,11 @@ swapping the library dep to the published version.
    disappears leaves a stale entry — confirm it's a benign no-op at
    restore, as Sprint 3.5's idempotence note predicts). No catch-all
    fallback ships.
-5. **Publish prep.** When `pi-tool-masking@1.0.0` is published: swap
-   `"pi-tool-masking": "file:../pi-tool-masking"` → `"^1.0.0"`,
-   `npm install`, `npm test` green. Add the `pi-package` gallery keyword
+5. **Publish prep.** Ensure that the execution of `npm install` and
+   `npm test` is green. Add the `pi-package` gallery keyword
    (already in Sprint 0's `package.json` — re-verify). Confirm the
    tarball (`npm pack` dry-run) ships `index.ts` + `src/` + `config/` +
-   no test files, and that `pi-tool-masking` resolves in the dep tree.
+   no test files.
 6. **README** with the `/tbox` command reference, the 4-state slot
    legend, the drift caveat (`on`/`off` drifts, `focus` doesn't), and
    the picker's remappable keyboard shortcuts.
