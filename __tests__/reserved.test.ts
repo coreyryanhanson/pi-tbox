@@ -14,7 +14,7 @@ import { getRegisteredToolsets } from "pi-tool-masking";
 // ---------------------------------------------------------------------------
 
 describe("reserved wordlist", () => {
-	it("'dev' is NOT reserved (the /tbox dev command was removed in Sprint 3)", () => {
+	it("'dev' is NOT reserved (the /tbox dev command was removed)", () => {
 		expect(isReserved("dev")).toBe(false);
 	});
 

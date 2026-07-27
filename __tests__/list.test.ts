@@ -744,7 +744,7 @@ describe("end-to-end via dispatchCommand", () => {
 		mock.fireLifecycleEvent("session_start");
 		mock.clearUiRecords();
 
-		// Sprint 3: non-reserved names are group shorthand. If the group
+		// Non-reserved names are group shorthand. If the group
 		// doesn't exist, describeGroup emits a creation hint instead of
 		// a bare usage pointer.
 		await mock.dispatchCommand("unknown-sub");

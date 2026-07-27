@@ -13,7 +13,6 @@
 
 /**
  * Reserved words that always dispatch to their subcommand, never a group.
- * Seed set confirmed against the shipped command surface in Sprint 7.
  */
 const RESERVED_WORDS: readonly string[] = [
 	"status",

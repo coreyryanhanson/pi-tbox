@@ -43,7 +43,7 @@ let _focusUnit: string | null = null;
 /** The slot name used for tbox's status bar entry. */
 export const SLOT_NAME = "tbox";
 
-/** Durable key for the focus-unit label (§13.2 — manager intent persists). */
+/** Durable key for the focus-unit label. */
 export const FOCUS_PERSIST_KEY = "tbox-focus-state";
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ export function getFocusUnit(): string | null {
  * Wire the status slot to lifecycle events and toolset changes.
  *
  * Call this from the factory's session_start handler.
- * The render() call is at the END of the capture handler (§6 fix).
+ * The render() call is at the END of the capture handler.
  *
  * Guard: the onChange handler checks that the context is captured before
  * rendering — during session_start the library's restore handler fires

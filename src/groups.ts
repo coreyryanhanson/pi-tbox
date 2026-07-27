@@ -91,7 +91,7 @@ export function buildPickerUnits(): PickerUnit[] {
 }
 
 // ---------------------------------------------------------------------------
-// editGroup — the Sprint 4 picker
+// editGroup — the group edit picker
 // ---------------------------------------------------------------------------
 
 /**

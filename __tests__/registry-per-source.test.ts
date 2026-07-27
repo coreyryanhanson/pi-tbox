@@ -1,9 +1,9 @@
 /**
- * Sprint 3.5 — Per-source orphan toolsets acceptance tests.
+ * Per-source orphan toolsets acceptance tests.
  *
  * Acceptance criteria:
  *   - Multi-source population → per-source toolsets, not a catch-all
- *   - Focus granularity (pre-pinning Sprint 5's allowlist rule)
+ *   - Focus granularity (pre-pinning allowlist rule)
  *   - Idempotence — second call no-ops
  *   - Single-tool description pass-through
  *   - Tools from defineToolset plugins not claimed by tbox.tool@*
@@ -199,7 +199,7 @@ describe("per-source orphan registration", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Focus granularity (pre-pinning Sprint 5)
+// Focus granularity (pre-pinning allowlist rule)
 // ---------------------------------------------------------------------------
 
 describe("focus granularity with per-source toolsets", () => {

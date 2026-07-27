@@ -263,7 +263,7 @@ describe("status-slot", () => {
 		});
 	});
 
-	describe("Sprint 2: count states", () => {
+	describe("count states", () => {
 		it("renders exactly the blue count form when 3 extension tools are excluded", () => {
 			for (const name of ["web-fetch", "web-learn", "orphan-tool"]) {
 				mock.registerTool({

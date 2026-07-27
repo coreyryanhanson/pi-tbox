@@ -5,8 +5,8 @@
  * Tbox re-implements the library's private forward/reverse walks here (the
  * library does not export a graph helper; the walks live privately in
  * `_enableToolset`/`_disableDependents`). This is the **single** place the
- * closure walks live in tbox — commands and the Sprint 4 picker call this
- * helper, never an inline copy (`manager-mvp.md` §2).
+ * closure walks live in tbox — commands and the group picker call this
+ * helper, never an inline copy.
  *
  * Built from `getRegisteredToolsets()` specs only — no `globalThis` access.
  *

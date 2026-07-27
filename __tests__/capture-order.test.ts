@@ -1,12 +1,12 @@
 /**
- * Capture-order tests — verify the §6 fix.
+ * Capture-order tests — verify render-ordering correctness.
  *
  * Root cause: The library can emit TOOLSET_EVENTS.restored/changed from
  * within a sibling extension's session_start handler. If tbox's wireSlot
  * listener fires before lastCtx is captured, it would render a stale slot
  * (or no-op if lastCtx is null).
  *
- * The §6 fix: capture ctx at the top of the handler, but call render() at
+ * Capture ctx at the top of the handler, but call render() at
  * the END — so the first paint always lands on post-restore state regardless
  * of handler registration order.
  *
@@ -30,7 +30,7 @@ import {
 import { setFocusUnit } from "../src/status-slot.js";
 import tboxFactory from "../index.js";
 
-describe("capture-order — §6 fix", () => {
+describe("capture-order — render ordering", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
 

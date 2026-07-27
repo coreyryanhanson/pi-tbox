@@ -4,7 +4,7 @@
  * This is a regression guard against a future "simpler" refactor that
  * flips inclusion→exclusion without re-actuation. The `ExtensionAPI`
  * exposes only `appendEntry`, no `removeEntry`/clear — so an entry
- * always wins regardless of mode (design.md §4.5). The only correct
+ * always wins regardless of mode — the only correct
  * exit path is to overwrite every focus-era entry by re-actuating each
  * toolset to its `spec.defaultEnabled`.
  *
@@ -110,7 +110,7 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		mock.emit("toolset:restored", {});
 
 		// The orphan tool is still disabled because the entry wins
-		// over exclusion mode (design.md §4.5).
+		// over exclusion mode.
 		const orphanEntry = getRegisteredToolsets().find(
 			(e) => e.spec.id === "tbox.tool@orphan-source",
 		);

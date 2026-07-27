@@ -1,5 +1,5 @@
 /**
- * Restore-timing tests — the fix pulled forward from Sprint 7.
+ * Restore-timing tests — fix for orphan toolsets registered in session_start.
  *
  * Verifies that orphan toolsets registered inside a session_start handler
  * (after the library's restore handler already fired) still get their

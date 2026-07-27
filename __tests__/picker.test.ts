@@ -1,5 +1,5 @@
 /**
- * Sprint 4 — Group editing picker UX.
+ * Group editing picker UX.
  *
  * Tests the GroupEditorComponent: option-list content, requires-closure
  * auto-maintenance, config save, re-open with saved state, cancel, and
