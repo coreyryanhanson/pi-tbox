@@ -12,7 +12,7 @@ import {
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
-import { getRegisteredToolsets } from "pi-tool-masking";
+import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -384,6 +384,9 @@ describe("formatFlatList", () => {
 
 		expect(output).toContain("custom-x");
 		expect(output).toContain("host-managed");
+		// Tabular header + glyph column; trailing (inactive) marker is gone
+		expect(output).toMatch(/active\s+tool\s+group/);
+		expect(output).not.toContain("(inactive)");
 	});
 
 	it("shows builtin tools normally", () => {
@@ -426,6 +429,8 @@ describe("formatFlatList", () => {
 
 		expect(output).toContain("tool-a");
 		expect(output).not.toContain("tool-b");
+		// Active row carries the checkmark glyph
+		expect(output).toContain("\u2713");
 	});
 
 	it("filters by inactive tools", () => {
@@ -637,11 +642,28 @@ describe("formatStatus", () => {
 		expect(output).toContain("Focus: off");
 	});
 
-	it("shows toolset state (enabled/disabled)", () => {
+	it("shows toolset state via ✓/✗ glyphs", () => {
 		setupRichMock(mock, pi);
 
 		const output = formatStatus(pi);
-		expect(output).toContain("enabled");
+		// Tabular header and ✓ glyph for enabled toolsets (all enabled here)
+		expect(output).toMatch(/toolset\s+enabled\s+members/);
+		expect(output).toContain("\u2713");
+		expect(output).not.toContain("disabled");
+	});
+
+	it("shows ✗ for a disabled toolset", () => {
+		setupRichMock(mock, pi);
+
+		// Disable one toolset so its row carries the ✗ glyph
+		const registry = getRegisteredToolsets();
+		const learnEntry = registry.find(
+			(e: RegistryEntry) => e.spec.id === "portal.learn",
+		)!;
+		learnEntry.toolset.disable(pi);
+
+		const output = formatStatus(pi);
+		expect(output).toContain("\u2717");
 	});
 
 	it("does not expose builtins as a toggleable toolset", () => {

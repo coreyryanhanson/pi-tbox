@@ -80,6 +80,20 @@ function activeExtensionChars(
 	return { activeCount, charCount };
 }
 
+/** Glyphs for the enabled/active table column (✓ = on, ✗ = off). */
+const ENABLED_GLYPH = "\u2713";
+const DISABLED_GLYPH = "\u2717";
+
+/** Left-align `s` in a field of width `w`, padding right with non-breaking spaces. */
+function lpad(s: string, w: number): string {
+	return s + "\u00a0".repeat(Math.max(0, w - s.length));
+}
+
+/** Right-align `s` in a field of width `w`, padding left with non-breaking spaces. */
+function rpad(s: string, w: number): string {
+	return "\u00a0".repeat(Math.max(0, w - s.length)) + s;
+}
+
 /**
  * Format a friendly label for a tool's source group.
  */
@@ -294,11 +308,6 @@ export function formatByChars(pi: ExtensionAPI): string {
 		`+${totalChars}`.length,
 	);
 
-	const lpad = (s: string, w: number): string =>
-		s + "\u00a0".repeat(Math.max(0, w - s.length));
-	const rpad = (s: string, w: number): string =>
-		"\u00a0".repeat(Math.max(0, w - s.length)) + s;
-
 	const lines: string[] = [
 		"Context budget (toolsets, most expensive first):\n",
 		`  ${lpad("toolset", idWidth)}  ${rpad("active", activeWidth)}  ${rpad("+chars", charsWidth)}`,
@@ -325,8 +334,11 @@ export function formatByChars(pi: ExtensionAPI): string {
 /**
  * Format the flat list view.
  *
- * Every tool is a row. SDK tools are marked "sdk, host-managed".
- * Builtin and extension tools show their smallest containing toolset id.
+ * Every tool is a row in a three-column table: an `active` column
+ * (✓/✗), the tool name, and its source-group label. SDK tools are
+ * labelled "sdk, host-managed". The glyph column is always present
+ * even under --active/--inactive filters (where it is uniform) for
+ * layout consistency.
  *
  * @param pi  - The extension API
  * @param options  - Optional filters
@@ -349,15 +361,34 @@ export function formatFlatList(
 		filtered = filtered.filter((t) => !activeSet.has(t.name));
 	}
 
-	const lines: string[] = ["All tools:\n"];
-
-	for (const t of filtered) {
-		const status = activeSet.has(t.name) ? "" : " (inactive)";
-		const group = toolGroupLabel(t, toolToToolset);
-		lines.push(`  ${t.name}${status}  (${group})`);
+	if (filtered.length === 0) {
+		return "All tools:\n\n  (no tools match the current filter)";
 	}
 
-	pushNoMatchFallback(lines);
+	const rows = filtered.map((t) => ({
+		active: activeSet.has(t.name),
+		tool: t.name,
+		group: toolGroupLabel(t, toolToToolset),
+	}));
+
+	const activeWidth = "active".length;
+	const toolWidth = Math.max("tool".length, ...rows.map((r) => r.tool.length));
+	const groupWidth = Math.max(
+		"group".length,
+		...rows.map((r) => r.group.length),
+	);
+
+	const lines: string[] = [
+		"All tools:\n",
+		`  ${lpad("active", activeWidth)}  ${lpad("tool", toolWidth)}  ${lpad("group", groupWidth)}`,
+		`  ${"\u2500".repeat(activeWidth + toolWidth + groupWidth + 4)}`,
+	];
+	for (const r of rows) {
+		const glyph = r.active ? ENABLED_GLYPH : DISABLED_GLYPH;
+		lines.push(
+			`  ${lpad(glyph, activeWidth)}  ${lpad(r.tool, toolWidth)}  ${lpad(r.group, groupWidth)}`,
+		);
+	}
 
 	return lines.join("\n").trimEnd();
 }
@@ -454,22 +485,33 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 /**
  * Format the full status output for `/tbox status`.
  *
+ * Toolsets and the builtin floor are rendered as a three-column table:
+ * toolset id, an `enabled` column (✓/✗), and a members count. The
+ * builtin row carries its active count inside the members cell
+ * (`N (M active)`) since it is non-togglable. Trailing User Groups /
+ * Focus / Char-count lines are unaffected.
+ *
  * @param pi - The extension API
  */
 export function formatStatus(pi: ExtensionAPI): string {
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
-	const lines: string[] = ["Toolset Status:\n"];
+
+	interface Row {
+		id: string;
+		enabled: boolean;
+		members: string;
+	}
+	const rows: Row[] = [];
 
 	for (const entry of toolsets) {
 		const { spec } = entry;
 		const isEnabled = [...spec.names].some((n) => activeSet.has(n));
-		const enabledStr = isEnabled ? "enabled" : "disabled";
-		const memberCount = spec.names.size;
-		const tagStr = ` (${memberCount} members)`;
-		const pad = "\u00a0".repeat(Math.max(1, 20 - spec.id.length));
-
-		lines.push(`  ${spec.id}${pad}${enabledStr}${tagStr}`);
+		rows.push({
+			id: spec.id,
+			enabled: isEnabled,
+			members: String(spec.names.size),
+		});
 	}
 
 	// Builtins: always-on, shown as a separate group (not in the registry)
@@ -480,9 +522,29 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const activeCount = builtinTools.filter((t) =>
 			activeSet.has(t.name),
 		).length;
-		const builtinPad = "\u00a0".repeat(Math.max(1, 20 - "pi.builtin".length));
+		rows.push({
+			id: "pi.builtin",
+			enabled: true,
+			members: `${builtinTools.length} (${activeCount} active)`,
+		});
+	}
+
+	const idWidth = Math.max("toolset".length, ...rows.map((r) => r.id.length));
+	const enabledWidth = "enabled".length;
+	const membersWidth = Math.max(
+		"members".length,
+		...rows.map((r) => r.members.length),
+	);
+
+	const lines: string[] = [
+		"Toolset Status:\n",
+		`  ${lpad("toolset", idWidth)}  ${lpad("enabled", enabledWidth)}  ${rpad("members", membersWidth)}`,
+		`  ${"\u2500".repeat(idWidth + enabledWidth + membersWidth + 4)}`,
+	];
+	for (const r of rows) {
+		const glyph = r.enabled ? ENABLED_GLYPH : DISABLED_GLYPH;
 		lines.push(
-			`  pi.builtin${builtinPad}enabled  (${builtinTools.length} members, ${activeCount} active)`,
+			`  ${lpad(r.id, idWidth)}  ${lpad(glyph, enabledWidth)}  ${rpad(r.members, membersWidth)}`,
 		);
 	}
 
