@@ -15,7 +15,7 @@
  * Reserved words that always dispatch to their subcommand, never a group.
  * Seed set confirmed against the shipped command surface in Sprint 7.
  */
-export const RESERVED_WORDS: readonly string[] = [
+const RESERVED_WORDS: readonly string[] = [
 	"status",
 	"focus",
 	"all",
@@ -33,12 +33,4 @@ const RESERVED_SET: ReadonlySet<string> = new Set(RESERVED_WORDS);
 /** Whether `name` is a reserved subcommand word. */
 export function isReserved(name: string): boolean {
 	return RESERVED_SET.has(name);
-}
-
-/**
- * Whether `name` contains `+`, which is reserved as the toolset-addressing
- * prefix. Group names may not contain `+`.
- */
-export function containsPlus(name: string): boolean {
-	return name.includes("+");
 }

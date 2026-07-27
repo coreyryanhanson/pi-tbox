@@ -33,7 +33,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { isReserved, containsPlus } from "../src/reserved.js";
+import { isReserved } from "../src/reserved.js";
 
 // ---------------------------------------------------------------------------
 // Config path
@@ -141,7 +141,7 @@ function validateGroupName(name: string): void {
 			`"${name}" is a reserved word and cannot be used as a group name.`,
 		);
 	}
-	if (containsPlus(name)) {
+	if (name.includes("+")) {
 		throw new TypeError(
 			`Group name "${name}" must not contain "+" (reserved for toolset addressing).`,
 		);

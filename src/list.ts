@@ -233,8 +233,13 @@ export function formatGroupedList(
 /**
  * Format the chars budgeting view.
  *
- * Flat list of toolsets (no tool rows) sorted by +chars descending.
+ * Tabular view of toolsets (no tool rows) sorted by +chars descending.
  * Excludes builtins and zero-charge toolsets (no active members).
+ *
+ * Inactive counts are intentionally omitted: toolsets toggle all-or-nothing,
+ * so inactive members cost 0 chars and carry no budget signal. The only case
+ * where a shown toolset has inactive members is overlap (a disabled toolset
+ * whose tools stay alive via another, enabled toolset) — still 0-cost here.
  */
 export function formatByChars(pi: ExtensionAPI): string {
 	const allTools = pi.getAllTools();
@@ -245,7 +250,6 @@ export function formatByChars(pi: ExtensionAPI): string {
 	interface ToolsetStats {
 		id: string;
 		activeCount: number;
-		inactiveCount: number;
 		charCount: number;
 	}
 
@@ -257,46 +261,59 @@ export function formatByChars(pi: ExtensionAPI): string {
 			activeSet,
 			allToolsMap,
 		);
-		const inactiveCount = entry.spec.names.size - activeCount;
 
 		// Skip toolsets with no active members — zero budget, no saving to find here
 		if (charCount === 0) continue;
 
-		stats.push({ id: entry.spec.id, activeCount, inactiveCount, charCount });
+		stats.push({ id: entry.spec.id, activeCount, charCount });
 	}
 
 	// Sort by charCount descending
 	stats.sort((a, b) => b.charCount - a.charCount);
 
+	if (stats.length === 0) {
+		return "Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
+	}
+
+	// Column widths (account for header labels and the Total row)
+	const totalActive = stats.reduce((n, s) => n + s.activeCount, 0);
+	const totalChars = stats.reduce((n, s) => n + s.charCount, 0);
+	const idWidth = Math.max(
+		"toolset".length,
+		...stats.map((s) => s.id.length),
+		"Total".length,
+	);
+	const activeWidth = Math.max(
+		"active".length,
+		...stats.map((s) => String(s.activeCount).length),
+		String(totalActive).length,
+	);
+	const charsWidth = Math.max(
+		"+chars".length,
+		...stats.map((s) => `+${s.charCount}`.length),
+		`+${totalChars}`.length,
+	);
+
+	const lpad = (s: string, w: number): string =>
+		s + "\u00a0".repeat(Math.max(0, w - s.length));
+	const rpad = (s: string, w: number): string =>
+		"\u00a0".repeat(Math.max(0, w - s.length)) + s;
+
 	const lines: string[] = [
 		"Context budget (toolsets, most expensive first):\n",
+		`  ${lpad("toolset", idWidth)}  ${rpad("active", activeWidth)}  ${rpad("+chars", charsWidth)}`,
+		`  ${"\u2500".repeat(idWidth + activeWidth + charsWidth + 4)}`,
 	];
 
-	let totalActive = 0;
-	let totalInactive = 0;
-	let totalChars = 0;
-
 	for (const s of stats) {
-		totalActive += s.activeCount;
-		totalInactive += s.inactiveCount;
-		totalChars += s.charCount;
 		lines.push(
-			`  ${s.id} (${s.activeCount} active, ${s.inactiveCount} inactive, +${s.charCount} chars)`,
+			`  ${lpad(s.id, idWidth)}  ${rpad(String(s.activeCount), activeWidth)}  ${rpad(`+${s.charCount}`, charsWidth)}`,
 		);
 	}
 
-	// Footer summary line
-	if (lines.length > 1) {
-		lines.push(
-			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalChars} chars`,
-		);
-		lines.push("");
-	}
-
-	if (lines.length <= 1) {
-		lines.push("  No toolsets are consuming context budget right now.");
-		lines.push("");
-	}
+	lines.push(
+		`  ${lpad("Total", idWidth)}  ${rpad(String(totalActive), activeWidth)}  ${rpad(`+${totalChars}`, charsWidth)}`,
+	);
 
 	return lines.join("\n").trimEnd();
 }

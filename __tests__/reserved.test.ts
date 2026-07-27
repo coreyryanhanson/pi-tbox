@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { RESERVED_WORDS, isReserved, containsPlus } from "../src/reserved.js";
+import { isReserved } from "../src/reserved.js";
 import {
 	setGroupsOverrideForTests,
 	writeGroup,
@@ -16,7 +16,6 @@ import { getRegisteredToolsets } from "pi-tool-masking";
 describe("reserved wordlist", () => {
 	it("'dev' is NOT reserved (the /tbox dev command was removed in Sprint 3)", () => {
 		expect(isReserved("dev")).toBe(false);
-		expect(RESERVED_WORDS.includes("dev")).toBe(false);
 	});
 
 	it("seed subcommands are all reserved", () => {
@@ -41,18 +40,6 @@ describe("reserved wordlist", () => {
 		expect(isReserved("portal")).toBe(false);
 		// "toggle" was freed when the toggle command was removed.
 		expect(isReserved("toggle")).toBe(false);
-	});
-
-	describe("containsPlus", () => {
-		it("returns false for names without +", () => {
-			expect(containsPlus("research")).toBe(false);
-			expect(containsPlus("portal.web")).toBe(false);
-		});
-
-		it("returns true for names containing +", () => {
-			expect(containsPlus("tool+set")).toBe(true);
-			expect(containsPlus("+portal")).toBe(true);
-		});
 	});
 });
 

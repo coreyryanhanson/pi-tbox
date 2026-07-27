@@ -484,14 +484,17 @@ describe("formatByChars", () => {
 		// Sorted by char count descending (portal.web > portal.learn > tbox.tool@extension)
 		const webIdx = output.indexOf("portal.web");
 		const learnIdx = output.indexOf("portal.learn");
-		const orphanIdx = output.indexOf("tbox.tool@extension (1 active");
+		const orphanIdx = output.indexOf("tbox.tool@extension");
 		expect(webIdx).toBeGreaterThan(0);
 		expect(learnIdx).toBeGreaterThan(webIdx);
 		expect(orphanIdx).toBeGreaterThan(learnIdx);
 
-		// Footer present with matching total
-		expect(output).toContain("Total:");
-		expect(output).toMatch(/Total: 5 active, 0 inactive, \+722 chars/);
+		// Tabular header present
+		expect(output).toMatch(/toolset\s+active\s+\+chars/);
+
+		// Footer present with matching total (no inactive column)
+		expect(output).toMatch(/Total\s+5\s+\+722/);
+		expect(output).not.toMatch(/inactive/);
 	});
 
 	it("excludes builtins from chars view", () => {
