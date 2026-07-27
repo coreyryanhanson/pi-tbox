@@ -184,8 +184,6 @@ export function formatGroupedList(
 			continue;
 		}
 
-		const label = entry.spec.label ?? gid;
-
 		// header reflects full toolset state; filter controls row visibility only
 		const { activeCount, charCount } = activeExtensionChars(
 			entry.spec.names,
@@ -198,7 +196,7 @@ export function formatGroupedList(
 		totalExtChars += charCount;
 
 		lines.push(
-			`  ${label} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
+			`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
 		);
 		for (const t of tools) {
 			const status = activeSet.has(t.name) ? "" : " (inactive)";
@@ -244,7 +242,7 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 	const allToolsMap = new Map(allTools.map((t) => [t.name, t]));
 
 	interface ToolsetStats {
-		label: string;
+		id: string;
 		activeCount: number;
 		inactiveCount: number;
 		charCount: number;
@@ -253,8 +251,6 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 	const stats: ToolsetStats[] = [];
 
 	for (const entry of toolsets) {
-		const label = entry.spec.label ?? entry.spec.id;
-
 		const { activeCount, charCount } = activeExtensionChars(
 			entry.spec.names,
 			activeSet,
@@ -265,7 +261,7 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		// --chars --active hides fully-disabled groups
 		if (options?.active && activeCount === 0) continue;
 
-		stats.push({ label, activeCount, inactiveCount, charCount });
+		stats.push({ id: entry.spec.id, activeCount, inactiveCount, charCount });
 	}
 
 	// Sort by charCount descending
@@ -284,7 +280,7 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		totalInactive += s.inactiveCount;
 		totalChars += s.charCount;
 		lines.push(
-			`  ${s.label} (${s.activeCount} active, ${s.inactiveCount} inactive, +${s.charCount} chars)`,
+			`  ${s.id} (${s.activeCount} active, ${s.inactiveCount} inactive, +${s.charCount} chars)`,
 		);
 	}
 

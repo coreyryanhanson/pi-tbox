@@ -232,7 +232,7 @@ describe("formatGroupedList", () => {
 
 		const output = formatGroupedList(pi);
 
-		expect(output).toContain("Portal Web");
+		expect(output).toContain("portal.web");
 		expect(output).toContain("web-fetch");
 		expect(output).toContain("browser-navigate");
 		expect(output).toContain("page-read");
@@ -262,11 +262,11 @@ describe("formatGroupedList", () => {
 
 		const output = formatGroupedList(pi);
 
-		expect(output).toContain("Portal Learn");
+		expect(output).toContain("portal.learn");
 		expect(output).toContain("web-learn");
 	});
 
-	it("routes orphan extension tools under their source label", () => {
+	it("routes orphan extension tools under their toolset id", () => {
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphan",
@@ -283,7 +283,9 @@ describe("formatGroupedList", () => {
 		const output = formatGroupedList(pi);
 
 		// The label from registry.ts is the source string ("extension")
-		expect(output).toContain("extension (0 active, 1 inactive, +0 chars)");
+		expect(output).toContain(
+			"tbox.tool@extension (0 active, 1 inactive, +0 chars)",
+		);
 		expect(output).toContain("orphan-tool");
 	});
 
@@ -472,17 +474,17 @@ describe("formatByChars", () => {
 		);
 
 		// All three extension toolsets present
-		expect(output).toContain("Portal Web");
-		expect(output).toContain("Portal Learn");
-		expect(output).toContain("extension");
+		expect(output).toContain("portal.web");
+		expect(output).toContain("portal.learn");
+		expect(output).toContain("tbox.tool@extension");
 
 		// Builtins excluded
 		expect(output).not.toContain("pi.builtin");
 
-		// Sorted by char count descending (Portal Web > Portal Learn > extension)
-		const webIdx = output.indexOf("Portal Web");
-		const learnIdx = output.indexOf("Portal Learn");
-		const orphanIdx = output.indexOf("extension (1 active");
+		// Sorted by char count descending (portal.web > portal.learn > tbox.tool@extension)
+		const webIdx = output.indexOf("portal.web");
+		const learnIdx = output.indexOf("portal.learn");
+		const orphanIdx = output.indexOf("tbox.tool@extension (1 active");
 		expect(webIdx).toBeGreaterThan(0);
 		expect(learnIdx).toBeGreaterThan(webIdx);
 		expect(orphanIdx).toBeGreaterThan(learnIdx);
@@ -516,11 +518,11 @@ describe("formatByChars", () => {
 		const output = formatByChars(pi, { active: true });
 
 		// Portal Web still has active members
-		expect(output).toContain("Portal Web");
+		expect(output).toContain("portal.web");
 		// extension orphan has active member
-		expect(output).toContain("extension");
-		// Portal Learn has 0 active members → hidden
-		expect(output).not.toContain("Portal Learn");
+		expect(output).toContain("tbox.tool@extension");
+		// portal.learn has 0 active members → hidden
+		expect(output).not.toContain("portal.learn");
 
 		// Footer total should match only visible groups
 		expect(output).toMatch(/Total: 4 active, 0 inactive/);

@@ -280,15 +280,12 @@ describe("integration — multi-extension registry", () => {
 		// search.web shows its tool
 		expect(output).toContain("search.web");
 		expect(output).toContain("search-tool");
-		// pi-lens orphan tools appear under their source label
-		expect(output).toContain("pi-lens");
+		// orphans appear under their toolset id (which is what users type)
+		expect(output).toContain("tbox.tool@pi-lens");
 		expect(output).toContain("lens-diagnostic");
 		expect(output).toContain("lens-rule");
-		// notes-plugin orphan appears under its source label
-		expect(output).toContain("notes-plugin");
+		expect(output).toContain("tbox.tool@notes-plugin");
 		expect(output).toContain("note-take");
-		// The full toolset id is NOT shown in display output (label is the source)
-		expect(output).not.toContain("tbox.tool@");
 		// SDK tools do NOT appear in grouped view
 		expect(output).not.toContain("custom-x");
 		// Builtins appear in grouped view
