@@ -9,6 +9,7 @@
 		"tbox"
 	],
 	"license": "AGPL-3.0-or-later",
+	"author": "Corey Ryan Hanson",
 	"type": "module",
 	"repository": {
 		"type": "git",
@@ -40,7 +41,14 @@
 	"scripts": {
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"prepublishOnly": "npm test && npx tsc --noEmit",
+		"version:patch": "npm version patch --no-git-tag-version",
+		"version:minor": "npm version minor --no-git-tag-version",
+		"version:major": "npm version major --no-git-tag-version",
+		"release:patch": "node scripts/release.mjs patch",
+		"release:minor": "node scripts/release.mjs minor",
+		"release:major": "node scripts/release.mjs major"
 	},
 	"dependencies": {
 		"pi-tool-masking": "^1.0.0"
