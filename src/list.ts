@@ -112,6 +112,66 @@ function toolGroupLabel(
 }
 
 // ---------------------------------------------------------------------------
+// Table helpers
+// ---------------------------------------------------------------------------
+
+interface ColSpec {
+	label: string;
+	align?: "left" | "right";
+}
+
+/**
+ * Render a simple table with header, separator, and optional footer row.
+ */
+function renderTable(
+	title: string,
+	cols: ColSpec[],
+	rows: string[][],
+	footer?: string[],
+): string {
+	const widths = cols.map((col, i) => {
+		const dataWidths = rows.map((r) => (r[i] ?? "").length);
+		if (footer?.[i]) dataWidths.push(footer[i].length);
+		return Math.max(col.label.length, ...dataWidths);
+	});
+
+	const lines: string[] = [title + "\n"];
+
+	// Header
+	const hdr = cols
+		.map((col, i) => {
+			const pad = col.align === "right" ? rpad : lpad;
+			return `  ${pad(col.label, widths[i]!)}`;
+		})
+		.join("");
+	lines.push(hdr);
+
+	// Separator
+	const sepWidth = widths.reduce((a, b) => a + b, 0) + (cols.length - 1) * 2;
+	lines.push(`  ${"\u2500".repeat(sepWidth)}`);
+
+	// Body rows
+	for (const row of rows) {
+		const parts = row.map((val, i) => {
+			const pad = cols[i]!.align === "right" ? rpad : lpad;
+			return `  ${pad(val, widths[i]!)}`;
+		});
+		lines.push(parts.join(""));
+	}
+
+	// Footer row
+	if (footer) {
+		const parts = footer.map((val, i) => {
+			const pad = cols[i]!.align === "right" ? rpad : lpad;
+			return `  ${pad(val, widths[i]!)}`;
+		});
+		lines.push(parts.join(""));
+	}
+
+	return lines.join("\n").trimEnd();
+}
+
+// ---------------------------------------------------------------------------
 // Grouped view
 // ---------------------------------------------------------------------------
 
@@ -289,42 +349,28 @@ export function formatByChars(pi: ExtensionAPI): string {
 		return "Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
 	}
 
-	// Column widths (account for header labels and the Total row)
 	const totalActive = stats.reduce((n, s) => n + s.activeCount, 0);
 	const totalChars = stats.reduce((n, s) => n + s.charCount, 0);
-	const idWidth = Math.max(
-		"toolset".length,
-		...stats.map((s) => s.id.length),
-		"Total".length,
-	);
-	const activeWidth = Math.max(
-		"active".length,
-		...stats.map((s) => String(s.activeCount).length),
-		String(totalActive).length,
-	);
-	const charsWidth = Math.max(
-		"+chars".length,
-		...stats.map((s) => `+${s.charCount}`.length),
-		`+${totalChars}`.length,
-	);
 
-	const lines: string[] = [
-		"Context budget (toolsets, most expensive first):\n",
-		`  ${lpad("toolset", idWidth)}  ${rpad("active", activeWidth)}  ${rpad("+chars", charsWidth)}`,
-		`  ${"\u2500".repeat(idWidth + activeWidth + charsWidth + 4)}`,
+	const cols: ColSpec[] = [
+		{ label: "toolset" },
+		{ label: "active", align: "right" },
+		{ label: "+chars", align: "right" },
 	];
 
-	for (const s of stats) {
-		lines.push(
-			`  ${lpad(s.id, idWidth)}  ${rpad(String(s.activeCount), activeWidth)}  ${rpad(`+${s.charCount}`, charsWidth)}`,
-		);
-	}
+	const tableRows = stats.map((s) => [
+		s.id,
+		String(s.activeCount),
+		`+${s.charCount}`,
+	]);
+	const footer = ["Total", String(totalActive), `+${totalChars}`];
 
-	lines.push(
-		`  ${lpad("Total", idWidth)}  ${rpad(String(totalActive), activeWidth)}  ${rpad(`+${totalChars}`, charsWidth)}`,
+	return renderTable(
+		"Context budget (toolsets, most expensive first):",
+		cols,
+		tableRows,
+		footer,
 	);
-
-	return lines.join("\n").trimEnd();
 }
 
 // ---------------------------------------------------------------------------
@@ -365,32 +411,18 @@ export function formatFlatList(
 		return "All tools:\n\n  (no tools match the current filter)";
 	}
 
-	const rows = filtered.map((t) => ({
-		active: activeSet.has(t.name),
-		tool: t.name,
-		group: toolGroupLabel(t, toolToToolset),
-	}));
-
-	const activeWidth = "active".length;
-	const toolWidth = Math.max("tool".length, ...rows.map((r) => r.tool.length));
-	const groupWidth = Math.max(
-		"group".length,
-		...rows.map((r) => r.group.length),
-	);
-
-	const lines: string[] = [
-		"All tools:\n",
-		`  ${lpad("active", activeWidth)}  ${lpad("tool", toolWidth)}  ${lpad("group", groupWidth)}`,
-		`  ${"\u2500".repeat(activeWidth + toolWidth + groupWidth + 4)}`,
+	const cols: ColSpec[] = [
+		{ label: "active" },
+		{ label: "tool" },
+		{ label: "group" },
 	];
-	for (const r of rows) {
-		const glyph = r.active ? ENABLED_GLYPH : DISABLED_GLYPH;
-		lines.push(
-			`  ${lpad(glyph, activeWidth)}  ${lpad(r.tool, toolWidth)}  ${lpad(r.group, groupWidth)}`,
-		);
-	}
 
-	return lines.join("\n").trimEnd();
+	const tableRows = filtered.map((t) => {
+		const glyph = activeSet.has(t.name) ? ENABLED_GLYPH : DISABLED_GLYPH;
+		return [glyph, t.name, toolGroupLabel(t, toolToToolset)];
+	});
+
+	return renderTable("All tools:", cols, tableRows);
 }
 
 // ---------------------------------------------------------------------------
@@ -497,21 +529,19 @@ export function formatStatus(pi: ExtensionAPI): string {
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
 
-	interface Row {
-		id: string;
-		enabled: boolean;
-		members: string;
-	}
-	const rows: Row[] = [];
+	const cols: ColSpec[] = [
+		{ label: "toolset" },
+		{ label: "enabled" },
+		{ label: "members", align: "right" },
+	];
+
+	const tableRows: string[][] = [];
 
 	for (const entry of toolsets) {
 		const { spec } = entry;
 		const isEnabled = [...spec.names].some((n) => activeSet.has(n));
-		rows.push({
-			id: spec.id,
-			enabled: isEnabled,
-			members: String(spec.names.size),
-		});
+		const glyph = isEnabled ? ENABLED_GLYPH : DISABLED_GLYPH;
+		tableRows.push([spec.id, glyph, String(spec.names.size)]);
 	}
 
 	// Builtins: always-on, shown as a separate group (not in the registry)
@@ -522,44 +552,32 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const activeCount = builtinTools.filter((t) =>
 			activeSet.has(t.name),
 		).length;
-		rows.push({
-			id: "pi.builtin",
-			enabled: true,
-			members: `${builtinTools.length} (${activeCount} active)`,
-		});
+		tableRows.push([
+			"pi.builtin",
+			ENABLED_GLYPH,
+			`${builtinTools.length} (${activeCount} active)`,
+		]);
 	}
 
-	const idWidth = Math.max("toolset".length, ...rows.map((r) => r.id.length));
-	const enabledWidth = "enabled".length;
-	const membersWidth = Math.max(
-		"members".length,
-		...rows.map((r) => r.members.length),
-	);
+	const table = renderTable("Toolset Status:", cols, tableRows);
 
-	const lines: string[] = [
-		"Toolset Status:\n",
-		`  ${lpad("toolset", idWidth)}  ${lpad("enabled", enabledWidth)}  ${rpad("members", membersWidth)}`,
-		`  ${"\u2500".repeat(idWidth + enabledWidth + membersWidth + 4)}`,
-	];
-	for (const r of rows) {
-		const glyph = r.enabled ? ENABLED_GLYPH : DISABLED_GLYPH;
-		lines.push(
-			`  ${lpad(r.id, idWidth)}  ${lpad(glyph, enabledWidth)}  ${rpad(r.members, membersWidth)}`,
-		);
-	}
-
-	lines.push("");
 	const groupNames = getGroupNames();
-	lines.push(
+	const groupLine =
 		groupNames.length > 0
 			? `User Groups: ${groupNames.join(", ")}`
-			: "User Groups: no groups defined",
-	);
+			: "User Groups: no groups defined";
 	const focusUnit = getFocusUnit();
-	lines.push(focusUnit ? `Focus: on (${focusUnit})` : "Focus: off");
-	lines.push(formatCharSplit(computeCharCount(pi)));
+	const focusLine = focusUnit ? `Focus: on (${focusUnit})` : "Focus: off";
 
-	return lines.join("\n").trimEnd();
+	return [
+		table,
+		"",
+		groupLine,
+		focusLine,
+		formatCharSplit(computeCharCount(pi)),
+	]
+		.join("\n")
+		.trimEnd();
 }
 
 // ---------------------------------------------------------------------------

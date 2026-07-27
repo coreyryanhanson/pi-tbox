@@ -69,9 +69,6 @@ export class GroupEditorComponent {
 	lastCue = "";
 	searchValue = "";
 
-	private _cachedWidth: number | undefined;
-	private _cachedLines: string[] | undefined;
-
 	constructor(config: GroupEditorConfig, theme: Theme) {
 		this.config = config;
 		this.theme = theme;
@@ -97,7 +94,6 @@ export class GroupEditorComponent {
 			const max = this.filteredItems.length - 1;
 			if (this.selectedIndex < max) {
 				this.selectedIndex++;
-				this.invalidate();
 			}
 			return;
 		}
@@ -106,7 +102,6 @@ export class GroupEditorComponent {
 		if (this.kb.matches(data, "tui.select.up")) {
 			if (this.selectedIndex > 0) {
 				this.selectedIndex--;
-				this.invalidate();
 			}
 			return;
 		}
@@ -120,7 +115,6 @@ export class GroupEditorComponent {
 			const result = toggleToolsetUnit(unit, this.checkedToolsets);
 			this.lastCue = result.cue;
 			this.isDirty = true;
-			this.invalidate();
 			return;
 		}
 
@@ -129,7 +123,6 @@ export class GroupEditorComponent {
 			if (this.searchValue) {
 				this.searchValue = "";
 				this.selectedIndex = 0;
-				this.invalidate();
 			} else {
 				this.config.onCancel();
 			}
@@ -140,7 +133,6 @@ export class GroupEditorComponent {
 		if (matchesKey(data, "ctrl+a")) {
 			this.enableAll();
 			this.isDirty = true;
-			this.invalidate();
 			return;
 		}
 
@@ -148,7 +140,6 @@ export class GroupEditorComponent {
 		if (matchesKey(data, "ctrl+x")) {
 			this.clearAll();
 			this.isDirty = true;
-			this.invalidate();
 			return;
 		}
 
@@ -166,7 +157,6 @@ export class GroupEditorComponent {
 			if (this.searchValue) {
 				this.searchValue = this.searchValue.slice(0, -1);
 				this.selectedIndex = 0;
-				this.invalidate();
 			}
 			return;
 		}
@@ -179,7 +169,6 @@ export class GroupEditorComponent {
 		) {
 			this.searchValue += data;
 			this.selectedIndex = 0;
-			this.invalidate();
 			return;
 		}
 	}
@@ -211,10 +200,6 @@ export class GroupEditorComponent {
 	// -----------------------------------------------------------------------
 
 	render(width: number): string[] {
-		if (this._cachedLines && this._cachedWidth === width) {
-			return this._cachedLines;
-		}
-
 		const th = this.theme;
 		const lines: string[] = [];
 		const trunc = (s: string) => truncateToWidth(s, width);
@@ -304,13 +289,11 @@ export class GroupEditorComponent {
 		// ── Empty line ──
 		lines.push("");
 
-		this._cachedWidth = width;
-		this._cachedLines = lines;
 		return lines;
 	}
 
+	/** Required by Component interface — no-op since cache was removed. */
 	invalidate(): void {
-		this._cachedWidth = undefined;
-		this._cachedLines = undefined;
+		/* no-op */
 	}
 }
