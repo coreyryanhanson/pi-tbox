@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
-import { computeCharCount, formatChars } from "../src/chars.js";
+import { computeCharCount } from "../src/chars.js";
 import { defineToolset } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
@@ -195,44 +195,5 @@ describe("computeCharCount", () => {
 		// Deactivate both → extension is zero
 		mock.setActiveTools([]);
 		expect(computeCharCount(mock as any).extension).toBe(0);
-	});
-});
-
-describe("formatChars", () => {
-	let mock: MockPI;
-
-	beforeEach(() => {
-		MockPI.cleanRegistry();
-		mock = new MockPI();
-	});
-
-	afterEach(() => {
-		MockPI.cleanRegistry();
-	});
-
-	it("returns a human-readable string with the split", () => {
-		mock.registerTool(TOOL_A);
-		mock.setActiveTools(["tool-alpha"]);
-		const output = formatChars(mock as any);
-		expect(output).toBe(
-			`Char count \u2014 core: 0 | extension: ${LEN_A} (total: ${LEN_A})`,
-		);
-	});
-
-	it("returns 0 for both buckets when no tools are active", () => {
-		const output = formatChars(mock as any);
-		expect(output).toBe("Char count \u2014 core: 0 | extension: 0 (total: 0)");
-	});
-
-	it("shows builtin+sdk in core and extension tools in extension", () => {
-		mock.registerTool(TOOL_A);
-		mock.registerTool(TOOL_BUILTIN);
-		mock.registerTool(TOOL_SDK);
-		mock.setActiveTools(["tool-alpha", "pi.help", "sdk.file_read"]);
-		const output = formatChars(mock as any);
-		const total = LEN_BUILTIN + LEN_SDK + LEN_A;
-		expect(output).toBe(
-			`Char count \u2014 core: ${LEN_BUILTIN + LEN_SDK} | extension: ${LEN_A} (total: ${total})`,
-		);
 	});
 });

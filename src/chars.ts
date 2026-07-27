@@ -1,5 +1,6 @@
 /**
- * /tbox chars — serialized character counter for the active tool set.
+ * Character-count module — computes the serialized character count
+ * of the active tool set for the `/tbox status` char line.
  *
  * Computes the total JSON-serialized character count of every enabled
  * tool's full definition: name, description, parameters (JSON schema),
@@ -84,17 +85,9 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 // ---------------------------------------------------------------------------
 
 /**
- * Format a CharCountSplit into the shared one-line display used by both
- * `/tbox chars` and the `/tbox status` char line.
+ * Format a CharCountSplit into the one-line display for the `/tbox status` char line.
  */
 export function formatCharSplit({ core, extension }: CharCountSplit): string {
 	const total = core + extension;
 	return `Char count \u2014 core: ${core} | extension: ${extension} (total: ${total})`;
-}
-
-/**
- * Handle `/tbox chars` — returns the serialized character count split.
- */
-export function formatChars(pi: ExtensionAPI): string {
-	return formatCharSplit(computeCharCount(pi));
 }

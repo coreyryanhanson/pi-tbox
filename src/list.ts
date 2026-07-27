@@ -530,8 +530,5 @@ export function formatBareHelp(
 ): string {
 	const state = computeSlotState(pi);
 	const slotText = renderSlotText(state, fg);
-	return (
-		`Slot: ${slotText}\n` +
-		"Subcommands: list, status, all, focus, chars, group"
-	);
+	return `Slot: ${slotText}\n` + "Subcommands: list, status, all, focus, group";
 }

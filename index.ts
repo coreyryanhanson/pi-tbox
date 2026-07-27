@@ -40,7 +40,6 @@ import {
 } from "./src/groups.js";
 import { removeGroup } from "./config/settings-reader.js";
 import { focusUnit, focusOff } from "./src/focus.js";
-import { formatChars } from "./src/chars.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -66,7 +65,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
 		description:
-			"Cross-extension tool manager. Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
+			"Cross-extension tool manager. Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -86,7 +85,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 			if (!command) {
 				ctx.ui.notify(
-					"Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
+					"Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
 					"info",
 				);
 				return;
@@ -149,10 +148,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 					break;
 				}
-				case "chars": {
-					ctx.ui.notify(formatChars(pi), "info");
-					break;
-				}
+
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {
@@ -187,7 +183,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					// no `+`), the bare form always works.
 					if (isReserved(command)) {
 						ctx.ui.notify(
-							`Unknown subcommand: "${command}". Usage: /tbox [list|status|all|focus|chars|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
+							`Unknown subcommand: "${command}". Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
 							"error",
 						);
 						break;

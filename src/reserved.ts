@@ -23,7 +23,6 @@ export const RESERVED_WORDS: readonly string[] = [
 	"focus",
 	"all",
 	"list",
-	"chars",
 	"group",
 	"on",
 	"off",

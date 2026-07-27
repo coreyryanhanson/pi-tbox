@@ -42,7 +42,7 @@ keep the surface unambiguous:
    `/tbox group <name> on|off` escape hatch is gone — it existed only to
    reach reserved-named groups, which can no longer be created.
 
-**Reserved words:** `status`, `focus`, `all`, `list`, `chars`, `group`,
+**Reserved words:** `status`, `focus`, `all`, `list`, `group`,
 `on`, `off`, `edit`, `remove`. (`edit`/`remove` are reserved so
 `/tbox group edit`, `/tbox group remove`, and `/tbox group list` parse
 unambiguously as subcommands, never "describe the group named edit".
@@ -63,7 +63,6 @@ a group may now be named `toggle`.)
 | `/tbox focus <group>` / `/tbox focus +<toolset>` | enter focus on a group or toolset (point 2) |
 | `/tbox focus off` | exit focus → flip inclusion back to exclusion, restore defaults |
 | `/tbox all on` / `/tbox all off` | enable all / disable all non-builtin tools (point 7) |
-| `/tbox chars` | print the serialized char count of the active tool set (point 5) |
 | `/tbox status` | full status: toolsets, groups, focus, char count |
 
 ## The 7-point surface
@@ -80,7 +79,7 @@ a group may now be named `toggle`.)
   its `tbox.tool@<source>` toolset — one per unclaimed-source plugin
   (see point 7). Each group header reports `(a active, b inactive,
   +c chars)` — the full toolset's state and char contribution (extension
-  tools only); a footer total reconciles with `/tbox chars`'s `tools`
+  tools only); a footer total reconciles with `/tbox status`'s char-line `extension`
   bucket.
 - **`--flat`:** every tool as a row, no grouping. Tools outside
   tbox's domain (see point 7 — `sdk`-source tools) appear as
@@ -153,7 +152,7 @@ inclusion-mode snapshot that promises a known working set (the allowlist).
 If the user could toggle individual toolsets on/off while the slot still
 claims `● focus:<unit> (n)`, the active set would diverge from what the slot
 advertises — the slot would lie. `group edit` (config-only),
-`list`/`status`/`chars` (read-only), and `focus <other-unit>` (re-focus,
+`list`/`status` (read-only), and `focus <other-unit>` (re-focus,
 still a coherent focus state) are all unguarded. After `focus off` the
 actuation commands work normally again.
 
@@ -258,8 +257,8 @@ knob.
 
 ### 5. Char counter
 
-`/tbox chars` prints the serialized character count of the current
-active tool set. Computed from `pi.getAllTools()` full definitions
+`/tbox status` prints the serialized character count of the current
+active tool set, as part of its full status output. Computed from `pi.getAllTools()` full definitions
 (verified: each tool exposes `name`, `description`, `parameters` [JSON
 schema], `promptGuidelines`, `sourceInfo`) — serialize each enabled
 tool's fields and sum (all active tools, including builtin and sdk —
@@ -372,7 +371,7 @@ own state — `● tbox 3 off` would parse as "tbox is off" on a glance,
 and a bare denominator resolves no ambiguity. A count of 0 still renders
 pristine `○ tbox`, not `● tbox 0 masked`.
 
-The slot shows focus state only — **not** the char count. `/tbox chars`
+The slot shows focus state only — **not** the char count. `/tbox status`
 is the on-demand surface for the count. Budget awareness during focus is
 valuable but the slot stays semantic; the count is ephemeral.
 
@@ -411,7 +410,7 @@ as addressable units; the library handles the composition.
 | Command collisions | reserved words rejected at group creation; `+` prefix for toolset addressing; bare `<group>` always a group, `+<toolset>` always a toolset |
 | Focus | single-unit; green glyph; drift-free via inclusion mode |
 | Status slot | `○ tbox` pristine / `● tbox n masked` blue / `● focus:<unit> (n)` green / `● focus:∅` red |
-| Char counter | `/tbox chars` command, computed from `getAllTools()` full defs |
+| Char counter | `/tbox status` char line, computed from `getAllTools()` full defs |
 | Session drift | per-toolset state persists; group edits don't retroact; `on`/`off` drift, `focus` doesn't |
 | MVP scope | expanded to all 7 points |
 
@@ -419,7 +418,7 @@ as addressable units; the library handles the composition.
 
 - **`pi.getAllTools()` exposes full definitions** — `name`,
   `description`, `parameters` (JSON schema), `promptGuidelines`,
-  `sourceInfo`. `/tbox chars` can serialize and sum accurately. No
+  `sourceInfo`. `/tbox status` can serialize and sum accurately. No
   upstream ask. (Source: `docs/extensions.md` §"pi.getAllTools()")
 - **Builtin identification is in tool metadata** —
   `sourceInfo.source === "builtin"` is the exact discriminator; the docs

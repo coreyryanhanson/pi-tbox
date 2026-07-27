@@ -25,7 +25,6 @@ describe("reserved wordlist", () => {
 			"focus",
 			"all",
 			"list",
-			"chars",
 			"group",
 			"on",
 			"off",

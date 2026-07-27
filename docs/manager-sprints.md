@@ -70,7 +70,7 @@ pi-tbox/
     groups.ts             # user groups, toolset actuation (/tbox +<toolset> on|off), toggleAll
     list.ts               # /tbox list (grouped/flat, filters, smallest-toolset-wins)
     focus.ts              # /tbox focus <unit> / focus off (inclusion mode + re-actuation)
-    chars.ts              # /tbox chars (serialized char count from getAllTools defs)
+    chars.ts              # char-count module (powers /tbox status char line)
     status-slot.ts        # the 4-state tbox slot: render(), excluded-count, listeners
     reserved.ts           # reserved-wordlist + collision disambiguation
   config/
@@ -268,7 +268,7 @@ Shipped (`config/settings-reader.ts`, `src/groups.ts`, `src/reserved.ts`,
   `getActiveTools()` before vs. after to report the real moved set
   (including cascaded non-members). Drift caveat on every actuation.
 - **`src/reserved.ts`** — reserved wordlist (`status`, `focus`, `all`,
-  `list`, `chars`, `group`, `on`, `off`, `edit`, `remove`). Reserved
+  `list`, `group`, `on`, `off`, `edit`, `remove`). Reserved
   names are rejected at group creation (`writeGroup` validates), so
   bare `/tbox <name> on|off` always works. `containsPlus()` helper
   enforces that group names never contain `+`. See `src/reserved.ts`
@@ -503,7 +503,7 @@ Shipped (`src/focus.ts`, `src/status-slot.ts`,
   dispatch) refuse with a message pointing to `/tbox focus off` while
   `_focusUnit !== null`. This covers the bare `<group> on|off`
   shorthand for free (it routes through `actuateGroup`). `group edit`
-  (config-only), `list`/`status`/`chars` (read-only), and `focus
+  (config-only), `list`/`status` (read-only), and `focus
   <unit>` (re-focus, coherent) are unguarded — the slot never lies
   about the active set.
 
@@ -520,10 +520,11 @@ documenting why re-actuation is mandatory).
 
 Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
 
-- **`/tbox chars` (`computeCharCount` + `formatChars`)** — serializes
-  every **active** tool's full definition via `JSON.stringify({name,
-  description, parameters, promptGuidelines, sourceInfo})` (fixed key
-  order → deterministic across runs) and sums the character counts.
+- **`src/chars.ts` module (`computeCharCount` + `formatCharSplit`)** —
+  serializes every **active** tool's full definition via
+  `JSON.stringify({name, description, parameters, promptGuidelines,
+  sourceInfo})` (fixed key order → deterministic across runs) and sums
+  the character counts.
   **All active tools count, including `builtin` and `sdk`** — the count
   is the honest serialized size of what the LLM sees, not the
   tbox-managed subset (MVP: "current active tool set", no exclusion).
@@ -536,8 +537,10 @@ Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
   `/tbox`), and the total is still the contract number. The split shape
   is recorded in the open-decisions table below.
 - **`/tbox status`** includes the char line via the shared
-  `formatCharSplit` (same string as `/tbox chars`), so the two surfaces
-  never drift.
+  `formatCharSplit` (same string as the now-removed `/tbox chars` command
+  used), so the status line is the sole on-demand surface. The
+  `/tbox chars` command was removed as redundant — it was a strict
+  subset of the status char line.
 - **Status slot finalization (`src/status-slot.ts`)** — all four states
   wired with colors per the MVP table: `○ tbox` (dim) pristine; `● tbox
   n masked` (accent/blue) count, where `n` is non-builtin, non-sdk
@@ -546,16 +549,17 @@ Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
   `● focus:∅` (error/red) focus-empty. `computeSlotState` +
   `renderSlotText` are split so tests assert state→text deterministically.
   The slot shows focus state only when in focus — **never** the char
-  count (the count is ephemeral; `/tbox chars` and the status line are
-  the on-demand surfaces). `rerenderSlot` lets non-event callers
+  count (the count is ephemeral; `/tbox status` is the on-demand
+  surface). `rerenderSlot` lets non-event callers
   (focus enter/exit) repaint synchronously so the glyph never lags a
   frame behind the actuation that produced it.
 
-Tests shipped (green): `chars` (hand-computed population → exact sum,
-toggle delta = serialized size of moved members, determinism across
-runs, builtin/sdk counted in `core`), `status-slot` (table-driven over
-all four states asserting exact slot string + color marker, focus vs
-count precedence, excluded-count correctness).
+Tests shipped (green): `chars` (module tests: hand-computed population
+→ exact sum, toggle delta = serialized size of moved members,
+determinism across runs, builtin/sdk counted in `core`),
+`status-slot` (table-driven over all four states asserting exact slot
+string + color marker, focus vs count precedence, excluded-count
+correctness).
 
 ---
 
@@ -618,11 +622,11 @@ swapping the library dep to the published version.
    the full `/tbox` surface end-to-end through the MockPI's
    `registerCommand` dispatch: `list` (grouped + flat + by-chars + filters), bare group
    shorthand (`<name> on|off`) with cascade reporting, direct toolset toggle
-   (`+<toolset>`), all on/off, focus on/off with re-actuation, chars, status. This is the test that
+   (`+<toolset>`), all on/off, focus on/off with re-actuation, status. This is the test that
    catches integration bugs the library's own MockPI tests cannot
    (exactly the stated reason for building the manager early).
 3. **Reserved-wordlist finalization. — ✅ closed.**
-   The current wordlist (`status`, `focus`, `all`, `list`, `chars`,
+   The current wordlist (`status`, `focus`, `all`, `list`,
    `group`, `on`, `off`, `edit`, `remove`) is finalized. `edit`/`remove`
    are reserved so `/tbox group edit`/`remove`/`list` parse unambiguously
    as subcommands. The `containsPlus()` helper enforces that group names
@@ -728,11 +732,11 @@ swapping the library dep to the published version.
 | Decision | Sprint | Recommendation |
 |---|---|---|
 | **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely (never in `getRegisteredToolsets()`), so no actuation pass can reach them; picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5) |
-| Final reserved-wordlist | 7 | **Closed:** `status`, `focus`, `all`, `list`, `chars`, `group`, `on`, `off`, `edit`, `remove`. See `src/reserved.ts` |
+| Final reserved-wordlist | 7 | **Closed:** `status`, `focus`, `all`, `list`, `group`, `on`, `off`, `edit`, `remove`. See `src/reserved.ts`. `chars` was removed from the wordlist in Sprint 8 (the `/tbox chars` command was removed as redundant). |
 | Group config storage shape | 3 | **Closed:** groups are **global/user-scoped** in a dedicated file `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no `tbox`/`groups` wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset units only). Repo-scoped *actuation defaults*, if ever needed, would name global groups in `.pi/settings.json` without redefining them |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
-| `/tbox chars` serialization shape | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **core/extension split** (`core` = builtin+sdk floor, `extension` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget |
+| `chars.ts` serialization shape (module-level) | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **core/extension split** (`core` = builtin+sdk floor, `extension` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget. The `/tbox chars` command was removed in Sprint 8; the module continues to power the `/tbox status` char line. |
 | Whether `chars` counts builtin/sdk active tools | 6 | **Closed:** Yes — the count is the honest serialized size of what the LLM sees (counted under `core`) |
