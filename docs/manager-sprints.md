@@ -205,7 +205,7 @@ Shipped (`src/list.ts`):
   (`--flat --inactive`). Active iff `getActiveTools().includes(name)`.
 - **Bare `/tbox`** — slot mirror + brief subcommand help.
 - **`/tbox status`** — aggregator: toolsets (id, enabled, member count,
-  members); groups/focus/chars lines default to "none"/"off"/omitted
+  members); groups/focus/char-count lines default to "none"/"off"/omitted
   until their sprints ship.
 
 Tests shipped (green): `list`, `command`.
@@ -537,10 +537,8 @@ Shipped (`src/chars.ts`, `src/status-slot.ts`, `src/list.ts`):
   `/tbox`), and the total is still the contract number. The split shape
   is recorded in the open-decisions table below.
 - **`/tbox status`** includes the char line via the shared
-  `formatCharSplit` (same string as the now-removed `/tbox chars` command
-  used), so the status line is the sole on-demand surface. The
-  `/tbox chars` command was removed as redundant — it was a strict
-  subset of the status char line.
+  `formatCharSplit`, so the status line is the sole on-demand surface for
+  the char count.
 - **Status slot finalization (`src/status-slot.ts`)** — all four states
   wired with colors per the MVP table: `○ tbox` (dim) pristine; `● tbox
   n masked` (accent/blue) count, where `n` is non-builtin, non-sdk
@@ -732,11 +730,11 @@ swapping the library dep to the published version.
 | Decision | Sprint | Recommendation |
 |---|---|---|
 | **Builtins: out of tbox's management scope** | 2, 4, 5 | **Closed:** builtins are excluded from the registry entirely (never in `getRegisteredToolsets()`), so no actuation pass can reach them; picker never offers builtins (Sprint 4); focus rejects the reserved id `pi.builtin` (Sprint 5) |
-| Final reserved-wordlist | 7 | **Closed:** `status`, `focus`, `all`, `list`, `group`, `on`, `off`, `edit`, `remove`. See `src/reserved.ts`. `chars` was removed from the wordlist in Sprint 8 (the `/tbox chars` command was removed as redundant). |
+| Final reserved-wordlist | 7 | **Closed:** `status`, `focus`, `all`, `list`, `group`, `on`, `off`, `edit`, `remove`. See `src/reserved.ts`. |
 | Group config storage shape | 3 | **Closed:** groups are **global/user-scoped** in a dedicated file `~/.pi/agent/pi-tbox/groups.json` (the groups table directly, no `tbox`/`groups` wrapper key); `GroupSpec = { toolsets: string[] }` (whole-toolset units only). Repo-scoped *actuation defaults*, if ever needed, would name global groups in `.pi/settings.json` without redefining them |
 | `tbox.tool` shape | 3.5 | **Closed:** per-source is the default (`tbox.tool@<source>`); landed before Sprint 4/5 which depend on the shape |
 | `requires`-closure picker interaction | 4 | **Closed:** inline footer cues in the `GroupEditorComponent` (`auto-checked:` / `auto-unchecked:` one-liner, fading on next keypress) |
 | Picker presentation | 4 | **Closed:** a tbox-owned `GroupEditorComponent` mounted via `ctx.ui.custom` (windowed, searchable, keyboard-driven) — not a `ui.select` loop; single granularity (toolsets only) |
 | `emitMemberEvents` | — | Off for MVP (recorded deferral); revisit only if live per-row animation needed |
-| `chars.ts` serialization shape (module-level) | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **core/extension split** (`core` = builtin+sdk floor, `extension` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget. The `/tbox chars` command was removed in Sprint 8; the module continues to power the `/tbox status` char line. |
+| `chars.ts` serialization shape (module-level) | 6 | **Closed:** `JSON.stringify({name,description,parameters,promptGuidelines,sourceInfo})` per active tool, summed. Output is a **core/extension split** (`core` = builtin+sdk floor, `extension` = extension budget, total reported) — not a single integer; the total is the contract number, the split surfaces the togglable budget. The module powers the `/tbox status` char line. |
 | Whether `chars` counts builtin/sdk active tools | 6 | **Closed:** Yes — the count is the honest serialized size of what the LLM sees (counted under `core`) |
