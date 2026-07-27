@@ -30,6 +30,7 @@ import {
 	writeGroup,
 	readGroups,
 	removeGroup,
+	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
 // ---------------------------------------------------------------------------
@@ -244,7 +245,11 @@ describe("integration — multi-extension registry", () => {
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
 
-		// Clean up any groups from previous tests
+		// ponytail: route group reads/writes through the in-memory override
+		// so this suite never touches the real ~/.pi/agent/pi-tbox/groups.json
+		// (which holds the user's actual groups). The cleanup loop below then
+		// operates on the override, not production disk.
+		setGroupsOverrideForTests({});
 		const existing = readGroups();
 		for (const name of Object.keys(existing)) {
 			removeGroup(name);
@@ -252,6 +257,8 @@ describe("integration — multi-extension registry", () => {
 
 		buildRealisticPopulation(mock, pi);
 	});
+
+	afterEach(() => setGroupsOverrideForTests(null));
 
 	// -----------------------------------------------------------------------
 	// list (grouped default)
