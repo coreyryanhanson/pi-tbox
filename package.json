@@ -1,0 +1,67 @@
+{
+	"name": "pi-tbox",
+	"version": "0.1.0",
+	"description": "List, toggle, group, and focus tools from any Pi extension in one place. Choices persist in chat state, and you can see the context cost of what's active.",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"tool-manager",
+		"tbox"
+	],
+	"license": "AGPL-3.0-or-later",
+	"author": "Corey Ryan Hanson",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/coreyryanhanson/pi-tbox.git"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"exports": {
+		".": {
+			"types": "./index.ts",
+			"default": "./index.ts"
+		}
+	},
+  "files": [
+		"index.ts",
+		"src/",
+		"config/",
+		"assets/",
+		"LICENSE",
+		"README.md"
+	],
+  "pi": {
+		"extensions": [
+			"./index.ts"
+		],
+		"image": "https://raw.githubusercontent.com/coreyryanhanson/pi-tbox/main/assets/tbox-dino.webp"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"prepublishOnly": "npm test && npx tsc --noEmit",
+		"version:patch": "npm version patch --no-git-tag-version",
+		"version:minor": "npm version minor --no-git-tag-version",
+		"version:major": "npm version major --no-git-tag-version",
+		"release:patch": "node scripts/release.mjs patch",
+		"release:minor": "node scripts/release.mjs minor",
+		"release:major": "node scripts/release.mjs major"
+	},
+	"dependencies": {
+		"pi-tool-masking": "^1.0.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.78.0",
+		"@types/node": "^22.0.0",
+		"typescript": "^7.0.2",
+		"vitest": "^4.0.0"
+	}
+}
