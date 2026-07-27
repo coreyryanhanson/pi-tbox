@@ -141,7 +141,8 @@ export function formatGroupedList(
 	// Accumulators for footer summary
 	let totalActive = 0;
 	let totalInactive = 0;
-	let totalChars = 0;
+	let totalCoreChars = 0;
+	let totalExtChars = 0;
 
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
@@ -157,6 +158,7 @@ export function formatGroupedList(
 					charCount += serializeToolDef(t).length;
 				}
 				totalActive += activeCount;
+				totalCoreChars += charCount;
 				lines.push(
 					`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
 				);
@@ -174,7 +176,7 @@ export function formatGroupedList(
 				const inactiveCount = tools.length - activeCount;
 				totalActive += activeCount;
 				totalInactive += inactiveCount;
-				totalChars += charCount;
+				totalExtChars += charCount;
 				lines.push(
 					`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
 				);
@@ -198,7 +200,7 @@ export function formatGroupedList(
 		const inactiveCount = entry.spec.names.size - activeCount;
 		totalActive += activeCount;
 		totalInactive += inactiveCount;
-		totalChars += charCount;
+		totalExtChars += charCount;
 
 		lines.push(
 			`  ${label} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
@@ -213,7 +215,7 @@ export function formatGroupedList(
 	// Footer summary line
 	if (lines.length > 1) {
 		lines.push(
-			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalChars} chars`,
+			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalCoreChars + totalExtChars} chars (core: ${totalCoreChars} | extension: ${totalExtChars})`,
 		);
 		lines.push("");
 	}
