@@ -292,7 +292,7 @@ export class GroupEditorComponent {
 		return lines;
 	}
 
-	/** Required by Component interface — no-op since cache was removed. */
+	/** Required by Component interface; no rendering state to invalidate here. */
 	invalidate(): void {
 		/* no-op */
 	}

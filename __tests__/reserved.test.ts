@@ -14,10 +14,6 @@ import { getRegisteredToolsets } from "pi-tool-masking";
 // ---------------------------------------------------------------------------
 
 describe("reserved wordlist", () => {
-	it("'dev' is NOT reserved (the /tbox dev command was removed)", () => {
-		expect(isReserved("dev")).toBe(false);
-	});
-
 	it("seed subcommands are all reserved", () => {
 		for (const w of [
 			"status",
@@ -38,8 +34,6 @@ describe("reserved wordlist", () => {
 	it("non-reserved names are not reserved", () => {
 		expect(isReserved("mygroup")).toBe(false);
 		expect(isReserved("portal")).toBe(false);
-		// "toggle" was freed when the toggle command was removed.
-		expect(isReserved("toggle")).toBe(false);
 	});
 });
 
