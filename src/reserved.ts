@@ -7,9 +7,6 @@
  * @module
  */
 
-// ponytail: "toggle" was dropped when the toggle command was removed —
-// a group may now be named "toggle" with no subcommand collision.
-
 // ---------------------------------------------------------------------------
 // Wordlist
 // ---------------------------------------------------------------------------
