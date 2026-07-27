@@ -1,7 +1,7 @@
 {
 	"name": "pi-tbox",
 	"version": "0.1.0",
-	"description": "Cross-extension tool manager for Pi — list, toggle, group, focus, and count tools from any installed extension.",
+	"description": "List, toggle, group, and focus tools from any Pi extension in one place. Choices persist in chat state, and you can see the context cost of what's active.",
 	"keywords": [
 		"pi-package",
 		"pi-extension",
