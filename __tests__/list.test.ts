@@ -503,36 +503,13 @@ describe("formatByChars", () => {
 		expect(output).not.toContain("core");
 	});
 
-	it("--active hides fully-disabled groups", () => {
-		setupRichMock(mock, pi);
-
-		// All tools are enabled via setupRichMock, so disable one toolset manually
-		// Disable portal.learn by deactivating web-learn
-		mock.setActiveTools([
-			"web-fetch",
-			"browser-navigate",
-			"page-read",
-			"orphan-tool",
-		]);
-
-		const output = formatByChars(pi, { active: true });
-
-		// Portal Web still has active members
-		expect(output).toContain("portal.web");
-		// extension orphan has active member
-		expect(output).toContain("tbox.tool@extension");
-		// portal.learn has 0 active members → hidden
-		expect(output).not.toContain("portal.learn");
-
-		// Footer total should match only visible groups
-		expect(output).toMatch(/Total: 4 active, 0 inactive/);
-	});
-
 	it("shows empty message when no tools match", () => {
 		// No tools registered
 		const output = formatByChars(pi);
 
-		expect(output).toContain("no tools match the current filter");
+		expect(output).toContain(
+			"No toolsets are consuming context budget right now.",
+		);
 	});
 });
 
@@ -588,16 +565,8 @@ describe("formatList (dispatch)", () => {
 		expect(output).not.toContain("tool-a");
 	});
 
-	it("errors when --chars and --flat are combined", () => {
-		const output = formatList(pi, "list --chars --flat");
-		expect(output).toContain("Error");
-		expect(output).toContain("--chars");
-		expect(output).toContain("--flat");
-		expect(output).toContain("See: /tbox list --help.");
-	});
-
 	it("errors when unknown flag --grouped is used", () => {
-		const output = formatList(pi, "list --chars --grouped");
+		const output = formatList(pi, "list --grouped");
 		expect(output).toContain("Error");
 		expect(output).toContain("unknown flag");
 		expect(output).toContain("--grouped");
@@ -608,7 +577,6 @@ describe("formatList (dispatch)", () => {
 		const output = formatList(pi, "list --help");
 		expect(output).toContain("/tbox list [view] [filter]");
 		expect(output).toContain("--flat");
-		expect(output).toContain("--chars");
 		expect(output).toContain("--active");
 		expect(output).toContain("--inactive");
 	});
@@ -626,13 +594,6 @@ describe("formatList (dispatch)", () => {
 		expect(output).toContain("unknown flags");
 		expect(output).toContain("--foo, --bar");
 		expect(output).toContain("See: /tbox list --help.");
-	});
-
-	it("routes --chars alone to chars view", () => {
-		const output = formatList(pi, "list --chars");
-		expect(output).toMatch(
-			/^Context budget \(toolsets, most expensive first\):/,
-		);
 	});
 });
 

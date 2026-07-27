@@ -25,6 +25,7 @@ import {
 } from "./src/status-slot.js";
 import {
 	formatBareHelp,
+	formatByChars,
 	formatList,
 	formatStatus,
 	parseArgs,
@@ -59,7 +60,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	let lastCtx: SlotCtx | null = null;
 
 	const USAGE =
-		"/tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off";
+		"/tbox [list|status|all|focus|group|chars] | /tbox <group> on|off | /tbox +<toolset> on|off";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -136,6 +137,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 
+				case "chars": {
+					ctx.ui.notify(formatByChars(pi), "info");
+					break;
+				}
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {

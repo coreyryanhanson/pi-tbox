@@ -234,12 +234,9 @@ export function formatGroupedList(
  * Format the chars budgeting view.
  *
  * Flat list of toolsets (no tool rows) sorted by +chars descending.
- * Excludes builtins.
- *
- * @param pi  - The extension API
- * @param options  - Optional filters
+ * Excludes builtins and zero-charge toolsets (no active members).
  */
-export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
+export function formatByChars(pi: ExtensionAPI): string {
 	const allTools = pi.getAllTools();
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
@@ -262,8 +259,8 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		);
 		const inactiveCount = entry.spec.names.size - activeCount;
 
-		// --chars --active hides fully-disabled groups
-		if (options?.active && activeCount === 0) continue;
+		// Skip toolsets with no active members — zero budget, no saving to find here
+		if (charCount === 0) continue;
 
 		stats.push({ id: entry.spec.id, activeCount, inactiveCount, charCount });
 	}
@@ -296,7 +293,10 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		lines.push("");
 	}
 
-	pushNoMatchFallback(lines);
+	if (lines.length <= 1) {
+		lines.push("  No toolsets are consuming context budget right now.");
+		lines.push("");
+	}
 
 	return lines.join("\n").trimEnd();
 }
@@ -355,19 +355,12 @@ const LIST_HELP = `\
 Views (mutually exclusive):
   (default)   grouped by toolset
   --flat      one row per tool
-  --chars     toolsets ranked by +chars descending (budgeting surface)
 
 Filters (mutually exclusive):
-  --active    show only active tools (--chars: hide +0 groups)
+  --active    show only active tools
   --inactive  show only inactive tools`;
 
-const KNOWN_LIST_FLAGS = new Set([
-	"flat",
-	"chars",
-	"active",
-	"inactive",
-	"help",
-]);
+const KNOWN_LIST_FLAGS = new Set(["flat", "active", "inactive", "help"]);
 
 // ---------------------------------------------------------------------------
 // Dispatch
@@ -427,19 +420,10 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 		return "Error: --active and --inactive cannot be used together. See: /tbox list --help.";
 	}
 
-	// Error if --chars combined with --flat
-	if (flags.has("chars") && flags.has("flat")) {
-		return "Error: --chars and --flat cannot be used together. See: /tbox list --help.";
-	}
-
 	const options: ListOptions = {
 		active: flags.has("active"),
 		inactive: flags.has("inactive"),
 	};
-
-	if (flags.has("chars")) {
-		return formatByChars(pi, options);
-	}
 	if (flags.has("flat")) {
 		return formatFlatList(pi, options);
 	}
@@ -508,7 +492,7 @@ export function formatStatus(pi: ExtensionAPI): string {
  */
 export function formatBareHelp(): string {
 	return (
-		"Subcommands: list, status, all, focus, group\n" +
+		"Subcommands: list, status, all, focus, group, chars\n" +
 		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters"
 	);
 }

@@ -25,6 +25,7 @@ export const RESERVED_WORDS: readonly string[] = [
 	"off",
 	"edit",
 	"remove",
+	"chars",
 ];
 
 const RESERVED_SET: ReadonlySet<string> = new Set(RESERVED_WORDS);

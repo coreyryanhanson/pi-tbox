@@ -664,6 +664,21 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toContain("test-group");
 	});
 
+	it("bikeshed: dispatchCommand /tbox chars renders budget view", async () => {
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("chars");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toMatch(
+			/^Context budget \(toolsets, most expensive first\):/,
+		);
+	});
+
 	// -----------------------------------------------------------------------
 	// Per-source orphan toolset shape
 	// -----------------------------------------------------------------------

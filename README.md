@@ -83,13 +83,14 @@ All commands live under the `/tbox` shortcut. Two addressability rules keep
 the surface unambiguous: a **`+` prefix means a toolset**, a **bare name
 means a group**, so `+find` is always the toolset and `find` is always the
 group even if they share a name. Reserved words (`status`, `focus`, `all`,
-`list`, `group`, `on`, `off`, `edit`, `remove`) are rejected at group
+`list`, `group`, `on`, `off`, `edit`, `remove`, `chars`) are rejected at group
 creation, so bare `/tbox <group> on|off` always works.
 
 | Command | Effect |
 |---|---|
 | `/tbox` | current state (slot mirror + brief help) |
 | `/tbox list [view] [filter]` | enumerate tools (see views & filters below) |
+| `/tbox chars` | budget view: toolsets ranked by +chars descending |
 | `/tbox <group> on` / `off` | enable / disable every toolset in a group |
 | `/tbox +<toolset> on` / `off` | enable / disable a single toolset directly |
 | `/tbox +<toolset>` | describe the toolset (members, state) |
@@ -105,18 +106,29 @@ creation, so bare `/tbox <group> on|off` always works.
 ### `/tbox list` views and filters
 
 ```
-/tbox list [--flat|--chars] [--active|--inactive]
+/tbox list [--flat] [--active|--inactive]
   --flat      one row per tool, no grouping
-  --chars     toolsets ranked by +chars descending (budgeting surface)
-  --active    show only active tools (--chars: hide +0 groups)
+  --active    show only active tools
   --inactive  show only inactive tools
 ```
 
 The default grouped view resolves overlapping toolsets by
 smallest-toolset-wins: each tool appears once under its most specific
-containing toolset, no duplication. `--chars` floats the most expensive
-toolsets to disable to the top, excluding builtins (the non-togglable
-floor). `--active` / `--inactive` combine with both views.
+containing toolset, no duplication. `--active` / `--inactive` let you
+focus on only the enabled or disabled tools.
+
+### `/tbox chars` — budget view
+
+```
+/tbox chars
+```
+
+Flat, ranked list of toolsets sorted by serialized character count
+descending (most expensive first). Builtins are excluded — they are the
+non-togglable floor. Toolsets with no active members (charging +0 chars)
+are omitted — they're not consuming budget, so there's nothing to save.
+No flags. Each line reports the toolset's active/inactive split and its
++chars cost.
 
 ## Concepts
 

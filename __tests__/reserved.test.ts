@@ -30,6 +30,7 @@ describe("reserved wordlist", () => {
 			"off",
 			"edit",
 			"remove",
+			"chars",
 		]) {
 			expect(isReserved(w)).toBe(true);
 		}
