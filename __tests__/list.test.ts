@@ -238,7 +238,7 @@ describe("formatGroupedList", () => {
 		expect(output).toContain("page-read");
 	});
 
-	it("shows toolset members as individual rows", () => {
+	it("shows single-member toolset as a row", () => {
 		mock.registerTool({
 			name: "web-learn",
 			description: "Web learn",

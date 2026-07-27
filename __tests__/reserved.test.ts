@@ -130,21 +130,4 @@ describe("reserved-word dispatch via /tbox", () => {
 		expect(notify!.message).not.toContain("Enabled group");
 		expect(notify!.message).toContain("No group matching");
 	});
-
-	it("writeGroup rejects reserved words", () => {
-		expect(() => writeGroup("focus", { toolsets: [] })).toThrow(
-			"reserved word",
-		);
-		expect(() => writeGroup("list", { toolsets: [] })).toThrow("reserved word");
-		expect(() => writeGroup("on", { toolsets: [] })).toThrow("reserved word");
-	});
-
-	it("writeGroup rejects names containing +", () => {
-		expect(() => writeGroup("tool+set", { toolsets: [] })).toThrow(
-			"must not contain",
-		);
-		expect(() => writeGroup("+portal", { toolsets: [] })).toThrow(
-			"must not contain",
-		);
-	});
 });

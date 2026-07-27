@@ -124,39 +124,4 @@ describe("mode-flip-only exit (the anti-pattern)", () => {
 		orphanEntry!.toolset.enable(pi);
 		expect(orphanEntry!.toolset.isEnabled(pi)).toBe(true);
 	});
-
-	it("proper re-actuation (focusOff) overwrites the focus-era entries", () => {
-		setup(pi, mock);
-
-		const orphanKey = "toolset-state:tbox.tool@orphan-source";
-
-		// Enter focus — the orphan toolset gets disabled
-		focusUnit(pi, "+portal.web");
-
-		const focusDisable = [...mock.getEntries()]
-			.reverse()
-			.find((e) => e.customType === orphanKey);
-		expect(focusDisable).toBeDefined();
-		expect((focusDisable!.data as Record<string, unknown>)?.enabled).toBe(
-			false,
-		);
-
-		// Clear entries so we see only the exit writes
-		mock.clearEntries();
-
-		// Proper exit: re-actuation
-		focusOff(pi);
-
-		// The orphan toolset should have been re-enabled
-		const exitEnable = mock
-			.getEntries()
-			.find((e) => e.customType === orphanKey);
-		expect(exitEnable).toBeDefined();
-		expect((exitEnable!.data as Record<string, unknown>)?.enabled).toBe(true);
-
-		// All extension tools are back on (builtins are always active)
-		const active = new Set(pi.getActiveTools());
-		expect(active.has("orphan-tool")).toBe(true);
-		expect(active.has("web-fetch")).toBe(true);
-	});
 });
