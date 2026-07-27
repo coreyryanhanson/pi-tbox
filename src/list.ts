@@ -31,6 +31,14 @@ interface ListOptions {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Push a "(no tools match)" fallback when the lines array has only the header. */
+function pushNoMatchFallback(lines: string[]): void {
+	if (lines.length <= 1) {
+		lines.push("  (no tools match the current filter)");
+		lines.push("");
+	}
+}
+
 /**
  * Build a map of tool name → smallest containing toolset entry.
  *
@@ -213,11 +221,7 @@ export function formatGroupedList(
 		lines.push("");
 	}
 
-	// If no lines beyond the header, say so
-	if (lines.length <= 1) {
-		lines.push("  (no tools match the current filter)");
-		lines.push("");
-	}
+	pushNoMatchFallback(lines);
 
 	return lines.join("\n").trimEnd();
 }
@@ -292,10 +296,7 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 		lines.push("");
 	}
 
-	if (lines.length <= 1) {
-		lines.push("  (no tools match the current filter)");
-		lines.push("");
-	}
+	pushNoMatchFallback(lines);
 
 	return lines.join("\n").trimEnd();
 }
@@ -339,10 +340,7 @@ export function formatFlatList(
 		lines.push(`  ${t.name}${status}  (${group})`);
 	}
 
-	if (lines.length <= 1) {
-		lines.push("  (no tools match the current filter)");
-		lines.push("");
-	}
+	pushNoMatchFallback(lines);
 
 	return lines.join("\n").trimEnd();
 }
@@ -455,8 +453,6 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 /**
  * Format the full status output for `/tbox status`.
  *
- * Grows over sprints — each subsystem lands its line when its sprint ships.
- *
  * @param pi - The extension API
  */
 export function formatStatus(pi: ExtensionAPI): string {
@@ -483,12 +479,12 @@ export function formatStatus(pi: ExtensionAPI): string {
 		const activeCount = builtinTools.filter((t) =>
 			activeSet.has(t.name),
 		).length;
+		const builtinPad = "\u00a0".repeat(Math.max(1, 20 - "pi.builtin".length));
 		lines.push(
-			`  pi.builtin        enabled  (${builtinTools.length} members, ${activeCount} active)`,
+			`  pi.builtin${builtinPad}enabled  (${builtinTools.length} members, ${activeCount} active)`,
 		);
 	}
 
-	// Subsystems not yet shipped report default-off/none
 	lines.push("");
 	const groupNames = getGroupNames();
 	lines.push(

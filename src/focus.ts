@@ -39,7 +39,7 @@ type ResolvedUnit =
  *   3. Bare input → resolve as a group name only (from config).
  *   4. Neither matches → error (no silent fallback between namespaces).
  */
-function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
+function resolveFocusUnit(input: string): ResolvedUnit {
 	// Builtin guard — reject the reserved id "pi.builtin".
 	if (input === "pi.builtin") {
 		return {
@@ -109,7 +109,7 @@ function resolveFocusUnit(_pi: ExtensionAPI, input: string): ResolvedUnit {
  * @returns A human-readable result or error message.
  */
 export function focusUnit(pi: ExtensionAPI, input: string): string {
-	const resolved = resolveFocusUnit(pi, input);
+	const resolved = resolveFocusUnit(input);
 	if (!resolved.ok) return resolved.error;
 
 	const allowlist = new Set(resolved.toolsetIds);

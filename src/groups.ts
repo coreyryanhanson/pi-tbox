@@ -221,6 +221,13 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size !== 1 ? "s" : ""} (${toolList}). State: ${state}.`;
 }
 
+/** Return an error when focus mode is active, or null if safe to proceed. */
+function checkFocusGuard(enable: boolean, noun: string): string | null {
+	const fu = getFocusUnit();
+	if (fu === null) return null;
+	return `Cannot ${enable ? "enable" : "disable"} ${noun} while in focus mode (${fu}). Run /tbox focus off first.`;
+}
+
 /**
  * Enable or disable every registered toolset (`/tbox all on|off`).
  *
@@ -230,11 +237,8 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
  * @returns A summary message.
  */
 export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
-	// Focus guard — mutual exclusion with focus mode
-	const fu = getFocusUnit();
-	if (fu !== null) {
-		return `Cannot ${enable ? "enable" : "disable"} all toolsets while in focus mode (${fu}). Run /tbox focus off first.`;
-	}
+	const guard = checkFocusGuard(enable, "all toolsets");
+	if (guard !== null) return guard;
 
 	const toolsets = getRegisteredToolsets();
 	let changed = 0;
@@ -267,10 +271,8 @@ export function actuateToolset(
 	id: string,
 	enable: boolean,
 ): string {
-	const fu = getFocusUnit();
-	if (fu !== null) {
-		return `Cannot ${enable ? "enable" : "disable"} a toolset while in focus mode (${fu}). Run /tbox focus off first.`;
-	}
+	const guard = checkFocusGuard(enable, "a toolset");
+	if (guard !== null) return guard;
 
 	const registry = getRegisteredToolsets();
 	const entry = registry.find((e) => e.spec.id === id);
@@ -289,10 +291,6 @@ export function actuateToolset(
 	entry.toolset.disable(pi);
 	return `Disabled toolset "${id}".`;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Actuation
@@ -316,11 +314,8 @@ export function actuateGroup(
 	name: string,
 	enable: boolean,
 ): string {
-	// Focus guard — mutual exclusion with focus mode
-	const fu = getFocusUnit();
-	if (fu !== null) {
-		return `Cannot ${enable ? "enable" : "disable"} a group while in focus mode (${fu}). Run /tbox focus off first.`;
-	}
+	const guard = checkFocusGuard(enable, "a group");
+	if (guard !== null) return guard;
 
 	const resolved = resolveGroup(name);
 	if ("error" in resolved) return resolved.error;

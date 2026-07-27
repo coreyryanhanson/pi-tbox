@@ -18,6 +18,14 @@ import { isExtensionTool } from "./chars.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/** The minimal UI context needed by slot rendering functions. */
+export interface SlotCtx {
+	ui: {
+		setStatus: (slot: string, text: string) => void;
+		theme: { fg: (color: string, text: string) => string };
+	};
+}
+
 /** The 4 possible slot states. */
 type SlotState =
 	| { kind: "pristine" }
@@ -104,15 +112,7 @@ export function renderSlotText(
 /**
  * Render the current slot state to the status bar.
  */
-export function render(
-	pi: ExtensionAPI,
-	ctx: {
-		ui: {
-			setStatus: (slot: string, text: string) => void;
-			theme: { fg: (color: string, text: string) => string };
-		};
-	},
-): void {
+export function render(pi: ExtensionAPI, ctx: SlotCtx): void {
 	const state = computeSlotState(pi);
 	// Bind: Theme.fg reads `this.fgColors`; passing it unbound loses `this`.
 	const text = renderSlotText(state, ctx.ui.theme.fg.bind(ctx.ui.theme));
@@ -179,14 +179,7 @@ export function getFocusUnit(): string | null {
  * TOOLSET_EVENTS before the tbox handler sets lastCtx.
  */
 /** Module-level ref to the wired getCtx so non-event callers can repaint. */
-let _getCtx:
-	| (() => {
-			ui: {
-				setStatus: (slot: string, text: string) => void;
-				theme: { fg: (color: string, text: string) => string };
-			};
-	  } | null)
-	| null = null;
+let _getCtx: (() => SlotCtx | null) | null = null;
 
 /**
  * Repaint the slot now from the wired context (no-op if unwired or
@@ -199,15 +192,7 @@ export function rerenderSlot(pi: ExtensionAPI): void {
 	if (ctx) render(pi, ctx);
 }
 
-export function wireSlot(
-	pi: ExtensionAPI,
-	getCtx: () => {
-		ui: {
-			setStatus: (slot: string, text: string) => void;
-			theme: { fg: (color: string, text: string) => string };
-		};
-	} | null,
-): void {
+export function wireSlot(pi: ExtensionAPI, getCtx: () => SlotCtx | null): void {
 	_getCtx = getCtx;
 	// Re-render on toolset changes
 	const onChange = () => {

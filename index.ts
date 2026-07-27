@@ -21,6 +21,7 @@ import {
 	clearSlot,
 	setFocusUnit,
 	restoreFocusUnit,
+	type SlotCtx,
 } from "./src/status-slot.js";
 import {
 	formatBareHelp,
@@ -55,12 +56,7 @@ import { focusUnit, focusOff } from "./src/focus.js";
  */
 export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Capture the session context so TOOLSET_EVENTS can re-render ---
-	let lastCtx: {
-		ui: {
-			setStatus: (slot: string, text: string) => void;
-			theme: { fg: (color: string, text: string) => string };
-		};
-	} | null = null;
+	let lastCtx: SlotCtx | null = null;
 
 	const USAGE =
 		"/tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off";
@@ -197,12 +193,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	const captureAndRender = async (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds);
-		lastCtx = ctx as unknown as {
-			ui: {
-				setStatus: (slot: string, text: string) => void;
-				theme: { fg: (color: string, text: string) => string };
-			};
-		};
+		lastCtx = ctx as unknown as SlotCtx;
 		restoreFocusUnit(
 			ctx as unknown as {
 				sessionManager: { getBranch: () => unknown[] };
