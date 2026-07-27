@@ -29,13 +29,6 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
-/** Returns true if the tool is a core tool (builtin or sdk). */
-export function isCoreTool(tool: ToolInfo): boolean {
-	return (
-		tool.sourceInfo.source === "builtin" || tool.sourceInfo.source === "sdk"
-	);
-}
-
 // ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------
@@ -85,7 +78,7 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	for (const tool of allTools) {
 		if (!activeNames.has(tool.name)) continue;
 		const len = serializeToolDef(tool).length;
-		if (isCoreTool(tool)) {
+		if (!isExtensionTool(tool)) {
 			result.core += len;
 		} else {
 			result.extension += len;

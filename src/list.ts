@@ -13,8 +13,8 @@ import { getFocusUnit } from "./status-slot.js";
 import {
 	computeCharCount,
 	formatCharSplit,
+	isExtensionTool,
 	serializeToolDef,
-	isCoreTool,
 } from "./chars.js";
 import { getGroupNames } from "./groups.js";
 
@@ -74,7 +74,7 @@ function activeExtensionChars(
 		activeCount++;
 		const tool = allToolsMap.get(name);
 		if (!tool) continue;
-		if (isCoreTool(tool)) continue;
+		if (!isExtensionTool(tool)) continue;
 		charCount += serializeToolDef(tool).length;
 	}
 	return { activeCount, charCount };
@@ -224,7 +224,9 @@ export function formatGroupedList(
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
 		if (!entry) {
-			// Non-toolset group — builtins or orphan extension tools
+			// Non-toolset group — builtins only (orphan extension tools
+			// are auto-registered as tbox.tool@<source> toolsets by
+			// autoRegisterBuiltinAndOrphans before this point).
 			if (tools[0]?.sourceInfo.source === "builtin") {
 				// Deliberate builtin branch: always-on, non-togglable
 				let activeCount = 0;
@@ -238,24 +240,6 @@ export function formatGroupedList(
 				totalCoreChars += charCount;
 				lines.push(
 					`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
-				);
-				for (const t of tools) {
-					const status = activeSet.has(t.name) ? "" : " (inactive)";
-					lines.push(`    ${t.name}${status}`);
-				}
-			} else {
-				// Orphan extension tools not in any toolset
-				const { activeCount, charCount } = activeExtensionChars(
-					tools.map((t) => t.name),
-					activeSet,
-					allToolsMap,
-				);
-				const inactiveCount = tools.length - activeCount;
-				totalActive += activeCount;
-				totalInactive += inactiveCount;
-				totalExtChars += charCount;
-				lines.push(
-					`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
 				);
 				for (const t of tools) {
 					const status = activeSet.has(t.name) ? "" : " (inactive)";
