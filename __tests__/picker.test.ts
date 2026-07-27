@@ -39,6 +39,9 @@ const KEY = {
 	enter: "\r",
 	escape: "\x1B",
 	save: "\x13", // ctrl+s
+	enableAll: "\x01", // ctrl+a
+	clearAll: "\x18", // ctrl+x
+	backspace: "\x7F",
 };
 
 // ---------------------------------------------------------------------------
@@ -447,6 +450,137 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 
 		expect(cancelled).toBe(true);
 		expect(saved).toBe(false);
+	});
+});
+
+describe("picker — Ctrl+A (enableAll) with forward closure", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setupRichRegistry(mock, pi);
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
+	});
+
+	afterEach(() => {
+		setGroupsOverrideForTests(null);
+		MockPI.cleanRegistry();
+	});
+
+	it("checks every filtered item and runs forward closure", () => {
+		const comp = createComp({ initial: { toolsets: [] } });
+
+		comp.handleInput(KEY.enableAll);
+
+		// Every unit is checked
+		for (const u of comp.filteredItems) {
+			expect(comp.checkedToolsets.has(u.id)).toBe(true);
+		}
+
+		// Forward closure applied on bulk-enable (portal.learn requires portal.web)
+		expect(comp.checkedToolsets.has("portal.learn")).toBe(true);
+		expect(comp.checkedToolsets.has("portal.web")).toBe(true);
+
+		// Dirty flag set
+		expect(comp.isDirty).toBe(true);
+	});
+
+	it("ctrl+x (clearAll) unchecks every filtered item", () => {
+		const comp = createComp({
+			initial: {
+				toolsets: ["portal.web", "portal.learn", "host.api"],
+			},
+		});
+
+		comp.handleInput(KEY.clearAll);
+
+		for (const u of comp.filteredItems) {
+			expect(comp.checkedToolsets.has(u.id)).toBe(false);
+		}
+
+		expect(comp.isDirty).toBe(true);
+	});
+});
+
+describe("picker — search typing and backspace", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setupRichRegistry(mock, pi);
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
+	});
+
+	afterEach(() => {
+		setGroupsOverrideForTests(null);
+		MockPI.cleanRegistry();
+	});
+
+	it("typing narrows filtered items; backspace restores", () => {
+		const comp = createComp();
+		const total = comp.filteredItems.length;
+		expect(total).toBe(5); // full list (5 toolsets in rich fixture)
+
+		// Type "x" — fuzzy-matches "ext-a" and "ext-b" (2 items)
+		comp.handleInput("x");
+		expect(comp.filteredItems.length).toBe(2);
+		expect(comp.searchValue).toBe("x");
+		expect(comp.selectedIndex).toBe(0);
+
+		// Type "a" — narrows to "ext-a" only (1 item)
+		comp.handleInput("a");
+		expect(comp.filteredItems.length).toBe(1);
+		expect(comp.searchValue).toBe("xa");
+
+		// Backspace — restores to "x"
+		comp.handleInput(KEY.backspace);
+		expect(comp.searchValue).toBe("x");
+		expect(comp.filteredItems.length).toBe(2);
+		expect(comp.selectedIndex).toBe(0);
+
+		// Backspace again — restores to full
+		comp.handleInput(KEY.backspace);
+		expect(comp.searchValue).toBe("");
+		expect(comp.filteredItems.length).toBe(total);
+		expect(comp.selectedIndex).toBe(0);
+	});
+
+	it("backspace on empty search is a no-op", () => {
+		const comp = createComp();
+		const total = comp.filteredItems.length;
+
+		// Search is already empty
+		comp.handleInput(KEY.backspace);
+		expect(comp.searchValue).toBe("");
+		expect(comp.filteredItems.length).toBe(total);
+	});
+
+	it("escape clears search before cancelling", () => {
+		let cancelled = false;
+		const comp = createComp({
+			onCancel: () => {
+				cancelled = true;
+			},
+		});
+
+		// Type a search first
+		comp.handleInput("h");
+		expect(comp.searchValue).toBe("h");
+
+		// Escape should clear search, not cancel
+		comp.handleInput(KEY.escape);
+		expect(comp.searchValue).toBe("");
+		expect(cancelled).toBe(false);
+
+		// Second escape cancels
+		comp.handleInput(KEY.escape);
+		expect(cancelled).toBe(true);
 	});
 });
 

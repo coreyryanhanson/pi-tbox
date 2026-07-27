@@ -22,8 +22,6 @@ import { getGroupNames } from "./groups.js";
 // ---------------------------------------------------------------------------
 
 interface ListOptions {
-	flat?: boolean;
-	byChars?: boolean;
 	active?: boolean;
 	inactive?: boolean;
 }
@@ -444,16 +442,14 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 	}
 
 	const options: ListOptions = {
-		flat: flags.has("flat"),
-		byChars: flags.has("chars"),
 		active: flags.has("active"),
 		inactive: flags.has("inactive"),
 	};
 
-	if (options.byChars) {
+	if (flags.has("chars")) {
 		return formatByChars(pi, options);
 	}
-	if (options.flat) {
+	if (flags.has("flat")) {
 		return formatFlatList(pi, options);
 	}
 	return formatGroupedList(pi, options);
