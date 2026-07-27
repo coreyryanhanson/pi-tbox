@@ -23,17 +23,19 @@
 			"default": "./index.ts"
 		}
 	},
-	"files": [
+  "files": [
 		"index.ts",
 		"src/",
 		"config/",
+		"assets/",
 		"LICENSE",
 		"README.md"
 	],
-	"pi": {
+  "pi": {
 		"extensions": [
 			"./index.ts"
-		]
+		],
+		"image": "https://raw.githubusercontent.com/coreyryanhanson/pi-tbox/main/assets/tbox-dino.webp"
 	},
 	"scripts": {
 		"test": "vitest run",
