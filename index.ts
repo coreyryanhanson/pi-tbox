@@ -62,10 +62,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		};
 	} | null = null;
 
+	const USAGE =
+		"/tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off";
+
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
-		description:
-			"Cross-extension tool manager. Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
+		description: "Cross-extension tool manager. Usage: " + USAGE,
 		handler: async (args, ctx) => {
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -76,10 +78,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			const { command, rest } = parseArgs(trimmed);
 
 			if (!command) {
-				ctx.ui.notify(
-					"Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off",
-					"info",
-				);
+				ctx.ui.notify("Usage: " + USAGE, "info");
 				return;
 			}
 
@@ -175,7 +174,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					// never collides with subcommands.
 					if (isReserved(command)) {
 						ctx.ui.notify(
-							`Unknown subcommand: "${command}". Usage: /tbox [list|status|all|focus|group] | /tbox <group> on|off | /tbox +<toolset> on|off`,
+							`Unknown subcommand: "${command}". Usage: ${USAGE}`,
 							"error",
 						);
 						break;
@@ -195,61 +194,25 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 	// --- Session handlers ---
 
-	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
-		// Auto-register toolsets from the current tool population
+	const captureAndRender = async (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-
-		// Actuate any toolsets registered in this call — the library's restore
-		// handler already fired before they were registered, so they'd otherwise
-		// never get their defaultEnabled state applied.
 		actuateNewToolsets(pi, newIds);
-
-		// Capture ctx for TOOLSET_EVENTS re-render
 		lastCtx = ctx as unknown as {
 			ui: {
 				setStatus: (slot: string, text: string) => void;
 				theme: { fg: (color: string, text: string) => string };
 			};
 		};
-
-		// Restore the focus-unit label from the branch before rendering so
-		// the `● focus:<unit>` glyph repaints on resume (Fix 2 — cosmetic).
 		restoreFocusUnit(
 			ctx as unknown as {
 				sessionManager: { getBranch: () => unknown[] };
 			},
 		);
-
-		// Render the slot at the END of the capture handler (§6 fix)
 		render(pi, lastCtx);
-	});
+	};
 
-	pi.on("session_tree", async (_event, ctx: ExtensionContext) => {
-		// Re-run auto-registration for the fresh branch
-		const newIds = autoRegisterBuiltinAndOrphans(pi);
-
-		// Actuate any toolsets registered in this call (restore-timing fix)
-		actuateNewToolsets(pi, newIds);
-
-		// Capture ctx for TOOLSET_EVENTS re-render
-		lastCtx = ctx as unknown as {
-			ui: {
-				setStatus: (slot: string, text: string) => void;
-				theme: { fg: (color: string, text: string) => string };
-			};
-		};
-
-		// Restore the focus-unit label from the branch before rendering so
-		// the `● focus:<unit>` glyph repaints on resume (Fix 2 — cosmetic).
-		restoreFocusUnit(
-			ctx as unknown as {
-				sessionManager: { getBranch: () => unknown[] };
-			},
-		);
-
-		// Render the slot at the END of the capture handler (§6 fix)
-		render(pi, lastCtx);
-	});
+	pi.on("session_start", (_event, ctx) => captureAndRender(ctx));
+	pi.on("session_tree", (_event, ctx) => captureAndRender(ctx));
 
 	pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
 		clearSlot(

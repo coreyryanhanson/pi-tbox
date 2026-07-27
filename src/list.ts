@@ -21,7 +21,7 @@ import { getGroupNames } from "./groups.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ListOptions {
+interface ListOptions {
 	flat?: boolean;
 	byChars?: boolean;
 	active?: boolean;
@@ -52,6 +52,29 @@ function smallestToolsetMap(
 		}
 	}
 	return map;
+}
+
+/** Count active extension tools and their serialized char total. */
+function activeExtensionChars(
+	names: Iterable<string>,
+	activeSet: Set<string>,
+	allToolsMap: Map<string, ToolInfo>,
+): { activeCount: number; charCount: number } {
+	let activeCount = 0;
+	let charCount = 0;
+	for (const name of names) {
+		if (!activeSet.has(name)) continue;
+		activeCount++;
+		const tool = allToolsMap.get(name);
+		if (!tool) continue;
+		if (
+			tool.sourceInfo.source === "builtin" ||
+			tool.sourceInfo.source === "sdk"
+		)
+			continue;
+		charCount += serializeToolDef(tool).length;
+	}
+	return { activeCount, charCount };
 }
 
 /**
@@ -143,17 +166,11 @@ export function formatGroupedList(
 				}
 			} else {
 				// Orphan extension tools not in any toolset
-				let activeCount = 0;
-				let charCount = 0;
-				for (const t of tools) {
-					if (!activeSet.has(t.name)) continue;
-					activeCount++;
-					if (
-						t.sourceInfo.source !== "builtin" &&
-						t.sourceInfo.source !== "sdk"
-					)
-						charCount += serializeToolDef(t).length;
-				}
+				const { activeCount, charCount } = activeExtensionChars(
+					tools.map((t) => t.name),
+					activeSet,
+					allToolsMap,
+				);
 				const inactiveCount = tools.length - activeCount;
 				totalActive += activeCount;
 				totalInactive += inactiveCount;
@@ -173,20 +190,11 @@ export function formatGroupedList(
 		const label = entry.spec.label ?? gid;
 
 		// header reflects full toolset state; filter controls row visibility only
-		let activeCount = 0;
-		let charCount = 0;
-		for (const name of entry.spec.names) {
-			if (!activeSet.has(name)) continue;
-			activeCount++;
-			const tool = allToolsMap.get(name);
-			if (!tool) continue;
-			if (
-				tool.sourceInfo.source === "builtin" ||
-				tool.sourceInfo.source === "sdk"
-			)
-				continue;
-			charCount += serializeToolDef(tool).length;
-		}
+		const { activeCount, charCount } = activeExtensionChars(
+			entry.spec.names,
+			activeSet,
+			allToolsMap,
+		);
 		const inactiveCount = entry.spec.names.size - activeCount;
 		totalActive += activeCount;
 		totalInactive += inactiveCount;
@@ -250,20 +258,11 @@ export function formatByChars(pi: ExtensionAPI, options?: ListOptions): string {
 	for (const entry of toolsets) {
 		const label = entry.spec.label ?? entry.spec.id;
 
-		let activeCount = 0;
-		let charCount = 0;
-		for (const name of entry.spec.names) {
-			if (!activeSet.has(name)) continue;
-			activeCount++;
-			const tool = allToolsMap.get(name);
-			if (!tool) continue;
-			if (
-				tool.sourceInfo.source === "builtin" ||
-				tool.sourceInfo.source === "sdk"
-			)
-				continue;
-			charCount += serializeToolDef(tool).length;
-		}
+		const { activeCount, charCount } = activeExtensionChars(
+			entry.spec.names,
+			activeSet,
+			allToolsMap,
+		);
 		const inactiveCount = entry.spec.names.size - activeCount;
 
 		// --by-chars --active hides fully-disabled groups
@@ -383,7 +382,7 @@ const KNOWN_LIST_FLAGS = new Set([
 // Dispatch
 // ---------------------------------------------------------------------------
 
-export interface ParsedArgs {
+interface ParsedArgs {
 	command: string | undefined;
 	flags: Set<string>;
 	rest: string[];

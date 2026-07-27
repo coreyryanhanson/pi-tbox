@@ -64,7 +64,6 @@ export function resolveGroup(
 export interface PickerUnit {
 	id: string;
 	label: string;
-	type: "toolset";
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +84,6 @@ export function buildPickerUnits(): PickerUnit[] {
 		units.push({
 			id: entry.spec.id,
 			label: `${label} (${entry.spec.names.size} tools)`,
-			type: "toolset",
 		});
 	}
 

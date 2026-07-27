@@ -18,7 +18,7 @@ import { TOOLSET_EVENTS } from "pi-tool-masking";
 // ---------------------------------------------------------------------------
 
 /** The 4 possible slot states. */
-export type SlotState =
+type SlotState =
 	| { kind: "pristine" }
 	| { kind: "count"; n: number }
 	| { kind: "focus"; unit: string; count: number }
