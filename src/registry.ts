@@ -41,7 +41,7 @@ export function orphanToolsetId(source: string): string {
 
 /** Build a persist key for a given orphan source. */
 function orphanPersistKey(source: string): string {
-	return `toolset-state:tbox.tool@${source}`;
+	return `toolset-state:${orphanToolsetId(source)}`;
 }
 
 // ---------------------------------------------------------------------------
