@@ -182,7 +182,7 @@ describe("/tbox focus", () => {
 	});
 
 	describe("on a toolset", () => {
-		it("enables target + cascade (deps + dependents), disables others", () => {
+		it("enables target + forward-closure deps, disables dependents and others", () => {
 			setup(pi, mock);
 
 			const result = focusUnit(pi, "+portal.web");
@@ -194,9 +194,11 @@ describe("/tbox focus", () => {
 			expect(active.has("web-fetch")).toBe(true);
 			expect(active.has("browser-navigate")).toBe(true);
 			expect(active.has("page-read")).toBe(true);
-			// portal.learn requires portal.web — the library's enable()
-			// cascades both ways, so it stays on (cascaded from portal.web)
-			expect(active.has("web-learn")).toBe(true);
+			// portal.learn requires portal.web but is NOT in the allowlist —
+			// the library's enable cascade is forward-only (deps), so focusing
+			// portal.web does not pull its dependents in. The second pass
+			// disables it. Matches /tbox +portal.web on behaviour.
+			expect(active.has("web-learn")).toBe(false);
 			// orphan tools from other sources are disabled
 			expect(active.has("lens-tool-0")).toBe(false);
 			expect(active.has("lens-tool-1")).toBe(false);
@@ -225,7 +227,7 @@ describe("/tbox focus", () => {
 	});
 
 	describe("on a group", () => {
-		it("focuses the group's toolsets + forward/reverse closure", () => {
+		it("focuses the group's toolsets + forward requires closure", () => {
 			setGroupsOverrideForTests({
 				mylearn: { toolsets: ["portal.learn"] },
 			});
@@ -453,9 +455,10 @@ describe("/tbox focus", () => {
 			// The new tool should be off (inclusion mode)
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("new-tool")).toBe(false);
-			// focus tools + cascaded stay on
+			// focus tools stay on; portal.learn was not in the allowlist so it
+			// was disabled by focus and stays off on restore
 			expect(active.has("web-fetch")).toBe(true);
-			expect(active.has("web-learn")).toBe(true);
+			expect(active.has("web-learn")).toBe(false);
 		});
 
 		it("after focus off, new toolset respects defaultEnabled under exclusion", () => {
@@ -501,13 +504,11 @@ describe("/tbox focus", () => {
 		it("already-enabled allowlisted toolset persists entry so it survives inclusion-mode restore", () => {
 			setup(pi, mock);
 
-			// portal.learn requires portal.web. Before focus, portal.web
-			// AND portal.learn are both already enabled (pre-focus state).
-			// If focus focuses portal.web and portal.learn is already enabled,
-			// the old code would skip writing {enabled:true} for portal.learn
-			// (because isEnabled → true → focus skips enable() entirely).
-			// That meant on restore in inclusion mode, portal.learn (no entry)
-			// defaults to off — the exact bug the user reported.
+			// Focus +portal.web when portal.web is already enabled. Focus
+			// skips calling enable() on it, but must still persist
+			// {enabled:true} so inclusion-mode restore keeps it on.
+			// portal.learn (requires portal.web) is NOT in the allowlist —
+			// focus disables it and persists {enabled:false}.
 
 			// Confirm pre-state: both already enabled
 			expect(new Set(pi.getActiveTools()).has("web-fetch")).toBe(true);
@@ -516,28 +517,27 @@ describe("/tbox focus", () => {
 			// Clear entries so focus writes fresh ones
 			mock.clearEntries();
 
-			// Focus portal.web — portal.learn is already enabled so focus
-			// skips calling enable() on it; my fix explicitly persists the slot.
 			focusUnit(pi, "+portal.web");
 
-			// portal.learn must have a persisted {enabled:true} entry
-			// even though focus didn't toggle it
-			const learnEntries = mock
+			// portal.web must have a persisted {enabled:true} entry even
+			// though focus didn't toggle it
+			const webEntries = mock
 				.getEntries()
-				.filter((e) => e.customType === "toolset-state:portal.learn");
-			expect(learnEntries.length).toBeGreaterThan(0);
-			const lastLearn = learnEntries[learnEntries.length - 1]!.data as Record<
+				.filter((e) => e.customType === "toolset-state:portal.web");
+			expect(webEntries.length).toBeGreaterThan(0);
+			const lastWeb = webEntries[webEntries.length - 1]!.data as Record<
 				string,
 				unknown
 			>;
-			expect(lastLearn?.enabled).toBe(true);
+			expect(lastWeb?.enabled).toBe(true);
 
 			// Simulate restore (fresh globalThis, no in-memory mode)
 			mock.emit("toolset:restored", {});
 
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("web-fetch")).toBe(true);
-			expect(active.has("web-learn")).toBe(true);
+			// portal.learn was disabled by focus and stays off on restore
+			expect(active.has("web-learn")).toBe(false);
 		});
 	});
 

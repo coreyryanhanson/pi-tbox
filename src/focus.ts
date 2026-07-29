@@ -3,10 +3,8 @@
  *
  * Focus is **single-unit**: one group name or one toolset id —
  * but never a builtin. The resolved unit + its forward `requires`
- * closure AND reverse `dependents` closure (matching the library's
- * bi-directional enable cascade) becomes the allowlist; every other
- * toolset is disabled. On exit,
- * **re-actuation** (not mode flip) drives every toolset back to its
+ * closure becomes the allowlist; every other toolset is disabled. On
+ * exit, **re-actuation** (not mode flip) drives every toolset back to its
  * `spec.defaultEnabled`, overwriting the focus-era entries.
  *
  * @module
@@ -17,7 +15,7 @@ import {
 	getRegisteredToolsets,
 	setDefaultResolutionMode,
 } from "pi-tool-masking";
-import { forwardClosure, reverseClosure } from "./requires-graph.js";
+import { forwardClosure } from "./requires-graph.js";
 import { resolveGroup } from "./groups.js";
 import { setFocusUnit, rerenderSlot, persistFocusUnit } from "./status-slot.js";
 
@@ -61,11 +59,17 @@ function resolveFocusUnit(input: string): ResolvedUnit {
 				error: `No toolset matching "${toolsetId}".`,
 			};
 		}
-		const union = new Set([
-			...forwardClosure([toolsetId]),
-			...reverseClosure([toolsetId]),
-		]);
-		return { ok: true, toolsetIds: [...union], label: toolsetId };
+		// Forward closure only (requires deps). The library's enable cascade
+		// is forward-only (pi-tool-masking _enableToolset recurses into
+		// spec.requires, never dependents). Including reverseClosure here
+		// would pull dependents (e.g. web-learn for web) into the allowlist
+		// and focus's enable pass would turn them on — diverging from
+		// /tbox <group> on, which only enables the group's own toolsets.
+		return {
+			ok: true,
+			toolsetIds: [...forwardClosure([toolsetId])],
+			label: toolsetId,
+		};
 	}
 
 	// --- Bare → group ---
@@ -78,10 +82,15 @@ function resolveFocusUnit(input: string): ResolvedUnit {
 				error: `Group "${input}" has no toolsets. Add toolsets via /tbox group ${input} edit, then focus.`,
 			};
 		}
-		// Expand group toolsets + both-direction closure so the library's
-		// enable cascade (which goes both ways) matches the allowlist.
-		const union = new Set([...forwardClosure(ids), ...reverseClosure(ids)]);
-		return { ok: true, toolsetIds: [...union], label: `group:${input}` };
+		// Forward closure only — see the toolset branch above for why
+		// reverseClosure must stay out of the allowlist. The second pass
+		// disables any non-allowlisted toolset directly, so dependents
+		// the user didn't select are turned off, not on.
+		return {
+			ok: true,
+			toolsetIds: [...forwardClosure(ids)],
+			label: `group:${input}`,
+		};
 	}
 
 	return {
@@ -98,13 +107,12 @@ function resolveFocusUnit(input: string): ResolvedUnit {
  * Enter focus on a single unit.
  *
  * 1. Resolves the unit to an allowlist of toolset ids (+ forward requires
- *    + reverse dependents closure, so the library's bi-directional enable
- *    cascade matches the allowlist).
+ *    closure, so deps the library would cascade on enable are covered).
  * 2. Sets inclusion mode so unknown toolsets default off.
  * 3. Enables every toolset in the allowlist (first pass — the library
- *    cascades deps + dependents naturally).
- * 4. Disables every toolset NOT in the allowlist and NOT cascaded by the
- *    library (second pass).
+ *    cascades forward deps naturally).
+ * 4. Disables every toolset NOT in the allowlist (second pass). Dependent
+ *    toolsets the user didn't select are turned off here, not pulled in.
  *
  * @returns A human-readable result or error message.
  */
@@ -129,7 +137,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	// ponytail: two-pass approach relies on synchronous enable(). If the
 	// library ever adds async enable/disable, the disable pass would race
 	// the cascade — guard with a flush/tick before the second pass.
-	// First pass: enable allowlist members (library cascades deps + dependents).
+	// First pass: enable allowlist members (library cascades forward deps).
 	// For toolsets already in the desired state, still persist the entry so
 	// that inclusion-mode restore can find it and doesn't default them off.
 	let enabled = 0;
@@ -147,12 +155,10 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 		}
 	}
 
-	// Second pass: disable non-allowlist toolsets that aren't cascaded.
-	// The library's enable() cascades both forward (requires) and reverse
-	// (dependents). After the enable pass, any toolset that's now enabled
-	// but NOT in the allowlist was pulled in by the cascade — skip it.
-	// Only disable toolsets that are still NOT in the allowlist and are
-	// currently enabled exclusively from pre-focus state.
+	// Second pass: disable non-allowlist toolsets. The library's enable()
+	// cascade is forward-only (requires), so dependents are never pulled in
+	// by the first pass — a pre-enabled dependent is still on and gets
+	// disabled here. disable() won't cascade back up a requires edge.
 	let disabled = 0;
 
 	for (const entry of registry) {

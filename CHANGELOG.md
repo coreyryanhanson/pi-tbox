@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/tbox focus` no longer enables dependents the user didn't select.**
+  `resolveFocusUnit` was building the focus allowlist from the union of the
+  forward `requires` closure *and* the reverse dependents closure,
+  justified by a comment claiming the library's enable cascade runs both
+  directions. It does not — `pi-tool-masking`'s `_enableToolset` recurses
+  into `spec.requires` only; the reverse walk (`_disableDependents`) runs
+  exclusively on `disable()`. The spurious reverse closure pulled any
+  toolset that transitively `requires` a focused toolset into the
+  allowlist, and focus's enable pass then turned those dependents on —
+  diverging from `/tbox <group> on` and `/tbox +<toolset> on`, which only
+  enable the declared toolsets and let the library cascade forward deps.
+  The fix drops `reverseClosure` from the allowlist in both the
+  `+<toolset>` and bare-group branches; the second pass already disables
+  any non-allowlisted toolset directly, so dependents are now turned off,
+  not on. Tests that encoded the old both-directions assumption were
+  corrected.
+
 ## [0.1.0] - 2026-07-27
 
 ### Added

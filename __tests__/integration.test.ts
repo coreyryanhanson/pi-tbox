@@ -500,7 +500,7 @@ describe("integration — multi-extension registry", () => {
 		expect(active).toContain("bash");
 	});
 
-	it("focus on a group with closure keeps dependents on", () => {
+	it("focus on a group keeps the group + forward requires closure on", () => {
 		writeGroup("web-group", { toolsets: ["portal.learn"] });
 
 		const msg = focusUnit(pi, "web-group");
