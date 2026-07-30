@@ -139,6 +139,22 @@ reaches `focusOff` or `actuateNewToolsets`. `cleanRegistry()` is already
 present in these files per AGENTS.md; keep its existing call and add the
 settings pin alongside it in the same `beforeEach`.
 
+**Implementation notes:**
+
+- `__tests__/focus.test.ts` has `cleanRegistry()` in `beforeEach` but
+  **no existing `afterEach`** — a new `afterEach` block must be created
+  for the `setSettingsOverrideForTests(null)` restore, not just edited
+  into an existing one.
+- `__tests__/restore.test.ts` fires `session_start`/`session_tree`
+  (many sites), which triggers `doRestore` → `readMergedToolsetDefaults()`
+  (a disk read when `_settingsOverride` is null). This is a **pre-existing
+  latent path** independent of these sprints — the library already calls
+  `readMergedToolsetDefaults` in `doRestore`. Flake risk is low because
+  those tests assert on registry IDs / slot renders, not toolset enabled
+  states. The audit step should confirm no assertion reaches the swapped
+  call sites before deciding to leave it untouched; if in doubt, pin it
+  too (a pinned `{}` is non-disruptive per the acceptance criteria).
+
 ### Acceptance criteria
 
 - [ ] Every test file that reaches `focusOff` or `actuateNewToolsets` has
@@ -259,6 +275,16 @@ for (const entry of registry) {
 }
 ```
 
+**Note on intentional redundancy:** for a currently-enabled non-allowlist
+  toolset, `appendEntry({ enabled: false })` is now called twice — once
+  unconditionally above, once inside `disable()` (which internally calls
+  `appendEntry`). Both write the same `{ enabled: false }` value, so
+  last-writer-wins makes the second a harmless no-op. The unconditional
+  call is a *superset* of what `disable()` writes: it covers the
+  already-off case (no `disable()` call) that the fix targets. Do not
+  "optimize" the unconditional call away by relying on `disable()` —
+  that reintroduces the leak for already-off toolsets.
+
 The `focusOff` swap from Sprint 3 then correctly restores each toolset to
 its settings-or-packaged default on exit (chat-branch entry overwritten
 by re-actuation).
@@ -317,6 +343,18 @@ args into its `flags: Set<string>` output):
   `defaultsShow()`
 - anything else → usage message
 
+**Flag handling — mirror `list`, don't diverge:** `list` (`src/list.ts`)
+  both supports `--help` and rejects unknown flags (`Error: unknown flag
+  --foo. See: /tbox list --help.`). Do the same here: a `KNOWN_DEFAULTS_
+  FLAGS = new Set(["global", "project", "help"])` allowlist, `--help`
+  prints a `DEFAULTS_HELP` block before any other check, and any `--`-flag
+  not in the set → `Error: unknown flag --foo. See: /tbox defaults --help.`
+  This is design-faithful (the design says "unsupported → usage message,
+  no write") and prevents typo-silent-no-op bugs (e.g. `--gloal` silently
+  resolving to no scope instead of erroring). The cost is a few lines
+  that parallel `list`'s pattern — ponytail-clean because the pattern
+  already exists in this repo, not a new abstraction.
+
 **Scope resolution helper** (shared by `save` / `clear`):
 
 ```ts
@@ -347,13 +385,17 @@ convention):
    Build the flat `{ [persistKey]: boolean }` map.
 3. Call `writeToolsetDefaults(map, scope)`.
 4. **Output:** `Saved <N> toolset defaults to <path> (<scope>).` where
-   `<path>` is the resolved settings file path for the scope. Reuse the
-   library's path resolution if exported; otherwise compute it the same
-   way the library does (global → `PI_CODING_AGENT_DIR ?? ~/.pi/agent`,
-   project → `process.cwd()/.pi`). **Ponytail ceiling:** if the path
-   isn't exported, duplicate the ~3-line resolver rather than add a
-   dependency — note it as `ponytail:` with the upgrade path "promote
-   `settingsPath` in the library."
+   `<path>` is the resolved **settings file path** (not the directory) for
+   the scope. Reuse the library's path resolution if exported; otherwise
+   compute it the same way the library does — **global →
+   `<PI_CODING_AGENT_DIR ?? ~/.pi/agent>/settings.json`, project →
+   `<process.cwd()/.pi>/settings.json`** (the `settings.json` filename is
+   load-bearing: the directories alone are not the file path, and getting
+   this wrong shows the wrong path in the success message). **Ponytail
+   ceiling:** if the path isn't exported (`settingsPath` is currently
+   private in the library), duplicate the ~3-line resolver rather than
+   add a dependency — note it as `ponytail:` with the upgrade path
+   "promote `settingsPath` in the library."
 
 The handler needs `ctx` (for `sessionManager`) and `pi` (for the
 focus-active check), so it takes the same `(pi, ctx, scope)` shape the
@@ -398,7 +440,8 @@ Sort rows by `persistKey` for deterministic output (tests rely on it).
 
 - `src/reserved.ts` (add word)
 - `index.ts` (dispatch branch)
-- `src/defaults.ts` (new — handlers) **or** inline in `index.ts`
+- `src/defaults.ts` (new — handlers + `KNOWN_DEFAULTS_FLAGS` /
+  `DEFAULTS_HELP` constants) **or** inline in `index.ts`
 - `__tests__/reserved.test.ts` (add `"defaults"` to the reserved-word
   assertion, if not already parameterized)
 
@@ -411,6 +454,10 @@ Sort rows by `persistKey` for deterministic output (tests rely on it).
 - [ ] `/tbox defaults save --global` and `--project` each snapshot live
       branch toggles to the correct scope's file; missing/both/other
       flags → usage, no write.
+- [ ] `/tbox defaults --help` (and `defaults save --help`, etc.) prints a
+      help block before any other check; unknown `--` flags (e.g.
+      `--foo`, `--gloal`) → `Error: unknown flag --foo. See: /tbox
+      defaults --help.`, no write — mirroring `list`'s convention.
 - [ ] `save` output names the scope, the count of entries written, and
       the file path.
 - [ ] `save` is **refused while focus is active** with the focus-active
@@ -472,8 +519,10 @@ Mirror the `setGroupsOverrideForTests` pattern from
   `global` / `project` state); count + scope routing.
 - `save` refused during focus (seed focus-active state, assert no write
   captured).
-- `save` usage errors for missing/both flags (assert no write captured).
-- `clear` `true`/`false` via the writer seam; usage errors for bad flags.
+- `save` usage errors for missing/both flags and for unknown `--` flags
+  (assert no write captured); `--help` prints the help block.
+- `clear` `true`/`false` via the writer seam; usage errors for bad or
+  unknown flags.
 - `save` last-writer-wins: append two branch entries for one
   `persistKey` with different `enabled`, assert only the final value is
   written.
