@@ -163,7 +163,7 @@ toolset uses its packaged default (spec.defaultEnabled ?? true).`
 
 ## Required pi-tbox work (beyond the command)
 
-Two changes the plan names as pi-tbox-side; both gate on `1.2.0` and ship
+Four changes the plan names as pi-tbox-side; all gate on `1.2.0` and ship
 with `/tbox defaults`:
 
 ### 1. Call-site swaps to `getEffectiveDefault` (Sprint 4)
@@ -204,7 +204,68 @@ user who pins a toolset on globally and later enters focus would
 otherwise see it leak back on at the next `/reload`. Shipping the command
 without the fix ships a known regression.
 
-### 3. Refuse `save` while focus is active
+### 3. Focus-exit cascade-undone fix (Sprint 4)
+
+The `requires` cascade in `focusOff` can re-enable a settings-pinned-off
+toolset. When `focusOff` iterates the registry using
+`entry.toolset.enable(pi)` / `entry.toolset.disable(pi)`, each call
+triggers the library's cascade: `enable()` cascades forward to
+`requires` dependencies, `disable()` cascades backward to dependents.
+
+If toolset A (`defaultEnabled: true`) is pinned `off` via settings and
+toolset B requires A (`defaultEnabled: true`, no settings pin):
+
+1. `focusOff` disables A (settings override) → `_disableDependents`
+   also disables B (cascade to dependent).
+2. Loop continues to B → `getEffectiveDefault` returns `true`
+   (no override) → `entry.toolset.enable(pi)` cascades forward and
+   **re-enables A** via the `requires` edge.
+
+This is a pre-existing design issue (the same could happen with
+`defaultEnabled: false` on a dependency before Sprint 3), but the
+settings tier makes it more visible since users can now durably pin
+any toolset off.
+
+**Fix:** switch `focusOff` from per-toolset `enable()`/`disable()`
+calls (which trigger the cascade) to direct state application, mirroring
+the pattern `actuateNewToolsets` already uses:
+
+```ts
+const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
+const activeSet = new Set(pi.getActiveTools());
+let flipped = 0;
+
+for (const entry of registry) {
+  const wantsEnabled = getEffectiveDefault(entry.spec, defaultsSnapshot);
+  const names = [...entry.spec.names].filter((n) => allToolNames.has(n));
+  for (const name of names) {
+    if (wantsEnabled) {
+      if (!activeSet.has(name)) { activeSet.add(name); flipped++; }
+    } else {
+      if (activeSet.has(name)) { activeSet.delete(name); flipped++; }
+    }
+  }
+}
+
+if (flipped > 0) {
+  pi.setActiveTools([...activeSet]);
+  pi.events.emit(TOOLSET_EVENTS.changed, { id: "tbox.focus-off", enabled: true });
+}
+```
+
+This builds the desired active set from effective defaults in one pass
+and applies it atomically, bypassing the `requires` cascade entirely.
+The restored-toolsets count shifts from "cascade-toggle actions" to
+"tools whose state actually changed" — slightly different semantics
+but more honest (no double-counting cascade artifacts).
+
+This fix is **not optional** alongside `/tbox defaults save --global`: a
+user who pins a toolset off globally and later exits focus while a
+dependent toolset has no settings pin would otherwise see the pinned-off
+toolset silently re-enabled. Shipping the command without this fix ships
+a known regression.
+
+### 4. Refuse `save` while focus is active
 
 `save` snapshots the chat-branch tier, and while focus is active that tier
 is full of focus-era entries: `focusUnit` writes `{enabled:true}` for

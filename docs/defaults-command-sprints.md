@@ -31,13 +31,13 @@ is not in CI; run it yourself. Strict TS (`exactOptionalPropertyTypes`,
 | 1 — Local link + API smoke | No (setup)  | —                                       | `pi-tbox` (`package.json`) |
 | 2 — Test-isolation baseline | No (hygiene) | Sprint 1                              | `pi-tbox` (`__tests__/`) |
 | 3 — `getEffectiveDefault` call-site swaps | Yes (restore correctness) | Sprint 2 | `pi-tbox` (`src/focus.ts`, `src/registry.ts`) |
-| 4 — Focus-enter correctness fix | Yes (focus contract) | Sprint 3 | `pi-tbox` (`src/focus.ts`) |
+| 4 — Focus correctness (enter + exit) | Yes (focus contract) | Sprint 3 | `pi-tbox` (`src/focus.ts`) |
 | 5 — `/tbox defaults` command | Yes (command surface) | Sprint 3 | `pi-tbox` (`index.ts`, `src/`, `config/`) |
 | 6 — Tests for `/tbox defaults` | No (tests) | Sprint 5 | `pi-tbox` (`__tests__/`) |
 | 7 — Flatten & release prep | Yes (release) | Sprints 1–6 + `pi-tool-masking@1.2.0` published | `pi-tbox` (`package.json`, `CHANGELOG.md`) |
 
 Sprints 1–2 are unblocking; 3 and 4 are the library-adoption work (and
-the focus regression fix that gates the whole feature); 5–6 are the
+the two focus regression fixes that gate the whole feature); 5–6 are the
 command; 7 is the release merge.
 
 ---
@@ -239,19 +239,61 @@ per-toolset disk reads would be O(toolsets) reads per action).
 
 ---
 
-## Sprint 4 — Focus-enter correctness fix
+## Sprint 4 — Focus correctness (enter + exit)
 
-**Goal:** prevent the Sprint 3.5 inclusion-mode revision from leaking a
-settings-pinned non-allowlist toolset back on during focus. This is the
-"required pi-tbox work" item #2 in the design and is **not optional** —
-shipping `/tbox defaults save --global` without it ships a known
-regression (a globally pinned-on toolset flips on at the next `/reload`
-while focus is active).
+**Goal:** fix two focus bugs that the settings tier surfaces. Both are
+gating regressions — shipping `/tbox defaults save --global` without
+either ships a known breaking contract.
+
+### Bug A — Focus-enter: settings-pinned-on toolset leaks into focus
+
+The inclusion-mode revision (Sprint 3.5 of the library) means a
+settings-pinned `{enabled: true}` non-allowlist toolset that is currently
+off will flip itself on at the next restore while focus is active —
+breaking the "only the focused unit is on" contract. The focus-enter code
+in `focusUnit` persists `{enabled: false}` only for **currently-enabled**
+non-allowlist toolsets. An already-off settings-pinned toolset has no
+persist entry, hits the else-branch at restore, reads its settings pin
+(`true`), and turns on.
+
+**Fix A (pi-tbox-side, not a library change):** focus-enter must persist
+`pi.appendEntry(persistKey, { enabled: false })` for **all** non-allowlist
+toolsets, not just currently-enabled ones. This way restore always takes
+the if-branch (chat-branch entry wins) for non-allowlist toolsets, where
+mode and the settings tier are both ignored.
+
+### Bug B — Focus-exit: `requires` cascade undoes a settings-pinned-off dependency
+
+`focusOff` iterates the registry calling `entry.toolset.enable(pi)` /
+`entry.toolset.disable(pi)`. Each call triggers the library's cascade:
+`enable()` cascades forward through `requires`, `disable()` cascades
+backward to dependents.
+
+If toolset A (`defaultEnabled: true`) is pinned `off` via settings and
+toolset B (`defaultEnabled: true`, no settings pin) requires A:
+
+1. `focusOff` disables A (settings override) → `_disableDependents`
+   also disables B (dependent cascade).
+2. Loop continues to B → `getEffectiveDefault` returns `true`
+   (no override) → `entry.toolset.enable(pi)` cascades forward and
+   **re-enables A** via the `requires` edge.
+
+This is pre-existing (same issue with `defaultEnabled: false` on a
+dependency before Sprint 3), but the settings tier makes it user-visible
+since anyone can now durably pin a toolset off.
+
+**Fix B:** switch `focusOff` from per-toolset `enable()`/`disable()`
+calls to direct state application, mirroring the pattern
+`actuateNewToolsets` already uses. Build the desired active set from
+effective defaults in one pass and apply it atomically via
+`pi.setActiveTools()`, bypassing the cascade entirely.
 
 ### Work
 
-In `src/focus.ts` → `focusUnit`'s **second pass** (the disable loop over
-non-allowlist toolsets), drop the `isEnabled(pi)` guard on the **persist**
+#### Work A — `focusUnit` second-pass persist (focus-enter)
+
+In `src/focus.ts` → `focusUnit`'s second pass (disable loop over
+non-allowlist toolsets), drop the `isEnabled(pi)` guard on the persist
 path and always `pi.appendEntry(persistKey, { enabled: false })` for
 every non-allowlist toolset. Keep the `disable()` call guarded on
 `isEnabled(pi)` so already-off toolsets don't emit needless events:
@@ -285,15 +327,54 @@ for (const entry of registry) {
   "optimize" the unconditional call away by relying on `disable()` —
   that reintroduces the leak for already-off toolsets.
 
-The `focusOff` swap from Sprint 3 then correctly restores each toolset to
-its settings-or-packaged default on exit (chat-branch entry overwritten
-by re-actuation).
+#### Work B — `focusOff` direct state application (focus-exit)
+
+Replace the per-toolset `enable()`/`disable()` loop in `focusOff` with
+direct set-building:
+
+```ts
+const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
+const activeSet = new Set(pi.getActiveTools());
+let flipped = 0;
+
+for (const entry of registry) {
+  const wantsEnabled = getEffectiveDefault(entry.spec, defaultsSnapshot);
+  const names = [...entry.spec.names].filter((n) => allToolNames.has(n));
+  for (const name of names) {
+    if (wantsEnabled) {
+      if (!activeSet.has(name)) { activeSet.add(name); flipped++; }
+    } else {
+      if (activeSet.has(name)) { activeSet.delete(name); flipped++; }
+    }
+  }
+}
+
+if (flipped > 0) {
+  pi.setActiveTools([...activeSet]);
+  pi.events.emit(TOOLSET_EVENTS.changed, { id: "tbox.focus-off", enabled: true });
+}
+```
+
+Key changes:
+
+- No `entry.toolset.enable()` / `disable()` calls → no `requires` cascade.
+- Single `pi.setActiveTools()` call → atomic state transition.
+- Single event emission (instead of potentially many per-toolset emits).
+- `restored` counter changes to `flipped` counting per-tool-name state
+  changes (not cascade-toggle actions — but more honest since it no
+  longer double-counts cascade artifacts).
+
+**Imports needed:** none new — `getEffectiveDefault` and
+`readMergedToolsetDefaults` were already added in Sprint 3. No
+additional `pi-tool-masking` imports needed.
 
 ### Files
 
-- `src/focus.ts`
+- `src/focus.ts` (both A and B)
 
 ### Acceptance criteria
+
+**Bug A (focus-enter):**
 
 - [ ] `focusUnit`'s second pass calls `appendEntry({ enabled: false })`
       for **every** non-allowlist toolset, regardless of current enabled
@@ -308,10 +389,28 @@ by re-actuation).
       toolset stays off through the focus window and returns to its
       settings default on `focusOff`. Without the fix, the restore step
       would turn it on.
-- [ ] Existing focus tests still green — re-check the
-      `disabled` count assertions in `__tests__/focus.test.ts`; the
-      count semantics (toolsets actually toggled off) are unchanged, only
-      the persist side effect is added.
+
+**Bug B (focus-exit):**
+
+- [ ] `focusOff` uses direct state application (no
+      `entry.toolset.enable()` / `disable()` calls). No `requires`
+      cascade fires.
+- [ ] New test: with a two-toolset dependency pair where the dependency
+      is settings-pinned-off (`defaultEnabled: true`, override → `false`)
+      and the dependent has `defaultEnabled: true` with `requires:
+      ["dependency"]`, call `focusOff` and assert the dependency
+      stays **off** after exit. Without the fix, the dependent's
+      enable cascade re-enables the dependency.
+- [ ] Single `pi.setActiveTools()` call, single
+      `TOOLSET_EVENTS.changed` emit.
+
+**Both:**
+
+- [ ] Existing focus tests still green — re-check `disabled` count
+      assertions in `__tests__/focus.test.ts`; Bug A's count semantics
+      are unchanged, Bug B's `flipped` may differ from the old `restored`
+      for toolsets with multiple tool names (each tool tracked
+      independently vs. once per toolset).
 - [ ] `npm run typecheck` green.
 
 ---
