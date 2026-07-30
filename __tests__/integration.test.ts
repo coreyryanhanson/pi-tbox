@@ -16,7 +16,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	type RegistryEntry,
+	setSettingsOverrideForTests,
+} from "pi-tool-masking";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
@@ -241,6 +245,7 @@ describe("integration — multi-extension registry", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
+		setSettingsOverrideForTests({});
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -258,7 +263,10 @@ describe("integration — multi-extension registry", () => {
 		buildRealisticPopulation(mock, pi);
 	});
 
-	afterEach(() => setGroupsOverrideForTests(null));
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
+	});
 
 	// -----------------------------------------------------------------------
 	// list (grouped default)

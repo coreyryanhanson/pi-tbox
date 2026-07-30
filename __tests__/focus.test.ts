@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRegisteredToolsets,
 	getDefaultResolutionMode,
+	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import { focusUnit, focusOff } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
@@ -161,10 +162,15 @@ describe("/tbox focus", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
+		setSettingsOverrideForTests({});
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setGroupsOverrideForTests(null);
 		setFocusUnit(null);
+	});
+
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
 	});
 
 	describe("guards", () => {

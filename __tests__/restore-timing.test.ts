@@ -14,7 +14,7 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -23,7 +23,10 @@ import {
 	orphanToolsetId,
 } from "../src/registry.js";
 import { computeSlotState } from "../src/status-slot.js";
-import { getRegisteredToolsets } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	setSettingsOverrideForTests,
+} from "pi-tool-masking";
 import { setFocusUnit } from "../src/status-slot.js";
 
 describe("restore-timing: actuateNewToolsets", () => {
@@ -32,9 +35,14 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
+		setSettingsOverrideForTests({});
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
+	});
+
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
 	});
 
 	it("actuates newly-registered orphans to defaultEnabled so they appear in getActiveTools", () => {
