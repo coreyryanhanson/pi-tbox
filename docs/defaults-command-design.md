@@ -109,10 +109,14 @@ boolean, last-writer-wins per `persistKey`, build the flat
 `writeToolsetDefaults(map, scope)`. One read of the branch, one
 read-merge-write of settings — no per-toolset loop over the file.
 
-**Scope flag parsing:** `--global` / `--project` parsed from `rest` (the
-existing `parseArgs` tail). Missing or unrecognized flag → usage message,
-no write. This mirrors the `all on|off` sub-arg pattern already in
-`index.ts` — no new arg-parsing machinery.
+**Scope flag parsing:** `--global` / `--project` are `--`-prefixed, so
+`parseArgs` (`src/list.ts`) collects them into its `flags: Set<string>`
+output, **not** into `rest` (the bare-positional tail). Read them with
+`flags.has("global")` / `flags.has("project")` — the same destructuring
+`formatList` and other handlers already use. Missing or both/unsupported
+→ usage message, no write. (Note: the `all on|off` sub-arg pattern uses a
+bare positional word in `rest[1]`, not a `--` flag, so it is *not* a
+literal mirror — `flags` is the seam here, not `rest`.)
 
 **Output:** a confirmation naming the scope, the count of entries written,
 and the path written to (so the user knows which file they just touched).
@@ -123,9 +127,12 @@ Example: `Saved 4 toolset defaults to ~/.pi/agent/settings.json (global).`
 Calls `clearToolsetDefaults(scope)`. Returns `true` if the block existed
 and was removed, `false` if already absent. The library's malformed-file
 guard applies (throws rather than overwrites a corrupt settings file).
-Output mirrors `removeGroup` in the group store: `Cleared toolset
-defaults from <path> (<scope>).` or `No toolsetDefaults block in <path>
-(<scope>) — nothing to clear.`
+Output follows the `removeGroup` success/failure ternary pattern (the
+name-based `Group "${name}" removed.` / `No group named "${name}".`),
+but with richer wording naming the file path and scope, since this
+command touches `settings.json` rather than a named group: `Cleared
+toolset defaults from <path> (<scope>).` or `No toolsetDefaults block in
+<path> (<scope>) — nothing to clear.`
 
 After `clear`, every toolset in that scope falls back to tier 3
 (`spec.defaultEnabled ?? true`) — or, for project scope, to the global
@@ -134,8 +141,9 @@ scope's pins (project-absent ⇒ global wins per the merge semantics).
 ### `show` — list every pin, annotated by scope
 
 Reads `readMergedToolsetDefaults()` for the *merged* view (what restore
-actually uses) but also reads each scope's raw block to attribute each pin
-to its source scope. Output, one row per pin:
+actually uses) and `readToolsetDefaults("global")` /
+`readToolsetDefaults("project")` for each scope's raw block, to attribute
+each pin to its source scope. Output, one row per pin:
 
 ```
 toolset-state:pi-lean-dimension.web    enabled  [global]
@@ -196,6 +204,22 @@ user who pins a toolset on globally and later enters focus would
 otherwise see it leak back on at the next `/reload`. Shipping the command
 without the fix ships a known regression.
 
+### 3. Refuse `save` while focus is active
+
+`save` snapshots the chat-branch tier, and while focus is active that tier
+is full of focus-era entries: `focusUnit` writes `{enabled:true}` for
+allowlist members and (after the fix above) `{enabled:false}` for *all*
+non-allowlist toolsets. Running `/tbox defaults save` mid-focus would pin
+that focus state as durable defaults — almost certainly not the user's
+intent, and a quiet footgun.
+
+`defaults save` is not technically an actuation command (it doesn't
+toggle), so AGENTS.md's "refuse actuation commands during focus" rule
+doesn't automatically cover it. Extend the same guard to `save` in the
+`/tbox defaults` dispatch: while focus is active, refuse `save` with the
+same focus-active message the actuation commands use, no write. `show`
+and `clear` remain available (read/remove don't snapshot live state).
+
 ## Test isolation
 
 Every pi-tbox test that exercises `focusOff` or `actuateNewToolsets`
@@ -217,11 +241,25 @@ afterEach(() => {
 
 New tests for `/tbox defaults` itself use **both** seams:
 `setSettingsOverrideForTests({})` (reader → empty, so assertions about
-`show` are deterministic) and `setSettingsWriterOverrideForTests` (writer
-→ in-memory capture, so `save`/`clear` assertions don't hit disk). A
-round-trip test must clear **both** overrides or they mask each other (per
-the library's W5 test). Mirror the `setGroupsOverrideForTests` pattern
-already in `__tests__/picker.test.ts`.
+the *merged* `show` output are deterministic) and
+`setSettingsWriterOverrideForTests` (writer → in-memory capture, so
+`save`/`clear` assertions don't hit disk). A round-trip test must clear
+**both** overrides or they mask each other (per the library's W5 test).
+Mirror the `setGroupsOverrideForTests` pattern already in
+`__tests__/picker.test.ts`.
+
+**Caveat — `show` scope attribution can't use the reader override.** When
+`setSettingsOverrideForTests` is set, `readToolsetDefaults(scope)` returns
+*that override for both scopes* (per its JSDoc), so both global and
+project raw reads collapse to the same map and the `(overrides global)`
+annotation is untestable through the seam. The writer override doesn't
+help either — it captures writes in-memory and doesn't serve reads, so
+there is no "writer seam + read" round-trip. Attribution tests therefore
+need a **real disk round-trip**: no reader override, no writer seam,
+`process.chdir(tmpDir)` + `PI_CODING_AGENT_DIR` env var pointed at a temp
+`~/.pi/agent`, mirroring the library's own W6 disk tests. Use the
+reader/writer seams for the merged-view and `save`/`clear` assertions;
+reserve the disk round-trip for the attribution paths only.
 
 ## Strict-TS notes
 
