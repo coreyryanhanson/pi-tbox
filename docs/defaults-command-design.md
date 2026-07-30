@@ -1,0 +1,252 @@
+# Design: `/tbox defaults` — settings.json-backed default enabled state
+
+**Status:** Draft
+**Depends on:** `pi-tool-masking@1.2.0` (Sprints 1–3.5: the settings reader,
+writer, `getEffectiveDefault`, and the inclusion-mode revision are all
+implemented and unreleased in `pi-tool-masking`; this repo consumes them).
+Companion plan: [`pi-tool-masking/plans/settings-json-defaults.md`](../pi-tool-masking/plans/settings-json-defaults.md)
+(the *what* and *why* of the settings tier); this doc is the *pi-tbox UX* —
+the command surface that lets a user author those settings without hand-editing
+JSON.
+
+## Problem
+
+`pi-tool-masking@1.2.0` adds a durable precedence tier between the
+chat-branch entry (tier 1, session-scoped) and the packaged
+`spec.defaultEnabled` (tier 3, a baked constant):
+
+```
+1. chat-branch entry (last-writer-wins)              ← existing
+2. settings.json.toolsetDefaults[persistKey].enabled ← NEW (1.2.0)
+3. spec.defaultEnabled ?? true                       ← existing
+```
+
+Today a user who wants a toolset's *fresh-session* default to differ from
+what the package author shipped has no durable path: toggling writes a
+chat-branch entry (session-scoped, gone after a fresh session), and editing
+`spec.defaultEnabled` means editing the package source. The settings tier
+fixes that — but only if the user hand-edits
+`~/.pi/agent/settings.json` (global) or `./.pi/settings.json` (project)
+under the reserved `toolsetDefaults` wrapper key. That is error-prone
+(JSON syntax, the nested schema, the wrapper-key convention) and gives no
+feedback. `/tbox defaults` is the authoring surface: snapshot live toggles
+into settings, see what's pinned, and clear pins — without leaving the
+command line.
+
+## Non-goals
+
+- **Not a general settings editor.** tbox owns exactly one key in
+  `settings.json` (`toolsetDefaults`); pi-core owns the rest (`provider`,
+  `theme`, `packages`, …). The command never reads, writes, or displays
+  any other top-level key. The library's writer preserves every
+  non-`toolsetDefaults` key on write; the command inherits that guarantee
+  and adds nothing on top.
+- **Not per-toolset pinning in v1.** The writer supports `N=1` writes, so
+  a future `/tbox +web default off --global` is a small addition, but it
+  is out of scope here. v1 is snapshot-only (see "Action surface" below).
+- **Not live-refresh.** Settings take effect on the next restore
+  (`/reload` or new session), consistent with how pi treats
+  `settings.json` generally. No mid-session re-application.
+- **Not a per-entry clear.** The library's `clearToolsetDefaults(scope)`
+  removes the whole `toolsetDefaults` block; there is no per-entry clear
+  primitive by design. A user who wants to un-pin one toolset re-runs
+  `save` after toggling it back to its packaged default (which drops it
+  from the snapshot — see "Snapshot semantic").
+
+## Command surface
+
+```
+/tbox defaults                       show every settings-tier pin (both scopes, annotated)
+/tbox defaults save  --project       snapshot live toggles → ./.pi/settings.json
+/tbox defaults save  --global        snapshot live toggles → ~/.pi/agent/settings.json
+/tbox defaults clear --project       remove toolsetDefaults block from ./.pi/settings.json
+/tbox defaults clear --global        remove toolsetDefaults block from ~/.pi/agent/settings.json
+```
+
+### Decisions locked in brainstorm
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Noun | `defaults` | Matches the `toolsetDefaults` schema key, the plan's tier name, and the data's semantic (default enabled state). tbox owns one key in `settings.json`, not the whole config — `config` would over-claim the surface. |
+| Scope word | `project` (not `local`) | Matches the library's `"global" \| "project"` API and pi-core's "project settings" vocabulary. `local` is intuitive but introduces a synonym, and in pi-adjacent contexts can misread as "this session/chat-local" — which is exactly the tier these defaults are *not*. |
+| Scope on save/clear | **required** (`--global` / `--project`) | A durable write, possibly to a shared global file, must not default silently. The user states the target. |
+| Actions | `save` / `show` / `clear` (snapshot-only) | One batch action per verb. The writer is batch-oriented; a snapshot is one read-merge-write, not N. Per-toolset pin is deferred. |
+| `show` scope | none (shows both) | "What did I pin?" is cross-scope by nature. Output annotates each pin with its scope so the override direction is visible. |
+
+`defaults` joins the reserved-word list in `src/reserved.ts` (it cannot be
+a group name — same rule as `status`, `focus`, `all`, etc.).
+
+### `save` — snapshot live toggles into settings
+
+**Semantic: copy the chat-branch tier into the settings tier.** For every
+toolset that has a chat-branch entry (`pi.appendEntry(persistKey, { enabled })`
+is what every toggle writes), write
+`toolsetDefaults[persistKey] = { enabled: <its value> }` to the chosen scope.
+
+This is **mode-independent and pins only what the user actually touched:**
+
+- **Exclusion mode** (default floor `true`) → the off ones **plus** any
+  the user toggled *on against a packaged default-off* (e.g. a toolset
+  ships `defaultEnabled: false` and the user turned it on). "Off ones
+  only" would silently drop that on-toggle on the next restore — a real
+  bug. Snapshotting the branch entries catches both directions.
+- **Inclusion mode** (default floor `false`) → the on ones. The only
+  toolsets with branch entries are the ones the user explicitly turned on
+  (the floor is `false`, so anything on got there by a toggle).
+
+Toolsets still sitting at their packaged default have no branch entry and
+are **not** pinned — the file stays minimal, captures actual user intent,
+and never sweeps in newly-installed toolsets on re-snapshot. This is the
+"pin currently-toggled toolsets" option, restated as "read the branch,
+write each entry's `enabled` to settings" — which is exactly what the
+chat-branch tier already records.
+
+**Implementation:** in the `/tbox defaults save` handler, read
+`ctx.sessionManager.getBranch()`, filter to entries whose `customType`
+matches a registered toolset's `persistKey` and whose `data.enabled` is a
+boolean, last-writer-wins per `persistKey`, build the flat
+`{ [persistKey]: boolean }` map, and call
+`writeToolsetDefaults(map, scope)`. One read of the branch, one
+read-merge-write of settings — no per-toolset loop over the file.
+
+**Scope flag parsing:** `--global` / `--project` parsed from `rest` (the
+existing `parseArgs` tail). Missing or unrecognized flag → usage message,
+no write. This mirrors the `all on|off` sub-arg pattern already in
+`index.ts` — no new arg-parsing machinery.
+
+**Output:** a confirmation naming the scope, the count of entries written,
+and the path written to (so the user knows which file they just touched).
+Example: `Saved 4 toolset defaults to ~/.pi/agent/settings.json (global).`
+
+### `clear` — remove the `toolsetDefaults` block
+
+Calls `clearToolsetDefaults(scope)`. Returns `true` if the block existed
+and was removed, `false` if already absent. The library's malformed-file
+guard applies (throws rather than overwrites a corrupt settings file).
+Output mirrors `removeGroup` in the group store: `Cleared toolset
+defaults from <path> (<scope>).` or `No toolsetDefaults block in <path>
+(<scope>) — nothing to clear.`
+
+After `clear`, every toolset in that scope falls back to tier 3
+(`spec.defaultEnabled ?? true`) — or, for project scope, to the global
+scope's pins (project-absent ⇒ global wins per the merge semantics).
+
+### `show` — list every pin, annotated by scope
+
+Reads `readMergedToolsetDefaults()` for the *merged* view (what restore
+actually uses) but also reads each scope's raw block to attribute each pin
+to its source scope. Output, one row per pin:
+
+```
+toolset-state:pi-lean-dimension.web    enabled  [global]
+toolset-state:pi-lean-dimension.api    disabled [project]  (overrides global)
+```
+
+Project pins that override a global pin for the same `persistKey` are
+annotated `(overrides global)` so the override direction is visible — the
+shallow per-entry merge means project wins outright, and a user debugging
+"why is this still on?" needs to see both. Pins with no branch entry
+(durable, not session-scoped) are the whole point; the view is the source
+of truth for "what will the next fresh session look like, ignoring my
+current toggles?"
+
+If the merged map is empty: `No toolset defaults pinned in settings. Every
+toolset uses its packaged default (spec.defaultEnabled ?? true).`
+
+## Required pi-tbox work (beyond the command)
+
+Two changes the plan names as pi-tbox-side; both gate on `1.2.0` and ship
+with `/tbox defaults`:
+
+### 1. Call-site swaps to `getEffectiveDefault` (Sprint 4)
+
+`src/focus.ts` (`focusOff`) and `src/registry.ts` (`actuateNewToolsets`)
+read `spec.defaultEnabled` directly and would ignore the new settings
+tier. Swap both to `getEffectiveDefault(spec, snapshot)`, reading
+`readMergedToolsetDefaults()` **once before the loop** in each (both
+iterate the registry; per-toolset disk reads would be O(toolsets) reads
+per action). Detailed in
+[`pi-tool-masking/plans/settings-json-defaults-sprints.md`](../pi-tool-masking/plans/settings-json-defaults-sprints.md)
+Sprint 4.
+
+### 2. Focus-enter correctness fix (Sprint 3.5 follow-up)
+
+The inclusion-mode revision (Sprint 3.5) has a named consequence for
+focus: a settings-pinned `{enabled: true}` non-allowlist toolset that is
+currently off will turn itself on at the next restore while focus is
+active — breaking the "only the focused unit is on" contract. The
+focus-enter code in `src/focus.ts` today persists `{enabled: false}` only
+for **currently-enabled** non-allowlist toolsets. Under the revised floor,
+an already-off settings-pinned toolset takes the else-branch at restore,
+reads its settings pin (`true`), and flips on.
+
+**Fix (pi-tbox-side, not a library change):** focus-enter must persist
+`pi.appendEntry(persistKey, { enabled: false })` for **all** non-allowlist
+toolsets (not just currently-enabled ones), so restore takes the
+if-branch for them where mode and settings are both ignored. This is a
+one-loop change in `focusUnit`'s second pass: drop the `isEnabled(pi)`
+guard on the disable path and always `appendEntry({enabled:false})` for
+non-allowlist entries (still call `disable()` only when currently enabled,
+to avoid needless events). The `focusOff` swap (item 1 above) then
+correctly restores each toolset to its settings-or-packaged default on
+exit.
+
+This fix is **not optional** alongside `/tbox defaults save --global`: a
+user who pins a toolset on globally and later enters focus would
+otherwise see it leak back on at the next `/reload`. Shipping the command
+without the fix ships a known regression.
+
+## Test isolation
+
+Every pi-tbox test that exercises `focusOff` or `actuateNewToolsets`
+(`__tests__/focus.test.ts`, `__tests__/restore-timing.test.ts`,
+`__tests__/integration.test.ts`) must pin the reader override to `{}`
+so a developer's real `~/.pi/agent/settings.json` can't flake the suite:
+
+```ts
+import { setSettingsOverrideForTests } from "pi-tool-masking";
+
+beforeEach(() => {
+  MockPI.cleanRegistry();
+  setSettingsOverrideForTests({});
+});
+afterEach(() => {
+  setSettingsOverrideForTests(null);
+});
+```
+
+New tests for `/tbox defaults` itself use **both** seams:
+`setSettingsOverrideForTests({})` (reader → empty, so assertions about
+`show` are deterministic) and `setSettingsWriterOverrideForTests` (writer
+→ in-memory capture, so `save`/`clear` assertions don't hit disk). A
+round-trip test must clear **both** overrides or they mask each other (per
+the library's W5 test). Mirror the `setGroupsOverrideForTests` pattern
+already in `__tests__/picker.test.ts`.
+
+## Strict-TS notes
+
+- `readMergedToolsetDefaults()` returns `Record<string, boolean>`; indexed
+  access yields `boolean | undefined` under `noUncheckedIndexedAccess` —
+  guard with `typeof === "boolean"` before use (the library already does
+  this in `doRestore`).
+- `exactOptionalPropertyTypes`: never assign `undefined` to an optional
+  prop explicitly; omit the key instead.
+- Relative imports use `.js` extensions (pi-tbox's `module: nodenext`);
+  the `pi-tool-masking` imports are package imports, no extension.
+
+## Out of scope / deferred
+
+- **Per-toolset pin** (`/tbox +web default off --global`) — the writer
+  supports it; add when snapshot-only proves insufficient for surgical
+  edits.
+- **`/tbox list` pin-marker column** — the plan flags printing the nested
+  `toolsetDefaults[<persistKey>]` path in toolset output as a UX nicety.
+  Separate follow-up; `show` covers the "what's pinned?" question until
+  then.
+- **Cross-scope propagation** — a toolset settings-pinned in global but
+  not in project is already durable; snapshotting to project won't re-pin
+  it. If users want "copy my global pins into project," that's a distinct
+  command, not `save`.
+- **Downstream cleanup** (portal `browserToggle.defaultEnabled` / host
+  `apiToggle.defaultEnabled` injection deletion) — tracked separately in
+  the plan; not gated on this command.
