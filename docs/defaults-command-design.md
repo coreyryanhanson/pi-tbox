@@ -1,6 +1,6 @@
 # Design: `/tbox defaults` — settings.json-backed default enabled state
 
-**Status:** Draft
+**Status:** Approved
 **Depends on:** `pi-tool-masking@1.2.0` (Sprints 1–3.5: the settings reader,
 writer, `getEffectiveDefault`, and the inclusion-mode revision are all
 implemented and unreleased in `pi-tool-masking`; this repo consumes them).
