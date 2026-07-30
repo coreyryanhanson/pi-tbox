@@ -12,7 +12,9 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getEffectiveDefault,
 	getRegisteredToolsets,
+	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
 } from "pi-tool-masking";
 import { forwardClosure } from "./requires-graph.js";
@@ -179,12 +181,13 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 /**
  * Exit focus via **re-actuation, not mode flip**.
  *
- * For every registered toolset, drives it back to `spec.defaultEnabled`,
- * overwriting the focus-era entries. Then restores exclusion mode so
- * unknown toolsets default on again.
+ * For every registered toolset, drives it back to its effective default
+ * (settings tier first, then `spec.defaultEnabled`), overwriting the
+ * focus-era entries. Then restores exclusion mode so unknown toolsets
+ * default on again.
  *
- * Documented: "Restore defaults" means each toolset returns to
- * `spec.defaultEnabled` — the library never remembers pre-focus state.
+ * Documented: "Restore defaults" means each toolset returns to its
+ * effective default — the library never remembers pre-focus state.
  */
 export function focusOff(pi: ExtensionAPI): string {
 	const registry = getRegisteredToolsets();
@@ -200,8 +203,10 @@ export function focusOff(pi: ExtensionAPI): string {
 	// state." Add a pre-focus snapshot + restore if users report this as a bug.
 	let restored = 0;
 
+	const defaultsSnapshot = readMergedToolsetDefaults();
+
 	for (const entry of registry) {
-		const wantsEnabled = entry.spec.defaultEnabled ?? true;
+		const wantsEnabled = getEffectiveDefault(entry.spec, defaultsSnapshot);
 
 		if (wantsEnabled && !entry.toolset.isEnabled(pi)) {
 			entry.toolset.enable(pi);

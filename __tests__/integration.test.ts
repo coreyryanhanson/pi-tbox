@@ -718,4 +718,60 @@ describe("integration — multi-extension registry", () => {
 		// Multi-tool → no description
 		expect(lensEntry!.spec.description).toBeUndefined();
 	});
+
+	describe("actuateNewToolsets with settings defaults", () => {
+		it("respects settings-pinned-off over defaultEnabled true", () => {
+			mock.registerTool({
+				name: "settings-off-tool",
+				description: "Settings pin test",
+				sourceInfo: {
+					path: "test.ts",
+					source: "settings-off-source",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.defineFakeToolset({
+				id: "settings-off-source",
+				names: new Set(["settings-off-tool"]),
+				persistKey: "toolset-state:settings-off-source",
+				defaultEnabled: true,
+			});
+
+			setSettingsOverrideForTests({
+				"toolset-state:settings-off-source": false,
+			});
+
+			actuateNewToolsets(pi, ["settings-off-source"]);
+
+			expect(pi.getActiveTools()).not.toContain("settings-off-tool");
+		});
+
+		it("respects settings-pinned-on over defaultEnabled false", () => {
+			mock.registerTool({
+				name: "settings-on-tool",
+				description: "Settings pin test",
+				sourceInfo: {
+					path: "test.ts",
+					source: "settings-on-source",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.defineFakeToolset({
+				id: "settings-on-source",
+				names: new Set(["settings-on-tool"]),
+				persistKey: "toolset-state:settings-on-source",
+				defaultEnabled: false,
+			});
+
+			setSettingsOverrideForTests({
+				"toolset-state:settings-on-source": true,
+			});
+
+			actuateNewToolsets(pi, ["settings-on-source"]);
+
+			expect(pi.getActiveTools()).toContain("settings-on-tool");
+		});
+	});
 });

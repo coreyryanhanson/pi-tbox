@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getEffectiveDefault,
 	getRegisteredToolsets,
 	getDefaultResolutionMode,
+	readMergedToolsetDefaults,
 	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import { focusUnit, focusOff } from "../src/focus.js";
@@ -425,6 +427,87 @@ describe("/tbox focus", () => {
 			const exitEnable = exitEntries.find((e) => e.customType === orphanKey);
 			expect(exitEnable).toBeDefined();
 			expect((exitEnable!.data as Record<string, unknown>)?.enabled).toBe(true);
+		});
+
+		it("settings-pinned-off overrides defaultEnabled true in focusOff", () => {
+			setup(pi, mock);
+
+			// Create an independent toolset (no requires edges) with defaultEnabled: true
+			mock.registerTool({
+				name: "pin-off-test",
+				description: "Pin off test tool",
+				sourceInfo: {
+					path: "test.ts",
+					source: "pin-off-test",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			const key = "toolset-state:pin-off-test";
+			mock.defineFakeToolset({
+				id: "pin-off-test",
+				names: new Set(["pin-off-test"]),
+				persistKey: key,
+				defaultEnabled: true,
+			});
+
+			// Enable it
+			const entry = getRegisteredToolsets().find(
+				(e) => e.spec.id === "pin-off-test",
+			)!;
+			entry.toolset.enable(pi);
+			expect(pi.getActiveTools()).toContain("pin-off-test");
+
+			// Pin it off via settings override
+			setSettingsOverrideForTests({ [key]: false });
+			expect(getEffectiveDefault(entry.spec, readMergedToolsetDefaults())).toBe(
+				false,
+			);
+
+			const result = focusOff(pi);
+			expect(result).toContain("Focus off");
+
+			// Should now be off despite defaultEnabled: true
+			expect(pi.getActiveTools()).not.toContain("pin-off-test");
+		});
+
+		it("settings-pinned-on overrides defaultEnabled false in focusOff", () => {
+			setup(pi, mock);
+
+			// Register a tool and define a toolset with defaultEnabled: false
+			mock.registerTool({
+				name: "test-pin-on",
+				description: "Test tool",
+				sourceInfo: {
+					path: "test.ts",
+					source: "test-pin-on",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			const key = "toolset-state:test-pin-on";
+			mock.defineFakeToolset({
+				id: "test-pin-on",
+				names: new Set(["test-pin-on"]),
+				persistKey: key,
+				defaultEnabled: false,
+			});
+
+			// Enable it manually so it starts on
+			const entry = getRegisteredToolsets().find(
+				(e) => e.spec.id === "test-pin-on",
+			);
+			entry!.toolset.enable(pi);
+			expect(pi.getActiveTools()).toContain("test-pin-on");
+
+			// Pin it on via settings override
+			setSettingsOverrideForTests({ [key]: true });
+
+			const result = focusOff(pi);
+			expect(result).toContain("Focus off");
+
+			// Should stay on despite defaultEnabled: false
+			expect(pi.getActiveTools()).toContain("test-pin-on");
 		});
 	});
 

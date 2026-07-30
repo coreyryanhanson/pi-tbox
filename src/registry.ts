@@ -18,7 +18,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	defineToolset,
+	getEffectiveDefault,
 	getRegisteredToolsets,
+	readMergedToolsetDefaults,
 	TOOLSET_EVENTS,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
@@ -141,6 +143,7 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
 	if (ids.length === 0) return;
 
+	const defaultsSnapshot = readMergedToolsetDefaults();
 	const registry = getRegisteredToolsets();
 	const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
 	const activeSet = new Set(pi.getActiveTools());
@@ -150,7 +153,7 @@ export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
 		const entry = registry.find((e: RegistryEntry) => e.spec.id === id);
 		if (!entry) continue;
 
-		const enabled = entry.spec.defaultEnabled !== false;
+		const enabled = getEffectiveDefault(entry.spec, defaultsSnapshot);
 		const registeredNames = [...entry.spec.names].filter((n) =>
 			allToolNames.has(n),
 		);
