@@ -16,7 +16,7 @@ flattened to main alongside the `1.2.0` release.
 **Working posture:** develop against the local `pi-tool-masking` checkout
 (see Sprint 1) so gaps in the unreleased library surface before it ships.
 The local link is temporary and **must be reverted** before the PR merges
-to main — the merge commit pins the published `1.2.0` instead (Sprint 6).
+to main — the merge commit pins the published `1.2.0` instead (Sprint 7).
 
 **Every sprint leaves `npm test` + `npm run typecheck` green.** Typecheck
 is not in CI; run it yourself. Strict TS (`exactOptionalPropertyTypes`,
@@ -26,216 +26,145 @@ is not in CI; run it yourself. Strict TS (`exactOptionalPropertyTypes`,
 
 ## Sprint map
 
-| Sprint | Ships behavior? | Depends on | Repo touched |
-|--------|-----------------|------------|--------------|
-| 1 — Local link + API smoke | No (setup)  | —                                       | `pi-tbox` (`package.json`) |
-| 2 — Test-isolation baseline | No (hygiene) | Sprint 1                              | `pi-tbox` (`__tests__/`) |
-| 3 — `getEffectiveDefault` call-site swaps | Yes (restore correctness) | Sprint 2 | `pi-tbox` (`src/focus.ts`, `src/registry.ts`) |
-| 4 — Focus correctness (enter + exit) | Yes (focus contract) | Sprint 3 | `pi-tbox` (`src/focus.ts`) |
-| 5 — `/tbox defaults` command | Yes (command surface) | Sprint 3 | `pi-tbox` (`index.ts`, `src/`, `config/`) |
-| 6 — Tests for `/tbox defaults` | No (tests) | Sprint 5 | `pi-tbox` (`__tests__/`) |
-| 7 — Flatten & release prep | Yes (release) | Sprints 1–6 + `pi-tool-masking@1.2.0` published | `pi-tbox` (`package.json`, `CHANGELOG.md`) |
+| Status | Sprint | Ships behavior? | Depends on | Repo touched |
+|--------|--------|-----------------|------------|--------------|
+| ✅ Done | 1 — Local link + API smoke | No (setup)  | —                                       | `pi-tbox` (`package.json`) |
+| ✅ Done | 2 — Test-isolation baseline | No (hygiene) | Sprint 1                              | `pi-tbox` (`__tests__/`) |
+| ✅ Done | 3 — `getEffectiveDefault` call-site swaps | Yes (restore correctness) | Sprint 2 | `pi-tbox` (`src/focus.ts`, `src/registry.ts`) |
+| ☐ Todo  | 4 — Focus correctness (enter + exit) | Yes (focus contract) | Sprint 3 | `pi-tbox` (`src/focus.ts`) |
+| ☐ Todo  | 5 — `/tbox defaults` command | Yes (command surface) | Sprint 3 | `pi-tbox` (`index.ts`, `src/`, `config/`) |
+| ☐ Todo  | 6 — Tests for `/tbox defaults` | No (tests) | Sprint 5 | `pi-tbox` (`__tests__/`) |
+| ☐ Todo  | 7 — Flatten & release prep | Yes (release) | Sprints 1–6 + `pi-tool-masking@1.2.0` published | `pi-tbox` (`package.json`, `CHANGELOG.md`) |
 
-Sprints 1–2 are unblocking; 3 and 4 are the library-adoption work (and
-the two focus regression fixes that gate the whole feature); 5–6 are the
-command; 7 is the release merge.
+Sprints 1–2 are unblocking (done); 3 and 4 are the library-adoption work
+(and the two focus regression fixes that gate the whole feature); 5–6 are
+the command; 7 is the release merge.
 
 ---
 
-## Sprint 1 — Local-link `pi-tool-masking` and smoke-test the API
+## Sprint 1 — ✅ Complete: Local-link `pi-tool-masking` and smoke-test the API
 
 **Goal:** make pi-tbox resolve `pi-tool-masking` to the local source
-checkout in this directory (`./pi-tool-masking`) so previews run against
-the unreleased `1.2.0` code, and confirm every API the design depends on
-is importable and typechecks.
+checkout (`./pi-tool-masking`) so previews run against the unreleased
+`1.2.0` code, and confirm every API the design depends on is importable
+and typechecks.
 
-### Work
+**What was done:**
 
-1. **Edit `package.json`** — change the `pi-tool-masking` dependency to a
-   local file path so npm + Pi's loader resolve it to the checkout:
+- `package.json`: `"pi-tool-masking": "file:./pi-tool-masking"` +
+  `npm install`; `node_modules/pi-tool-masking` is a symlink into the
+  checkout, version `1.1.0`.
+- All 8 required exports present in `pi-tool-masking/index.ts`: the 5
+  public functions (`getEffectiveDefault`, `readMergedToolsetDefaults`,
+  `readToolsetDefaults`, `writeToolsetDefaults`, `clearToolsetDefaults`),
+  `MalformedSettingsError`, and both test seams
+  (`setSettingsOverrideForTests`, `setSettingsWriterOverrideForTests`).
+- `npm run typecheck` green (baseline, no new imports); `npm test` 235/235.
 
-   ```jsonc
-   "dependencies": {
-     "pi-tool-masking": "file:./pi-tool-masking"
-   }
-   ```
+**Deviations from plan (necessary, library-driven):**
 
-   Then `npm install` to update `package-lock.json` and the
-   `node_modules/pi-tool-masking` symlink.
-2. **Verify the library version** is the unreleased `1.1.0` (per
-   `pi-tool-masking/package.json`) carrying the Sprint 3.5 work — i.e.
-   `getEffectiveDefault`, `readMergedToolsetDefaults`,
-   `readToolsetDefaults`, `writeToolsetDefaults`, `clearToolsetDefaults`,
-   `MalformedSettingsError`, and both test seams are exported. Grep
-   `pi-tool-masking/index.ts` exports if any are missing and file the gap
-   against the library before proceeding.
-3. **Smoke import:** add a throwaway typecheck-only probe (or just run
-   `npm run typecheck`) to confirm the four public functions + the two
-   test seams import cleanly from pi-tbox's `module: nodenext` config.
-   Package imports take **no `.js` extension**; relative imports inside
-   pi-tbox keep theirs.
+- Bumped pi-tbox's `@earendil-works/pi-coding-agent` devDep `^0.78.0` →
+  `^0.83.0` to match the library checkout's peer pin (the library
+  requires `^0.83.0`). Resolved by updating pi-tbox rather than mutating
+  the library's `node_modules`.
+- `__tests__/mock-pi.ts`: added `registerEntryRenderer(...)` no-op (new
+  on the 0.83.0 `ExtensionAPI`) and `scopedModels` / `isProjectTrusted`
+  to `createContext()` (new `ExtensionContext` fields). No test exercises
+  them; they satisfy the interface.
+- `__tests__/list.test.ts` "smallest-toolset-wins" test: gave the two
+  toolsets disjoint tool names (`{a,b,c}` vs `{d}`) — library v1.1.0
+  enforces a name-overlap guard that the old overlapping fixture
+  tripped.
 
-### Files
-
-- `package.json` (temporary edit — reverted in Sprint 7)
-- `package-lock.json` (regenerated)
-
-### Acceptance criteria
-
-- [ ] `npm install` succeeds with `file:./pi-tool-masking`.
-- [ ] `node -e "console.log(require('./node_modules/pi-tool-masking/package.json').version)"`
-      prints the local checkout's version, and
-      `ls -l node_modules/pi-tool-masking` is a symlink into
-      `./pi-tool-masking`.
-- [ ] `npm run typecheck` is green with no new imports yet (baseline).
-- [ ] A one-line note in the PR description records that `package.json`
-      carries a **temporary local link** to be reverted at merge
-      (Sprint 7), so a reviewer doesn't flag it.
-- [ ] Every public function named in the design's "Strict-TS notes" /
-      command surface (`getEffectiveDefault`, `readMergedToolsetDefaults`,
-      `readToolsetDefaults`, `writeToolsetDefaults`, `clearToolsetDefaults`)
-      is present in `pi-tool-masking`'s exports. Any gap is filed as a
-      library issue **before** Sprint 3 starts.
+**Carried forward:** the `package.json` local link is **temporary** —
+reverted in Sprint 7. Note this in the PR description so a reviewer
+doesn't flag it.
 
 ---
 
-## Sprint 2 — Test-isolation baseline (pin the settings reader)
+## Sprint 2 — ✅ Complete: Test-isolation baseline (pin the settings reader)
 
-**Goal:** every existing pi-tbox test that exercises `focusOff` or
-`actuateNewToolsets` must pin the settings reader override to `{}` so a
-developer's real `~/.pi/agent/settings.json` can't flake the suite once
-those call sites route through `readMergedToolsetDefaults()` (Sprint 3).
-Do this **before** the swaps so the baseline is green and any later
-failure is attributable to the swap, not to disk leakage.
+**Goal:** pin the settings reader override to `{}` in every existing
+test that exercises `focusOff` or `actuateNewToolsets`, so a developer's
+real `~/.pi/agent/settings.json` can't flake the suite once Sprint 3
+routes those call sites through `readMergedToolsetDefaults()`. Done
+**before** the swaps so the baseline is green and any later failure is
+attributable to the swap.
 
-### Work
+**What was done** (mirroring the `setGroupsOverrideForTests` pattern from
+`__tests__/picker.test.ts`):
 
-Add to each named file, mirroring the `setGroupsOverrideForTests` pattern
-already in `__tests__/picker.test.ts`:
+- `__tests__/focus.test.ts` — added `setSettingsOverrideForTests({})` to
+  the existing `beforeEach` (alongside `cleanRegistry()`); created a new
+  `afterEach` block (the file had none) restoring `(null)`.
+- `__tests__/restore-timing.test.ts` — same: pin in `beforeEach`, new
+  `afterEach` restoring `(null)`.
+- `__tests__/integration.test.ts` — pin in `beforeEach`, `(null)` added
+  to the file's existing `afterEach` (no new block; the file already
+  uses one and follows vitest-globals style).
 
-```ts
-import { setSettingsOverrideForTests } from "pi-tool-masking";
+**Audit outcome (files correctly left untouched):**
 
-beforeEach(() => {
-  MockPI.cleanRegistry();
-  setSettingsOverrideForTests({});
-});
-afterEach(() => {
-  setSettingsOverrideForTests(null);
-});
-```
+- `__tests__/focus-exit.test.ts` — imports `focusOff` but never calls it
+  (only `focusUnit`); no reach to the swapped call sites.
+- `__tests__/restore.test.ts` — doesn't call `focusOff` or
+  `actuateNewToolsets`. Its `doRestore` → `readMergedToolsetDefaults()`
+  path is pre-existing/latent (independent of these sprints), and its
+  assertions are on registry IDs / slot renders, not toolset enabled
+  states — flake risk is low. Left untouched.
 
-### Files
-
-- `__tests__/focus.test.ts`
-- `__tests__/focus-exit.test.ts` (if it exercises `focusOff` directly)
-- `__tests__/restore-timing.test.ts`
-- `__tests__/integration.test.ts`
-- `__tests__/restore.test.ts` (audited — pin only if it routes through
-  the swapped call sites; leave untouched otherwise)
-
-Audit each file first: only add the override where the test actually
-reaches `focusOff` or `actuateNewToolsets`. `cleanRegistry()` is already
-present in these files per AGENTS.md; keep its existing call and add the
-settings pin alongside it in the same `beforeEach`.
-
-**Implementation notes:**
-
-- `__tests__/focus.test.ts` has `cleanRegistry()` in `beforeEach` but
-  **no existing `afterEach`** — a new `afterEach` block must be created
-  for the `setSettingsOverrideForTests(null)` restore, not just edited
-  into an existing one.
-- `__tests__/restore.test.ts` fires `session_start`/`session_tree`
-  (many sites), which triggers `doRestore` → `readMergedToolsetDefaults()`
-  (a disk read when `_settingsOverride` is null). This is a **pre-existing
-  latent path** independent of these sprints — the library already calls
-  `readMergedToolsetDefaults` in `doRestore`. Flake risk is low because
-  those tests assert on registry IDs / slot renders, not toolset enabled
-  states. The audit step should confirm no assertion reaches the swapped
-  call sites before deciding to leave it untouched; if in doubt, pin it
-  too (a pinned `{}` is non-disruptive per the acceptance criteria).
-
-### Acceptance criteria
-
-- [ ] Every test file that reaches `focusOff` or `actuateNewToolsets` has
-      `setSettingsOverrideForTests({})` in `beforeEach` and `(null)` in
-      `afterEach`.
-- [ ] `npm test` green with **no production code changes yet** — proves
-      the isolation pin is non-disruptive and the suite was already
-      passing.
-- [ ] `npm run typecheck` green.
-- [ ] No test reads or writes real disk; a grep for
-      `setSettingsOverrideForTests` shows `null` restored in every
-      `afterEach` that sets it.
+**Verification:** `npm test` 235/235 green with **no production code
+changes** (proves the pin is non-disruptive); `npm run typecheck` green.
+Every `setSettingsOverrideForTests({})` has a matching `(null)` restore
+in `afterEach`.
 
 ---
 
-## Sprint 3 — Swap call sites to `getEffectiveDefault`
+## Sprint 3 — ✅ Complete: Swap call sites to `getEffectiveDefault`
 
 **Goal:** `src/focus.ts` (`focusOff`) and `src/registry.ts`
 (`actuateNewToolsets`) stop reading `spec.defaultEnabled` directly and
-instead consult the settings tier through `getEffectiveDefault(spec,
-snapshot)`. This is the core library adoption; it makes a settings-pinned
-default actually take effect on restore / new-toolset actuation.
+consult the settings tier through `getEffectiveDefault(spec, snapshot)`
+instead — the core library adoption that makes a settings-pinned default
+actually take effect on restore / new-toolset actuation.
 
-### Work
+**What was done:**
 
-Both functions loop over the registry, so each reads the merged snapshot
-**once before its loop** and passes it into `getEffectiveDefault` (the
-library's no-cache, snapshot-in-from-call-site contract — see its JSDoc;
-per-toolset disk reads would be O(toolsets) reads per action).
+- Both call sites read `readMergedToolsetDefaults()` **once before the
+  loop** and pass the snapshot into `getEffectiveDefault(entry.spec,
+  defaultsSnapshot)`. No per-iteration disk read.
+- `actuateNewToolsets` reads the snapshot **after** its `ids.length === 0`
+  early-return, so empty-input calls never touch disk.
+- Imports added to both files (alphabetical, package imports — no `.js`):
+  `getEffectiveDefault`, `readMergedToolsetDefaults`.
+- `config/settings-reader.ts` (the group store) untouched; no new files,
+  no new state.
+- `focusOff` JSDoc updated to reference the effective default
+  ("settings tier first, then `spec.defaultEnabled`");
+  `actuateNewToolsets` JSDoc left unchanged (its contract didn't change,
+  only the implementation detail — ponytail: avoid unrequested prose).
+- 4 new tests: 2 in `__tests__/focus.test.ts` (settings-pinned-off
+  overrides `defaultEnabled: true`; pinned-on overrides
+  `defaultEnabled: false`), 2 in `__tests__/integration.test.ts` (same
+  pair for `actuateNewToolsets`). Both directions, both call sites.
 
-1. **`src/focus.ts` → `focusOff`** — replace
-   `const wantsEnabled = entry.spec.defaultEnabled ?? true;` with:
+**Equivalence (for the PR description):** `?? true` (focus) and
+`!== false` (registry) both coerce `undefined` → `true` and pass
+booleans through — identical to the helper's `?? true` on the tier-3
+path. The swap is behavior-preserving when no settings pin is present.
 
-   ```ts
-   const snapshot = readMergedToolsetDefaults();
-   // ...inside the loop:
-   const wantsEnabled = getEffectiveDefault(entry.spec, snapshot);
-   ```
+**Discovered during testing — folded into Sprint 4 as Bug B:** `focusOff`'s
+per-toolset `enable()`/`disable()` loop fires the library's `requires`
+cascade, which can re-enable a settings-pinned-off dependency when a
+dependent toolset (no settings override) gets enabled. Pre-existing (same
+issue with `defaultEnabled: false` on a dependency before this sprint),
+but the settings tier makes it user-visible. Documented in the design
+doc and Sprint 4; **not yet implemented** — `focusOff` still uses the
+`enable()`/`disable()` loop as of this sprint.
 
-2. **`src/registry.ts` → `actuateNewToolsets`** — replace
-   `const enabled = entry.spec.defaultEnabled !== false;` with the same
-   `getEffectiveDefault(entry.spec, snapshot)` pattern (snapshot read
-   once before the loop, which already early-returns on `ids.length ===
-   0` — read it after that guard so empty-input calls don't touch disk).
-3. **Imports:** add `getEffectiveDefault` and
-   `readMergedToolsetDefaults` to the `pi-tool-masking` import in both
-   files. No new files, no new state. `config/settings-reader.ts` (the
-   group store) is **not** touched.
-4. **Equivalence note for the PR description:** the swap changes
-   `?? true` (focus) and `!== false` (registry) to the helper's
-   `?? true`. Confirm these are equivalent for every reachable
-   `defaultEnabled` value (`boolean | undefined`): they are — both
-   coerce `undefined` → `true` and pass booleans through. Call this out
-   so the reviewer sees the behavior-preserving intent on the tier-3
-   path.
-
-### Files
-
-- `src/focus.ts`
-- `src/registry.ts`
-
-### Acceptance criteria
-
-- [ ] Both call sites read `readMergedToolsetDefaults()` once before
-      their loop and pass the snapshot into `getEffectiveDefault`.
-- [ ] No per-iteration disk read (snapshot hoisted out of the loop).
-- [ ] `actuateNewToolsets` still early-returns on empty `ids` **before**
-      reading the snapshot.
-- [ ] New test: a settings-pinned toolset (override seeded via
-      `setSettingsOverrideForTests({ "<persistKey>": false })`) is
-      restored to **off** by `focusOff` and actuated **off** by
-      `actuateNewToolsets`, even when its `spec.defaultEnabled` is
-      `true`. Conversely, a pinned-`true` toolset with
-      `defaultEnabled: false` comes on. (Covers both directions, both
-      call sites.)
-- [ ] Existing tests still green (the Sprint 2 isolation pins make them
-      deterministic against the swap).
-- [ ] `npm run typecheck` green — `getEffectiveDefault` returns
-      `boolean` (not `boolean | undefined`), so no new
-      `noUncheckedIndexedAccess` guards are needed at the call site; the
-      `typeof === "boolean"` guard lives inside the library.
+**Verification:** `npm test` 239/239 green (235 baseline + 4 new);
+`npm run typecheck` green. `getEffectiveDefault` returns `boolean`, so no
+new `noUncheckedIndexedAccess` guards at the call site.
 
 ---
 
