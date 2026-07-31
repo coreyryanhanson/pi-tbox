@@ -99,6 +99,7 @@ Properties:
 export function focusOff(pi: ExtensionAPI): string {
     setFocusUnit(null);
     persistFocusUnit(pi, null);
+    clearAllToolsetEntries(pi, ctx.sessionManager.getBranch()); // tombstone stale per-toolset entries
     const snapshot = readMergedToolsetDefaults();
     for (const { spec } of getRegisteredToolsets())
         applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot));
@@ -117,12 +118,16 @@ export function focusOff(pi: ExtensionAPI): string {
   already on the branch; this just replaces the `enable()/disable()` loop
   with `applyToolsetEnabled` (which the masking plan ships for exactly
   this path) and drops the cascade-undone `ponytail:` comment.
-- **Durable via the allowlist's no-entries property.** Under allowlist
-  mode, focus-enter writes no per-toolset branch entries (the array is
-  the authority). `focus off` appends `exclusion` mode and applies
-  defaults live; no per-toolset entries exist to tombstone, so `/reload`
-  naturally falls to `getEffectiveDefault` → defaults. 1 branch write,
-  durable.
+- **Durable via tombstone.** Under allowlist mode, focus-enter writes
+  no per-toolset branch entries (the array is the authority), so a
+  pristine session has none to clear. But a session with *pre-focus*
+  manual toggles carries stale `{enabled: ...}` entries into focus;
+  they're dormant during focus (allowlist wins) and wake on `/reload`
+  after `off`. `clearAllToolsetEntries` tombstones them so `/reload`
+  falls to `getEffectiveDefault` → defaults, matching the live
+  `applyToolsetEnabled` result. Without this, `off` would drift on
+  `/reload` for any non-pristine session (live = default, restored =
+  pre-focus toggle). 2 branch writes (tombstone + exclusion mode), durable.
 - **The old item-3 cascade problem is fixed for free** —
   `applyToolsetEnabled` is the no-cascade apply path the masking plan's
   D8 introduced.
@@ -180,15 +185,19 @@ Handler:
    entry; supersedes any active allowlist. Focus lifted.
 3. Read `readMergedToolsetDefaults()` once; for each registered toolset,
    `applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot))`.
+   (Same tombstone + apply pattern as D2 `focus off`; `restore` and `off`
+   share the mechanism — the difference is `restore` is callable mid-focus
+   as a settings pull, `off` is the focus-exit path.)
 4. Output: `Restored N toolset${N!==1?"s":""} to settings defaults.`
 
 - **Not refused during focus** — applying settings while focused is a
   coherent "reset to settings" operation, and it ends focus cleanly.
-- **Distinct from `focus off`** (which applies defaults but does *not*
-  tombstone branch entries — right after focus there are none, but after
-  a toggle-heavy session `off` keeps your toggles while `restore` pulls
-  settings). And distinct from `focus release` (which retains the live
-  set). Three exits, three intents.
+- **Same tombstone+apply mechanism as `focus off`.** Both clear
+  per-toolset entries and re-apply `getEffectiveDefault`; the difference
+  is `restore` is a callable mid-focus settings-pull (D4), `off` is the
+  focus-exit path (D2). Distinct from `focus release` (which retains the
+  live set by *writing* per-toolset entries, not tombstoning). Three
+  exits, three intents.
 - **Doubles as "pull settings into live state now"** — the mid-session
   settings-activation path the old "Not live-refresh" non-goal blocked.
 
