@@ -1,0 +1,503 @@
+# Plan: `/tbox defaults` + allowlist-mode focus (unified)
+
+**Status:** Proposed. Supersedes
+[`defaults-command-design.md`](defaults-command-design.md) and
+[`focus-and-restore-revision.md`](focus-and-restore-revision.md) in full
+(those were built around the `toolsetResolutionMode` settings tier that
+the locked masking plan dropped — see "Why the old docs are dead" below).
+**Depends on:** `pi-tool-masking@1.2.0` (unreleased, on the
+`feat/stored-settings-and-allowlist` branch), specifically:
+`toolsetDefaults` settings tier + reader/writer/clearer, `getEffectiveDefault`,
+the **`"allowlist"` resolution mode** + `getActiveAllowlist()`,
+null-tombstone restore, `clearToolsetEntry` / `clearAllToolsetEntries`,
+and `applyToolsetEnabled`. The companion plan is
+[`pi-tool-masking/plans/settings-tier-and-allowlist-mode.md`](../pi-tool-masking/plans/settings-tier-and-allowlist-mode.md)
+— the *what* and *why* of that surface; this doc is the *pi-tbox UX and
+adoption*.
+
+## Why the old docs are dead
+
+`focus-and-restore-revision.md` and `defaults-command-design.md` were
+designed against an earlier masking branch that shipped a
+**`toolsetResolutionMode` settings tier** — a second settings key so a
+saved focus config could reproduce *inclusion mode* on a fresh session.
+The locked masking plan (D2) **dropped that tier**. Mode is
+branch-persisted only; there is no settings key for it. Consequences that
+cascade into this doc:
+
+- **Old Decision 4** ("`save` persists the resolution mode alongside the
+  pins") — impossible, the key doesn't exist. `save` writes
+  `toolsetDefaults` only.
+- **Old `show` mode row / `clear` removing a mode block** — nothing to
+  show or clear. `show` is pins-only; `clear` removes the
+  `toolsetDefaults` block only.
+- **The "saved focus config reproduces inclusion for new toolsets"
+  mechanism** — gone. The accepted replacement (masking plan, "What is
+  not clean") is: `save` writes **exclusion pins**, and a toolset
+  installed *after* the save with no pin hits the exclusion floor
+  (`defaultEnabled ?? true`) and comes on. The post-install leak is
+  **accepted** for settings files (editable-once-and-fixed, unlike
+  append-only chat state). A resilient `toolsetAllowlist` settings key
+  is deferred to a later release.
+- **`restore` lifts focus** — for settings to flow, `restore` must append
+  an `exclusion` mode entry to supersede any active allowlist. So
+  `restore`-during-focus is coherent *and* exits focus. The old "restore
+  keeps focus active" stance is gone, retroactively agreed in the
+  retrospective.
+
+The settings tier itself (`toolsetDefaults`) and the null-tombstone
+restore semantics survive unchanged from the old docs; only the
+mode-persistence layer is gone.
+
+## Decisions locked in brainstorm
+
+| # | Decision | Choice | One-line rationale |
+|---|---|---|---|
+| D1 | `save` semantic | **Live-state-diff, mode-agnostic** | Pin every toolset whose live on/off differs from `getEffectiveDefault(spec)`. One code path, works during focus *and* outside it, minimal pins, no focus guard. |
+| D2 | `focus off` behavior | **Restore to effective defaults** | Drive every toolset to `getEffectiveDefault`, switch to exclusion. Preserves current user expectation ("turn focus off = back to normal"); smallest behavior delta from today. |
+| D3 | Second focus exit | **`focus release` = retain live set** | Keep the live on/off set, flush the allowlist selection to per-toolset branch entries, switch to exclusion. "Release the constraint, keep my working set." |
+| D4 | `restore` during focus | **Allowed; lifts focus** | Tombstone toolset entries + append `exclusion` mode + apply `getEffectiveDefault` live. Settings flow; focus ends. Distinct from `focus off` (defaults) and `focus release` (retain). |
+| D5 | Actuation during focus | **Still refused** (unchanged) | Toggles mid-focus re-shape the allowlist — UX-incoherent. `save`/`show`/`clear`/`restore` are not actuation and are not refused. |
+| D6 | `show` surface | **Pins only, no mode row** | No mode settings tier exists. `show` lists `toolsetDefaults` pins annotated by scope. |
+
+### D1 — `save` = live-state-diff
+
+For each registered toolset, compute `live = entry.toolset.isEnabled(pi)`
+and `baseline = getEffectiveDefault(spec, snapshot)` (snapshot read once
+before the loop). Pin **only where they differ**:
+
+```ts
+const scope = flags.has("global") ? "global" : "project"; // default: project
+const snapshot = readMergedToolsetDefaults();
+const pins: Record<string, { enabled: boolean }> = {};
+for (const { spec, toolset } of getRegisteredToolsets()) {
+    const baseline = getEffectiveDefault(spec, snapshot);
+    const live = toolset.isEnabled(pi);
+    if (live !== baseline) pins[spec.persistKey] = { enabled: live };
+}
+writeToolsetDefaults(pins, scope);
+```
+
+Properties:
+
+- **Mode-agnostic.** During focus (allowlist mode), live state *is*
+  "allowlist members on, others off" — the diff captures the focus
+  selection as exclusion pins. Outside focus, it captures your manual
+  toggles. Same code path, same semantic both ways.
+- **Minimal pins.** A toolset still at its effective default is not
+  pinned, so a later settings edit or default change flows to it
+  correctly instead of being locked.
+- **No focus guard.** `save` works mid-focus. No refusal, no two-step
+  `focusOff`-then-`save` workflow.
+- **No drift mid-save.** The snapshot is frozen for the diff; the write
+  doesn't mutate it. The only future "change" to the baseline is a later
+  settings edit — the intended user lever.
+- **Coupling note.** A′ depends on `getEffectiveDefault`'s
+  mode-agnostic contract (settings pin → `spec.defaultEnabled`). That
+  contract is documented in the masking plan and tested; it's a stable
+  seam. If a future masking revision ever made `getEffectiveDefault`
+  mode-aware or branch-aware, the diff would shift — flag in the plan,
+  not a reason to avoid the cleanest design today.
+
+### D2 — `focus off` = restore to effective defaults
+
+```ts
+export function focusOff(pi: ExtensionAPI): string {
+    setFocusUnit(null);
+    persistFocusUnit(pi, null);
+    setDefaultResolutionMode(pi, "exclusion");
+    const snapshot = readMergedToolsetDefaults();
+    for (const { spec } of getRegisteredToolsets())
+        applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot));
+    rerenderSlot(pi);
+    return `Focus off — toolsets restored to effective defaults.`;
+}
+```
+
+- **Current behavior preserved.** Today's `focusOff` drives every toolset
+  to its default; this swaps `enable()`/`disable()` (which trigger the
+  `requires` cascade and can surprise re-enable) for `applyToolsetEnabled`
+  (no-cascade apply) and `spec.defaultEnabled` for `getEffectiveDefault`
+  (settings-aware). Same user-visible semantic, fixed mechanics.
+- **Smallest delta from current code.** The `getEffectiveDefault` swap is
+  already on the branch; this just replaces the `enable()/disable()` loop
+  with `applyToolsetEnabled` (which the masking plan ships for exactly
+  this path) and drops the cascade-undone `ponytail:` comment.
+- **Durable via the allowlist's no-entries property.** Under allowlist
+  mode, focus-enter writes no per-toolset branch entries (the array is
+  the authority). `focus off` appends `exclusion` mode and applies
+  defaults live; no per-toolset entries exist to tombstone, so `/reload`
+  naturally falls to `getEffectiveDefault` → defaults. 1 branch write,
+  durable.
+- **The old item-3 cascade problem is fixed for free** —
+  `applyToolsetEnabled` is the no-cascade apply path the masking plan's
+  D8 introduced.
+
+### D3 — `focus release` = retain live set
+
+```ts
+export function focusRelease(pi: ExtensionAPI): string {
+    setFocusUnit(null);
+    persistFocusUnit(pi, null);
+    setDefaultResolutionMode(pi, "exclusion");
+    const allow = new Set(getActiveAllowlist() ?? []);
+    for (const { spec } of getRegisteredToolsets())
+        pi.appendEntry(spec.persistKey, { enabled: allow.has(spec.id) });
+    rerenderSlot(pi);
+    return `Focus released — selection retained, focus guard lifted.`;
+}
+```
+
+- **Live state untouched.** What you see is what you keep — no surprise
+  re-enables (the old item-1 complaint).
+- **Flushes N per-toolset entries** to persist the selection under
+  exclusion (without them, `/reload` → defaults). Accumulates per
+  focus-cycle; `ponytail:` comment names the tombstone-accumulation
+  ceiling and the pi-core compact-op upgrade path.
+- **Aligned with the masking plan's downstream `focusOff` description**
+  (the plan describes retain as one coherent option; we adopt it as
+  `release`).
+- **Decoupled from `save` by D1.** Under the old design, retaining on
+  exit was forced because it was the only way to persist a focus config.
+  With D1, a user can `save` mid-focus before any exit, so `release` and
+  `off` are pure UX choices, not coupled to persistence.
+
+### D4 — `restore` lifts focus
+
+```
+/tbox defaults restore    apply settings defaults to live state now; lifts focus
+```
+
+Handler:
+
+1. `clearAllToolsetEntries(pi, ctx.sessionManager.getBranch())` — tombstone
+   per-toolset branch entries (dedup'd) so settings re-assert.
+2. `setDefaultResolutionMode(pi, "exclusion")` — append an exclusion mode
+   entry; supersedes any active allowlist. Focus lifted.
+3. Read `readMergedToolsetDefaults()` once; for each registered toolset,
+   `applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot))`.
+4. Output: `Restored N toolset${N!==1?"s":""} to settings defaults.`
+
+- **Not refused during focus** — applying settings while focused is a
+  coherent "reset to settings" operation, and it ends focus cleanly.
+- **Distinct from `focus off`** (which applies defaults but does *not*
+  tombstone branch entries — right after focus there are none, but after
+  a toggle-heavy session `off` keeps your toggles while `restore` pulls
+  settings). And distinct from `focus release` (which retains the live
+  set). Three exits, three intents.
+- **Doubles as "pull settings into live state now"** — the mid-session
+  settings-activation path the old "Not live-refresh" non-goal blocked.
+
+### D5 — actuation still refused during focus
+
+Unchanged from AGENTS.md: while focus is active, `all on|off`,
+`<group> on|off`, `+<toolset> on|off` are refused. `save`/`show`/`clear`/
+`restore` are **not** actuation and are not refused. Add an AGENTS.md
+line noting this explicitly.
+
+## Command surface (final)
+
+```
+/tbox defaults                                show every settings-tier pin (both scopes, annotated)
+/tbox defaults save  [--global]               snapshot live-state-diff → settings (default: project)
+/tbox defaults clear [--global]               remove toolsetDefaults block from scope (default: project)
+/tbox defaults restore                        apply settings defaults to live state now (lifts focus)
+
+/tbox focus <group>|+<toolset>                enter focus (allowlist mode)
+/tbox focus off                               exit focus → restore to effective defaults
+/tbox focus release                           exit focus → retain live selection
+```
+
+**Scope default = project.** `save` and `clear` write to the project
+scope (`./.pi/settings.json`) by default; `--global` opts into the
+shared global file (`~/.pi/agent/settings.json`). There is no
+`--project` flag — project is the default, and passing `--project` is an
+unknown-flag error (mirrors `/tbox list`'s `KNOWN_*_FLAGS` reject
+pattern in `src/list.ts`). Rationale: project is the safer, narrower
+blast radius; global is the footgun (shared across all projects) that
+deserves the explicit opt-in. `show` and `restore` take no scope flag —
+`show` reads both scopes (annotated), `restore` applies the merged view.
+
+`defaults` joins the reserved-word list in `src/reserved.ts`. `release`
+joins too (it's a `focus` subcommand, not top-level, but reserving it
+prevents a group named `release` from shadowing intent — belt-and-
+suspenders, matches the existing `off`/`edit`/`remove` reservations).
+`save`/`show`/`clear`/`restore` are `defaults` subcommands; reserving
+them top-level is optional (they never appear bare at top level) — skip
+unless a collision surfaces.
+
+`defaults` joins the reserved-word list in `src/reserved.ts`. `release`
+joins too (it's a `focus` subcommand, not top-level, but reserving it
+prevents a group named `release` from shadowing intent — belt-and-
+suspenders, matches the existing `off`/`edit`/`remove` reservations).
+`save`/`show`/`clear`/`restore` are `defaults` subcommands; reserving
+them top-level is optional (they never appear bare at top level) — skip
+unless a collision surfaces.
+
+### `show` — pins only, annotated by scope
+
+Reads `readMergedToolsetDefaults()` (merged view) and
+`readToolsetDefaults("global")` / `readToolsetDefaults("project")` (per-
+scope raw) to attribute each pin. One row per pin:
+
+```
+toolset-state:pi-lean-dimension.web    enabled  [global]
+toolset-state:pi-lean-dimension.api    disabled [project]  (overrides global)
+```
+
+Project pins overriding a global pin for the same `persistKey` are
+annotated `(overrides global)`. If the merged map is empty: `No toolset
+defaults pinned in settings. Every toolset uses its packaged default
+(spec.defaultEnabled ?? true).` No mode row — there is no mode settings
+tier.
+
+### `clear` — remove the `toolsetDefaults` block
+
+Same scope default as `save`: project unless `--global`. Calls
+`clearToolsetDefaults(scope)`. Returns `true` if the block existed.
+Output: `Cleared toolset defaults from <path> (<scope>).` or `No
+toolsetDefaults block in <path> (<scope>) — nothing to clear.` After
+`clear`, every toolset in that scope falls back to tier 3
+(`spec.defaultEnabled ?? true`), or for project scope, to the global
+scope's pins.
+
+## Changes required in pi-tbox
+
+### 1. `src/focus.ts` — allowlist-mode rewrite + `focusRelease`
+
+**`focusUnit`** — replace the two-pass enable/disable + per-toolset
+`appendEntry` with:
+
+```ts
+const resolved = resolveFocusUnit(input);
+if (!resolved.ok) return resolved.error;
+const ids = resolved.toolsetIds; // already forward-closure-resolved
+
+setFocusUnit(resolved.label);
+persistFocusUnit(pi, resolved.label);
+
+setDefaultResolutionMode(pi, "allowlist", ids);
+// Live-actuate per toolset via the library's public apply helper. No
+// per-toolset appendEntry — the allowlist array is the authority.
+// Non-toolset tools are preserved automatically: applyToolsetEnabled
+// is a per-spec delta (enable = union(current, spec.names), disable =
+// current \ spec.names), so each call only touches its own spec's
+// names and leaves everything outside the registry untouched. The
+// library's restore handler has its own set-level atomic short-circuit
+// for companion-mirror safety during *restore*; focusUnit is a live
+// user action, not restore, so a per-toolset apply loop is fine (and
+// emits the same N `changed` events today's enable/disable loop did).
+const allow = new Set(ids);
+for (const { spec } of getRegisteredToolsets())
+    applyToolsetEnabled(pi, spec, allow.has(spec.id));
+rerenderSlot(pi);
+```
+
+Delete the `ponytail:` two-pass comment (the two-pass approach is gone)
+and the "already enabled → persist `{enabled:true}`" branch (the allowlist
+array replaces per-toolset persistence for allowlist members).
+
+**`focusOff`** — per D2 above (swap `enable()/disable()` →
+`applyToolsetEnabled`, drop the cascade `ponytail:` comment).
+
+**`focusRelease`** — new, per D3 above.
+
+**Header doc** — rewrite: "Focus uses **allowlist mode**: the resolved
+unit + forward `requires` closure becomes a finite allowlist array stored
+in the branch mode entry. The library's restore handler applies
+'in array → on, else → off' across all registered toolsets, including
+future installs. Two exits: `focus off` restores effective defaults;
+`focus release` retains the live selection."
+
+### 2. `src/registry.ts` — `actuateNewToolsets` allowlist branch
+
+Add an allowlist consultation **before** the existing
+`getEffectiveDefault` fallback (which is already on the branch):
+
+```ts
+export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
+    if (ids.length === 0) return;
+
+    const allow = getActiveAllowlist();
+    const registry = getRegisteredToolsets();
+    const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
+    const activeSet = new Set(pi.getActiveTools());
+    let changed = false;
+
+    const wantEnabled = (spec: ToolsetSpec): boolean => {
+        if (allow !== undefined) return allow.includes(spec.id);
+        return getEffectiveDefault(spec, readMergedToolsetDefaults());
+    };
+
+    for (const id of ids) {
+        const entry = registry.find((e) => e.spec.id === id);
+        if (!entry) continue;
+        const enabled = wantEnabled(entry.spec);
+        // ... existing activeSet add/remove logic, unchanged ...
+    }
+    // ... existing setActiveTools + emit, unchanged ...
+}
+```
+
+This is the masking plan's named `getActiveAllowlist()` call site. A
+toolset registered after focus was entered is not in the array → off.
+Read `readMergedToolsetDefaults()` once outside the loop (the branch
+already does this; keep it).
+
+### 3. `index.ts` — `/tbox defaults` dispatch + `focus release`
+
+Add a `case "defaults":` to the command switch dispatching `save` /
+`clear` / `show` / `restore` (parsing `--global`/`--project` via
+`parseArgs`'s `flags` set, per the old design doc — that part is still
+correct). Add `release` to the `case "focus":` branch alongside `off`.
+
+`restore` needs `ctx.sessionManager.getBranch()` for
+`clearAllToolsetEntries` — the command handler already has `ctx`
+(`applyToolsetEnabled` and `setDefaultResolutionMode` take `pi`).
+
+### 4. `src/reserved.ts` — add `defaults`, `release`
+
+```ts
+const RESERVED_WORDS: readonly string[] = [
+    "status", "focus", "all", "list", "group",
+    "on", "off", "edit", "remove", "chars",
+    "defaults", "release",
+];
+```
+
+### 5. Docs + comments
+
+- Delete `docs/defaults-command-design.md` and
+  `docs/defaults-command-sprints.md` (superseded by this doc).
+- `docs/focus-and-restore-revision.md`: delete (superseded).
+- `src/focus.ts` header doc: rewrite per item 1.
+- `AGENTS.md`: add a line under the focus rule — "`save`/`show`/`clear`/
+  `restore` are not actuation commands and are not refused during focus;
+  `restore` lifts focus." Update the focus description from "inclusion
+  mode" to "allowlist mode."
+
+## Test plan
+
+All tests use `MockPI` + `setSettingsOverrideForTests({})` in `beforeEach`
+(existing pattern). **The settings-override shape is now wrapped**:
+`{ [persistKey]: { enabled: boolean } }`, **not** flattened `{ [key]: boolean }`.
+The 4 failing tests on the current branch are fixed by this shape change
+(see "Step 0" below) — that fix is the first commit.
+
+### Step 0 — fix the 4 settings-pinned tests (branch baseline)
+
+The 4 failing tests pass `setSettingsOverrideForTests({ [key]: false })`
+against the masking plan's D1 wrapped-shape reader, which reads
+`map[key]?.enabled` → `undefined` → falls through to `defaultEnabled`.
+Fix: `{ [key]: false }` → `{ [key]: { enabled: false } }` in
+`__tests__/focus.test.ts` (2 tests) and `__tests__/integration.test.ts`
+(2 tests). 4-line fix, same behavior the new plan still relies on.
+
+### New / changed tests
+
+**`focusUnit` — allowlist mode (`__tests__/focus.test.ts`):**
+
+- `focusUnit` calls `setDefaultResolutionMode(pi, "allowlist", ids)` with
+  the forward-closure-resolved ids; `getActiveAllowlist()` returns them.
+- Live state after enter: allowlist members on, others off, across all
+  registered toolsets.
+- Non-toolset tools preserved: seed `pi.getActiveTools()` with a name
+  not owned by any toolset; assert still active after enter. This is
+  satisfied by `applyToolsetEnabled`'s per-spec delta (each call only
+  touches its own spec's names), not by pi-tbox logic — the test guards
+  that pi-tbox keeps using the library helper rather than a hand-rolled
+  `setActiveTools` rebuild.
+- No per-toolset `appendEntry` during enter (the array is the authority).
+- Future-install: register a toolset *after* `focusUnit`, call
+  `actuateNewToolsets` → not in array → off.
+
+**`focusOff` — restore to defaults (`__tests__/focus.test.ts`):**
+
+- After `focusOff`, every toolset at `getEffectiveDefault`; mode is
+  `exclusion`; `getActiveAllowlist()` is `undefined`.
+- No-cascade: a dependent toolset's `enable()` doesn't re-enable a
+  pinned-off dependency (the old item-3 guard, now via
+  `applyToolsetEnabled`).
+- Settings-pinned-off overrides `defaultEnabled: true`; settings-pinned-on
+  overrides `defaultEnabled: false` (the 4 Step-0 tests, now passing).
+
+**`focusRelease` — retain (`__tests__/focus.test.ts`):**
+
+- After `focusRelease`, live state unchanged from focus-era; mode is
+  `exclusion`; branch has `{enabled:true}` for allowlist members and
+  `{enabled:false}` for the rest; `getActiveAllowlist()` is `undefined`.
+- `/reload` (simulate via restore handler) keeps the selection.
+
+**`actuateNewToolsets` — allowlist branch (`__tests__/integration.test.ts`,
+`__tests__/restore-timing.test.ts`):**
+
+- During focus (allowlist active), a newly-registered orphan in the
+  allowlist → on; not in the allowlist → off.
+- Outside focus, falls back to `getEffectiveDefault` (the Step-0 tests).
+- Settings-pinned respects (the 2 Step-0 integration tests).
+
+**`/tbox defaults save` (new, `__tests__/defaults.test.ts` or
+`__tests__/integration.test.ts`):**
+
+- Live-state-diff: pin only toolsets where `live !== getEffectiveDefault`.
+  Toolsets at their default are not pinned.
+- During focus: captures the allowlist selection as exclusion pins
+  (allowlist members on → pin `{enabled:true}` if their default is off;
+  others off → pin `{enabled:false}` if their default is on).
+- Scope default = project; `--global` opts into global. `--project` is
+  an unknown-flag error (no such flag). Assert: bare `save` writes
+  project; `save --global` writes global; `save --project` → usage
+  error, no write.
+- Uses `setSettingsWriterOverrideForTests` (in-memory capture); assert
+  the written map shape is wrapped `{ [key]: { enabled } }`.
+- Not refused during focus (no focus guard).
+
+**`/tbox defaults show` / `clear`:**
+
+- `show`: merged view + per-scope attribution with `(overrides global)`.
+  Attribution needs a real disk round-trip (the reader override
+  collapses scopes) — mirror the library's W6 disk-test pattern with
+  `process.chdir(tmpDir)` + `PI_CODING_AGENT_DIR`. Use the reader/writer
+  seams for the merged-view assertions only.
+- `clear`: removes the block; `true`/`false` wording; preserves other
+  keys.
+
+**`/tbox defaults restore`:**
+
+- Tombstones per-toolset entries (`clearAllToolsetEntries` with
+  `ctx.sessionManager.getBranch()`); appends `exclusion` mode; applies
+  `getEffectiveDefault` live via `applyToolsetEnabled`.
+- During focus: lifts focus (allowlist no longer active after).
+- Dedup: repeat restore with no intervening toggle writes zero
+  tombstones.
+
+## Out of scope / deferred
+
+- **`toolsetAllowlist` settings key** — a future settings key that
+  reconstructs the allowlist array on a fresh session, making saved
+  focus configs resilient to post-install toolsets. The masking plan
+  names this as a clean future addition; not in this release. Today's
+  `save` writes exclusion pins with the accepted post-install leak.
+- **Per-toolset pin** (`/tbox +web default off --global`) — the writer
+  supports N=1; add when snapshot-only proves insufficient.
+- **`/tbox list` pin-marker column** — UX nicety; `show` covers
+  "what's pinned?" until then.
+- **pi-core compact-toolset-entries op** — the tombstone-accumulation
+  ceiling (now covering focus-release flushes too); a pi-core change,
+  not gated on this plan.
+- **Removing/deprecating `inclusion` mode** — stays in the library for
+  compat; pi-tbox no longer uses it after this lands.
+
+## Implementation order (each step leaves `npm test` green)
+
+0. **Fix the 4 settings-pinned tests** (Step 0) + delete the 3 stale
+   docs + add this plan doc. Green baseline.
+1. `src/registry.ts` — `actuateNewToolsets` allowlist branch + tests.
+2. `src/focus.ts` — `focusUnit` allowlist-mode rewrite + `focusOff`
+   `applyToolsetEnabled` swap + tests.
+3. `src/focus.ts` — `focusRelease` + tests.
+4. `index.ts` + `src/reserved.ts` — `/tbox defaults save|show|clear`
+   dispatch + tests.
+5. `index.ts` — `/tbox defaults restore` dispatch + tests.
+6. `AGENTS.md` + `src/focus.ts` header doc + `CHANGELOG.md`
+   `[Unreleased]`.
