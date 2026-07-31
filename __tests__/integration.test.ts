@@ -739,7 +739,7 @@ describe("integration — multi-extension registry", () => {
 			});
 
 			setSettingsOverrideForTests({
-				"toolset-state:settings-off-source": false,
+				"toolset-state:settings-off-source": { enabled: false },
 			});
 
 			actuateNewToolsets(pi, ["settings-off-source"]);
@@ -766,7 +766,7 @@ describe("integration — multi-extension registry", () => {
 			});
 
 			setSettingsOverrideForTests({
-				"toolset-state:settings-on-source": true,
+				"toolset-state:settings-on-source": { enabled: true },
 			});
 
 			actuateNewToolsets(pi, ["settings-on-source"]);

@@ -459,7 +459,7 @@ describe("/tbox focus", () => {
 			expect(pi.getActiveTools()).toContain("pin-off-test");
 
 			// Pin it off via settings override
-			setSettingsOverrideForTests({ [key]: false });
+			setSettingsOverrideForTests({ [key]: { enabled: false } });
 			expect(getEffectiveDefault(entry.spec, readMergedToolsetDefaults())).toBe(
 				false,
 			);
@@ -501,7 +501,7 @@ describe("/tbox focus", () => {
 			expect(pi.getActiveTools()).toContain("test-pin-on");
 
 			// Pin it on via settings override
-			setSettingsOverrideForTests({ [key]: true });
+			setSettingsOverrideForTests({ [key]: { enabled: true } });
 
 			const result = focusOff(pi);
 			expect(result).toContain("Focus off");
