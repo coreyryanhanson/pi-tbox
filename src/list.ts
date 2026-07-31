@@ -573,7 +573,8 @@ export function formatStatus(pi: ExtensionAPI): string {
  */
 export function formatBareHelp(): string {
 	return (
-		"Subcommands: list, status, all, focus, group, chars\n" +
-		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters"
+		"Subcommands: list, status, all, focus, group, chars, defaults\n" +
+		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters\n" +
+		"  /tbox defaults [save|show|clear|restore] \u2014 run /tbox defaults --help for details"
 	);
 }

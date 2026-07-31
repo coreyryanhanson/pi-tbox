@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+	getActiveAllowlist,
 	getRegisteredToolsets,
 	type RegistryEntry,
 	setSettingsOverrideForTests,
@@ -487,9 +488,10 @@ describe("integration — multi-extension registry", () => {
 	// Focus
 	// -----------------------------------------------------------------------
 
-	it("focus host.api enters inclusion mode with only host.api (+ closure) on", () => {
+	it("focus host.api enters allowlist mode with only host.api (+ closure) on", () => {
 		const msg = focusUnit(pi, "+host.api");
 		expect(msg).toContain("Focus on");
+		expect(getActiveAllowlist()).toEqual(["host.api"]);
 
 		const active = mock.getActiveTools();
 		// host.api tools are on
@@ -528,7 +530,10 @@ describe("integration — multi-extension registry", () => {
 		// Enter focus
 		focusUnit(pi, "+host.api");
 		// Exit focus
-		const msg = focusOff(pi);
+		const msg = focusOff(
+			pi,
+			mock.createCommandContext().sessionManager.getBranch(),
+		);
 		expect(msg).toContain("Focus off");
 
 		const active = mock.getActiveTools();
@@ -558,6 +563,54 @@ describe("integration — multi-extension registry", () => {
 
 		const groupMsg = actuateGroup(pi, "my-group", true);
 		expect(groupMsg).toContain("focus mode");
+	});
+
+	it("during focus, a newly-registered toolset in the allowlist comes on; one not in it is off", () => {
+		// Focus on a group that forward-references a not-yet-registered
+		// toolset, so the allowlist includes it before it exists.
+		writeGroup("fwd-group", { toolsets: ["host.api", "future.tool"] });
+		focusUnit(pi, "fwd-group");
+		expect(getActiveAllowlist()).toEqual(["host.api", "future.tool"]);
+
+		// Register the forward-referenced toolset now (mid-focus install).
+		mock.registerTool({
+			name: "future-tool",
+			description: "Future tool",
+			sourceInfo: {
+				path: "future.ts",
+				source: "future-plugin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "future.tool",
+			names: new Set(["future-tool"]),
+			persistKey: "toolset-state:future.tool",
+			defaultEnabled: true,
+		});
+		actuateNewToolsets(pi, ["future.tool"]);
+		expect(pi.getActiveTools()).toContain("future-tool");
+
+		// A toolset NOT in the allowlist lands off.
+		mock.registerTool({
+			name: "later-tool",
+			description: "Later tool",
+			sourceInfo: {
+				path: "later.ts",
+				source: "later-plugin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "later-plugin",
+			names: new Set(["later-tool"]),
+			persistKey: "toolset-state:later-plugin",
+			defaultEnabled: true,
+		});
+		actuateNewToolsets(pi, ["later-plugin"]);
+		expect(pi.getActiveTools()).not.toContain("later-tool");
 	});
 
 	// -----------------------------------------------------------------------
@@ -685,6 +738,24 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toMatch(
 			/^Context budget \(toolsets, most expensive first\):/,
 		);
+	});
+
+	it("bikeshed: bare /tbox restore returns the redirect hint, not a group lookup", async () => {
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		const activeBefore = new Set(pi.getActiveTools());
+		await mock.dispatchCommand("restore");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toContain("defaults restore");
+		expect(notify!.message).toContain("lifts focus");
+		expect(notify!.message).not.toContain("No group");
+		// Mutates no toolset state.
+		expect(new Set(pi.getActiveTools())).toEqual(activeBefore);
 	});
 
 	// -----------------------------------------------------------------------

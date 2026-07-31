@@ -18,6 +18,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	defineToolset,
+	getActiveAllowlist,
 	getEffectiveDefault,
 	getRegisteredToolsets,
 	readMergedToolsetDefaults,
@@ -128,13 +129,16 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Actuate a set of toolset ids to their defaultEnabled state, without
- * appending persist entries or emitting events.
+ * Actuate a set of toolset ids to their desired state, without appending
+ * persist entries or emitting events.
  *
- * This mirrors what the library's restore handler would have done if it
- * had seen these toolsets at the time it ran. Used after
- * autoRegisterBuiltinAndOrphans when the restore handler already fired
- * before these orphans were registered.
+ * During focus (allowlist mode) the allowlist array is the authority: a
+ * toolset registered after focus was entered is in the array → on, else
+ * → off. Outside focus, each toolset falls back to its settings-aware
+ * default (`getEffectiveDefault`). This mirrors what the library's restore
+ * handler would have done if it had seen these toolsets at the time it ran.
+ * Used after autoRegisterBuiltinAndOrphans when the restore handler already
+ * fired before these orphans were registered.
  *
  * @param pi - The extension API
  * @param ids - Toolset ids to actuate (typically the return of
@@ -143,17 +147,23 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
 	if (ids.length === 0) return;
 
+	const allow = getActiveAllowlist();
 	const defaultsSnapshot = readMergedToolsetDefaults();
 	const registry = getRegisteredToolsets();
 	const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
 	const activeSet = new Set(pi.getActiveTools());
 	let changed = false;
 
+	const wantEnabled = (spec: ToolsetSpec): boolean => {
+		if (allow !== undefined) return allow.includes(spec.id);
+		return getEffectiveDefault(spec, defaultsSnapshot);
+	};
+
 	for (const id of ids) {
 		const entry = registry.find((e: RegistryEntry) => e.spec.id === id);
 		if (!entry) continue;
 
-		const enabled = getEffectiveDefault(entry.spec, defaultsSnapshot);
+		const enabled = wantEnabled(entry.spec);
 		const registeredNames = [...entry.spec.names].filter((n) =>
 			allToolNames.has(n),
 		);

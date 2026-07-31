@@ -41,7 +41,8 @@ import {
 	toggleAll,
 } from "./src/groups.js";
 import { removeGroup } from "./config/settings-reader.js";
-import { focusUnit, focusOff } from "./src/focus.js";
+import { focusUnit, focusOff, focusRelease } from "./src/focus.js";
+import { handleDefaults } from "./src/defaults.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -60,7 +61,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	let lastCtx: SlotCtx | null = null;
 
 	const USAGE =
-		"/tbox [list|status|all|focus|group|chars] | /tbox <group> on|off | /tbox +<toolset> on|off";
+		"/tbox [list|status|all|focus|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -144,15 +145,32 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {
-						ctx.ui.notify(focusOff(pi), "info");
+						ctx.ui.notify(focusOff(pi, ctx.sessionManager.getBranch()), "info");
+					} else if (sub === "release") {
+						ctx.ui.notify(focusRelease(pi), "info");
 					} else if (sub) {
 						ctx.ui.notify(focusUnit(pi, sub), "info");
 					} else {
 						ctx.ui.notify(
-							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off — focus on a group or toolset.",
+							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off | /tbox focus release — focus on a group or toolset, or exit focus.",
 							"info",
 						);
 					}
+					break;
+				}
+				case "defaults": {
+					const result = handleDefaults(pi, ctx, trimmed);
+					ctx.ui.notify(result.message, result.level);
+					break;
+				}
+				case "restore": {
+					// N2 guard: `restore` is reserved top-level; bare /tbox restore
+					// (a common typo for /tbox defaults restore) gets a pointed
+					// redirect instead of falling through to the group fallback.
+					ctx.ui.notify(
+						`"restore" is a defaults subcommand. Use /tbox defaults restore to apply settings defaults to live state (lifts focus).`,
+						"info",
+					);
 					break;
 				}
 				default: {

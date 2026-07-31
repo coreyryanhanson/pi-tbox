@@ -22,6 +22,7 @@ import {
 	actuateNewToolsets,
 	orphanToolsetId,
 } from "../src/registry.js";
+import { focusUnit } from "../src/focus.js";
 import { computeSlotState } from "../src/status-slot.js";
 import {
 	getRegisteredToolsets,
@@ -336,5 +337,47 @@ describe("restore-timing: actuateNewToolsets", () => {
 		// Second call — no new ids (idempotent)
 		const secondIds = autoRegisterBuiltinAndOrphans(pi);
 		expect(secondIds).toHaveLength(0);
+	});
+
+	it("during focus, newly-registered orphan toolsets land off (not in the allowlist)", () => {
+		// Focus on an existing toolset first
+		mock.registerTool({
+			name: "web-fetch",
+			description: "Fetch",
+			sourceInfo: {
+				path: "portal.ts",
+				source: "portal",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "portal.web",
+			names: new Set(["web-fetch"]),
+			persistKey: "toolset-state:portal.web",
+			defaultEnabled: true,
+		});
+
+		focusUnit(pi, "+portal.web");
+		expect(pi.getActiveTools()).toContain("web-fetch");
+
+		// Register a new extension mid-focus (fresh install) — the allowlist
+		// array is the authority, so the new orphan toolset is off.
+		mock.registerTool({
+			name: "new-tool",
+			description: "Newly installed tool",
+			sourceInfo: {
+				path: "new.ts",
+				source: "new-ext",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		const newIds = autoRegisterBuiltinAndOrphans(pi);
+		expect(newIds).toContain(orphanToolsetId("new-ext"));
+		actuateNewToolsets(pi, newIds);
+
+		expect(pi.getActiveTools()).not.toContain("new-tool");
+		expect(pi.getActiveTools()).toContain("web-fetch");
 	});
 });

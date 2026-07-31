@@ -31,6 +31,18 @@ describe("reserved wordlist", () => {
 		}
 	});
 
+	it("defaults, release, restore are reserved", () => {
+		for (const w of ["defaults", "release", "restore"]) {
+			expect(isReserved(w)).toBe(true);
+		}
+	});
+
+	it("a group named restore is rejected at creation with the reserved-word error", () => {
+		expect(() => writeGroup("restore", { toolsets: ["portal.web"] })).toThrow(
+			"reserved word",
+		);
+	});
+
 	it("non-reserved names are not reserved", () => {
 		expect(isReserved("mygroup")).toBe(false);
 		expect(isReserved("portal")).toBe(false);
