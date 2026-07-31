@@ -226,14 +226,6 @@ suspenders, matches the existing `off`/`edit`/`remove` reservations).
 them top-level is optional (they never appear bare at top level) — skip
 unless a collision surfaces.
 
-`defaults` joins the reserved-word list in `src/reserved.ts`. `release`
-joins too (it's a `focus` subcommand, not top-level, but reserving it
-prevents a group named `release` from shadowing intent — belt-and-
-suspenders, matches the existing `off`/`edit`/`remove` reservations).
-`save`/`show`/`clear`/`restore` are `defaults` subcommands; reserving
-them top-level is optional (they never appear bare at top level) — skip
-unless a collision surfaces.
-
 ### `show` — pins only, annotated by scope
 
 Reads `readMergedToolsetDefaults()` (merged view) and
@@ -344,16 +336,63 @@ toolset registered after focus was entered is not in the array → off.
 Read `readMergedToolsetDefaults()` once outside the loop (the branch
 already does this; keep it).
 
-### 3. `index.ts` — `/tbox defaults` dispatch + `focus release`
+### 3. `/tbox defaults` dispatch + handlers — `index.ts` + new `src/defaults.ts`
 
 Add a `case "defaults":` to the command switch dispatching `save` /
-`clear` / `show` / `restore` (parsing `--global`/`--project` via
-`parseArgs`'s `flags` set, per the old design doc — that part is still
-correct). Add `release` to the `case "focus":` branch alongside `off`.
+`clear` / `show` / `restore`. Add `release` to the `case "focus":`
+branch alongside `off`. Handlers live in a new `src/defaults.ts`
+module (keeps `index.ts` thin, matching `src/focus.ts` / `src/groups.ts`
+convention); `index.ts` just parses + delegates.
 
 `restore` needs `ctx.sessionManager.getBranch()` for
 `clearAllToolsetEntries` — the command handler already has `ctx`
 (`applyToolsetEnabled` and `setDefaultResolutionMode` take `pi`).
+
+**Flag handling — mirror `list`, don't diverge.** `parseArgs`
+(`src/list.ts`) collects `--`-prefixed args into its `flags: Set<string>`
+output. Define `KNOWN_DEFAULTS_FLAGS = new Set(["global", "help"])`
+(no `--project` — project is the default, passing `--project` is an
+unknown-flag error). `--help` prints a `DEFAULTS_HELP` block before any
+other check; any `--` flag not in the set →
+`Error: unknown flag --foo. See: /tbox defaults --help.` This is
+design-faithful (prevents typo-silent-no-op bugs like `--gloal`
+silently resolving to no scope) and mirrors `list`'s existing
+unknown-flag reject pattern — the pattern already lives in this repo,
+so it's ponytail-clean, not a new abstraction.
+
+**Scope resolution** (shared by `save` / `clear`):
+
+```ts
+function resolveScope(flags: Set<string>): "global" | "project" {
+  // --project is NOT a known flag; project is the default. Only --global
+  // opts into the shared file.
+  return flags.has("global") ? "global" : "project";
+}
+```
+
+`show` and `restore` ignore scope (show reads both, restore applies the
+merged view). With `--project` rejected as unknown, there's no
+"both/missing" ambiguity — only `--global` or bare (→ project).
+
+**Output path resolution.** `save` / `clear` success messages name the
+file path written. The library's `settingsPath` is currently private,
+so compute the path the same way the library does:
+global → `<PI_CODING_AGENT_DIR ?? ~/.pi/agent>/settings.json`,
+project → `<process.cwd()/.pi>/settings.json` (the `settings.json`
+filename is load-bearing: the directories alone are not the file path,
+and getting this wrong shows the wrong path in the success message).
+`ponytail:` note with upgrade path "promote `settingsPath` in the
+library" — ~3-line duplication over a new dependency, acceptable.
+
+**Malformed-file surfacing.** `save` / `clear` catch
+`MalformedSettingsError` (exported by the library) with `instanceof` —
+not string-matching `message` — and report via
+`ctx.ui.notify(..., "error")` naming the file, so the user knows which
+file to fix. Never crash the command on a corrupt `settings.json`; the
+library's guard means a corrupt file is never overwritten either way.
+
+**`show` row ordering.** Sort rows by `persistKey` for deterministic
+output (tests rely on it).
 
 ### 4. `src/reserved.ts` — add `defaults`, `release`
 
@@ -368,8 +407,20 @@ const RESERVED_WORDS: readonly string[] = [
 ### 5. Docs + comments
 
 - Delete `docs/defaults-command-design.md` and
-  `docs/defaults-command-sprints.md` (superseded by this doc).
-- `docs/focus-and-restore-revision.md`: delete (superseded).
+  `docs/defaults-command-sprints.md` (superseded by this doc — mechanics
+  folded into section 3 above).
+- `docs/focus-and-restore-revision.md`: delete (superseded). **Repoint
+  the 3 links in the locked masking plan first** —
+  `pi-tool-masking/plans/settings-tier-and-allowlist-mode.md:24` and
+  `d7-branch-access-gap.md:66,180` reference `focus-and-restore-revision.md`
+  by path; repoint them to `docs/defaults-and-focus-unified-plan.md` so
+  the companion-doc chain isn't broken.
+- Keep `docs/settings-tier-and-focus-suppression-retrospective.md` —
+  it's the historical diagnostic the masking plan cites as "companion
+  (context, not scope)" and is referenced at
+  `pi-tool-masking/plans/settings-tier-and-allowlist-mode.md:15`.
+  Retrospectives don't go stale the way specs do; it's the "why we chose
+  allowlist mode" reasoning. Costs nothing to keep.
 - `src/focus.ts` header doc: rewrite per item 1.
 - `AGENTS.md`: add a line under the focus rule — "`save`/`show`/`clear`/
   `restore` are not actuation commands and are not refused during focus;
@@ -377,12 +428,6 @@ const RESERVED_WORDS: readonly string[] = [
   mode" to "allowlist mode."
 
 ## Test plan
-
-All tests use `MockPI` + `setSettingsOverrideForTests({})` in `beforeEach`
-(existing pattern). **The settings-override shape is now wrapped**:
-`{ [persistKey]: { enabled: boolean } }`, **not** flattened `{ [key]: boolean }`.
-The 4 failing tests on the current branch are fixed by this shape change
-(see "Step 0" below) — that fix is the first commit.
 
 ### Step 0 — fix the 4 settings-pinned tests (branch baseline)
 
@@ -392,6 +437,84 @@ against the masking plan's D1 wrapped-shape reader, which reads
 Fix: `{ [key]: false }` → `{ [key]: { enabled: false } }` in
 `__tests__/focus.test.ts` (2 tests) and `__tests__/integration.test.ts`
 (2 tests). 4-line fix, same behavior the new plan still relies on.
+
+### Test isolation conventions
+
+All tests use `MockPI` + `setSettingsOverrideForTests({})` in `beforeEach`
+(existing pattern). **The settings-override shape is now wrapped**:
+`{ [persistKey]: { enabled: boolean } }`, **not** flattened `{ [key]: boolean }`
+(the 4 Step-0 tests were written against the old flattened shape).
+`MockPI.cleanRegistry()` in every `beforeEach` (the `pi-tool-masking`
+registry is process-global and leaks across tests).
+
+`__tests__/defaults.test.ts` uses **both** seams:
+
+```ts
+import {
+  setSettingsOverrideForTests,
+  setSettingsWriterOverrideForTests,
+} from "pi-tool-masking";
+
+beforeEach(() => {
+  MockPI.cleanRegistry();
+  setSettingsOverrideForTests({});
+  setSettingsWriterOverrideForTests({ global: {}, project: {} });
+});
+afterEach(() => {
+  setSettingsOverrideForTests(null);
+  setSettingsWriterOverrideForTests(null);
+});
+```
+
+Mirror the `setGroupsOverrideForTests` pattern from
+`__tests__/picker.test.ts`. A round-trip test must clear **both**
+overrides or they mask each other (library W5). **Seam tests never hit
+disk** — the reader override pins to an empty map, the writer override
+captures writes in memory. The only disk-touching tests are the
+`show` attribution round-trips below.
+
+**Disk round-trip tests** (attribution only — the reader override
+collapses both scopes to the same map, so `(overrides global)` is
+untestable through the seam; the writer seam doesn't serve reads):
+
+```ts
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+let tmpHome: string;
+let oldCwd: string;
+let oldAgentDir: string | undefined;
+
+beforeEach(() => {
+  // NO setSettingsOverrideForTests / writer override here.
+  MockPI.cleanRegistry();
+  tmpHome = mkdtempSync(join(tmpdir(), "tbox-defaults-"));
+  oldCwd = process.cwd();
+  oldAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(tmpHome, ".pi", "agent");
+  process.chdir(tmpHome);
+});
+afterEach(() => {
+  process.chdir(oldCwd);
+  if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
+  rmSync(tmpHome, { recursive: true, force: true });
+});
+```
+
+Mirror the library's own W6/W7 disk tests. Attribution assertions: a
+global-only pin → `[global]`, no override marker; a project pin
+shadowing a global pin for the same `persistKey` →
+`[project] (overrides global)`; `save` (bare, → project) then `show`
+shows the new project pin attributed `[project]`.
+
+**Strict-TS notes** (apply every test): `exactOptionalPropertyTypes` +
+`noUncheckedIndexedAccess` are on. Indexed access into the settings
+`Record<string, { enabled: boolean }>` yields `{ enabled } | undefined` —
+guard with `typeof === "boolean"` on `.enabled` before use (the library
+already does this in `doRestore` and `getEffectiveDefault`). Never
+assign `undefined` to an optional prop explicitly; omit the key.
 
 ### New / changed tests
 
@@ -455,12 +578,13 @@ Fix: `{ [key]: false }` → `{ [key]: { enabled: false } }` in
 **`/tbox defaults show` / `clear`:**
 
 - `show`: merged view + per-scope attribution with `(overrides global)`.
-  Attribution needs a real disk round-trip (the reader override
-  collapses scopes) — mirror the library's W6 disk-test pattern with
-  `process.chdir(tmpDir)` + `PI_CODING_AGENT_DIR`. Use the reader/writer
-  seams for the merged-view assertions only.
+  Attribution needs the real disk round-trip pattern above (the reader
+  override collapses scopes); use the reader/writer seams for the
+  merged-view (no-attribution) assertions only. Empty state prints the
+  no-pins message. Rows sorted by `persistKey` for deterministic output.
 - `clear`: removes the block; `true`/`false` wording; preserves other
-  keys.
+  keys. `MalformedSettingsError` surfaced as an `error`-level notify
+  naming the file (catch with `instanceof`, not string-match).
 
 **`/tbox defaults restore`:**
 
@@ -470,6 +594,58 @@ Fix: `{ [key]: false }` → `{ [key]: { enabled: false } }` in
 - During focus: lifts focus (allowlist no longer active after).
 - Dedup: repeat restore with no intervening toggle writes zero
   tombstones.
+
+## Cross-cutting notes (apply every step)
+
+- **`.js` imports in pi-tbox:** relative imports use `.js` extensions
+even for `.ts` files (`module: nodenext` +
+  `allowImportingTsExtensions`). Don't "fix" them. `pi-tool-masking`
+imports are package imports — no extension.
+- **Strict TS:** `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`
+are on (see Test isolation conventions for the guard patterns). Never
+assign `undefined` to an optional prop explicitly; omit the key.
+- **`MockPI.cleanRegistry()` in every `beforeEach`** — the
+`pi-tool-masking` registry is process-global and leaks across tests.
+Existing convention; keep it alongside the settings-override pins.
+- **No real-disk reads/writes in seam tests** —
+  `setSettingsOverrideForTests({})` pins the reader to an empty map;
+  `setSettingsWriterOverrideForTests` captures writes in memory; `null`
+restores disk. The only disk-touching tests are the `show` attribution
+round-trips, which deliberately set neither seam.
+- **Ponytail posture:** the `/tbox defaults` command is a thin dispatch
+over already-built library functions. Resist adding a settings schema
+validator, a settings cache, a path-argument overload, a per-toolset pin
+subcommand (deferred), or a `/tbox list` pin-marker column (deferred).
+The path resolver is the one place a ~3-line duplication is acceptable
+over a new dependency — mark it `ponytail:`.
+- **Focus-active guard is load-bearing for actuation only.** `all
+on|off`, `<group> on|off`, `+<toolset> on|off` must be refused during
+focus (AGENTS.md). `save`/`show`/`clear`/`restore` are **not**
+actuation and must **not** be refused (`save` and `restore` are
+deliberately coherent during focus — D1 + D4). Don't broaden the guard.
+
+## Flatten to main & release prep (final step)
+
+This PR develops against the local `pi-tool-masking` checkout
+(`"pi-tool-masking": "file:./pi-tool-masking"` in `package.json`,
+already on the branch). Before the PR merges to main, revert that to
+the published `1.2.0` pin once the library is released:
+
+1. **`package.json`** — `"pi-tool-masking": "^1.2.0"` (published),
+   `npm install` to regenerate `package-lock.json`. Confirm
+   `node_modules/pi-tool-masking` is no longer a symlink into
+   `./pi-tool-masking`.
+2. **`.gitignore`** — if the local `./pi-tool-masking` checkout isn't
+already gitignored, add it so it never commits as part of the PR (it's
+a dev artifact). Confirm with the maintainer whether to keep the clone
+or remove it.
+3. **Full-suite verification** against published `1.2.0`: `npm test` +
+   `npm run typecheck` (typecheck not in CI — run it yourself).
+4. **`CHANGELOG.md` `[Unreleased]`** covering: new `/tbox defaults`
+   (`save`/`show`/`clear`/`restore`, project-default + `--global`);
+   allowlist-mode focus rewrite (`focus off` = defaults, `focus release`
+= retain); `actuateNewToolsets` allowlist consultation; `defaults` +
+   `release` reserved words; `pi-tool-masking@^1.2.0` dependency bump.
 
 ## Out of scope / deferred
 
@@ -491,13 +667,17 @@ Fix: `{ [key]: false }` → `{ [key]: { enabled: false } }` in
 ## Implementation order (each step leaves `npm test` green)
 
 0. **Fix the 4 settings-pinned tests** (Step 0) + delete the 3 stale
-   docs + add this plan doc. Green baseline.
+docs (with masking-plan link repoints — see "5. Docs + comments") +
+add this plan doc. Green baseline.
 1. `src/registry.ts` — `actuateNewToolsets` allowlist branch + tests.
 2. `src/focus.ts` — `focusUnit` allowlist-mode rewrite + `focusOff`
    `applyToolsetEnabled` swap + tests.
 3. `src/focus.ts` — `focusRelease` + tests.
-4. `index.ts` + `src/reserved.ts` — `/tbox defaults save|show|clear`
-   dispatch + tests.
+4. `src/defaults.ts` + `index.ts` + `src/reserved.ts` —
+   `/tbox defaults save|show|clear` dispatch + handlers + tests.
 5. `index.ts` — `/tbox defaults restore` dispatch + tests.
 6. `AGENTS.md` + `src/focus.ts` header doc + `CHANGELOG.md`
    `[Unreleased]`.
+7. **Flatten to main** — revert local link → `^1.2.0`, `.gitignore` the
+   checkout, full-suite verify against published `1.2.0` (see "Flatten
+to main & release prep" above).
