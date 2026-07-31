@@ -26,7 +26,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 ### Scope
 
 - Fix the 4 settings-pinned tests written against the old flattened shape: `{ [key]: false }` → `{ [key]: { enabled: false } }` in `__tests__/focus.test.ts` (2) and `__tests__/integration.test.ts` (2). 4-line fix.
-- Repoint the broken cross-repo links in the masking plan to `docs/defaults-and-focus-unified-plan.md`: `pi-tool-masking/plans/settings-tier-and-allowlist-mode.md:24` and `d7-branch-access-gap.md:66,166,180`.
+- Repoint the broken cross-repo links in the masking plan to `docs/defaults-and-focus-unified-plan.md`: `pi-tool-masking/plans/settings-tier-and-allowlist-mode.md:24` and `d7-branch-access-gap.md:66,166,180`. **Drop any line-number suffixes** (e.g. the `:255-286` on `d7-branch-access-gap.md:66`) — they reference the old doc's layout and don't map to the unified plan.
 - Keep `docs/settings-tier-and-focus-suppression-retrospective.md` (cited by the masking plan; retrospectives don't go stale).
 - No behavior changes, no new modules.
 
@@ -35,7 +35,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 - [ ] `npm test` is green with only the 4 shape fixes applied — no other source/test edits.
 - [ ] `npm run typecheck` is green.
 - [ ] The 4 pinned tests pass with the wrapped shape; `setSettingsOverrideForTests` calls in those tests use `{ [key]: { enabled: false } }`.
-- [ ] All three repointed links resolve to `docs/defaults-and-focus-unified-plan.md` (verified by grep — no dangling `settings-tier-and-allowlist-mode` / `d7-branch-access-gap` references remain in the masking plan's link lines).
+- [ ] All three repointed links resolve to `docs/defaults-and-focus-unified-plan.md`. Verified by grepping `pi-tool-masking/plans/settings-tier-and-allowlist-mode.md` and `pi-tool-masking/plans/d7-branch-access-gap.md` for `focus-and-restore-revision` and expecting **zero** matches (that filename is the stale target being repointed away from).
 - [ ] `docs/settings-tier-and-focus-suppression-retrospective.md` is untouched.
 - [ ] `package.json` still points at `"pi-tool-masking": "file:./pi-tool-masking"` (local checkout) — no version bump yet.
 
@@ -48,7 +48,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 ### Scope
 
 - **`src/registry.ts` — `actuateNewToolsets` allowlist branch (step 1):** consult `getActiveAllowlist()` *before* the `getEffectiveDefault` fallback. In-allowlist → on; not-in-allowlist → off. Read `readMergedToolsetDefaults()` once outside the loop (already there). Tests in `__tests__/integration.test.ts` and `__tests__/restore-timing.test.ts`.
-- **`src/focus.ts` — `focusUnit` allowlist-mode rewrite (step 2):** replace the two-pass enable/disable + per-toolset `appendEntry` with `setDefaultResolutionMode(pi, "allowlist", ids)` + a per-toolset `applyToolsetEnabled` loop. No per-toolset entries during enter — the array is the authority. Delete the `ponytail:` two-pass comment and the "already-enabled → persist `{enabled:true}`" branch. New return message: `Focus on "<label>" — allowlist of N toolset(s).` (still `toContain("Focus on")` for existing assertions).
+- **`src/focus.ts` — `focusUnit` allowlist-mode rewrite (step 2):** replace the two-pass enable/disable + per-toolset `appendEntry` with `setDefaultResolutionMode(pi, "allowlist", ids)` + a per-toolset `applyToolsetEnabled` loop. No per-toolset entries during enter — the array is the authority. Delete the `ponytail:` two-pass comment and the "already-enabled → persist `{enabled:true}`" branch. New return message: `Focus on "<label>" — allowlist of N toolset(s).` (still `toContain("Focus on")` for existing assertions). (The `N2` guard below is the companion plan's "bare `/tbox restore` typo redirect" note at plan line 388 — not in the plan's D1–D6 decision table, but unambiguous in context.)
 - **`src/focus.ts` — `focusOff` swap (step 2):** `enable()/disable()` → `applyToolsetEnabled`, plus `clearAllToolsetEntries` tombstone + `setDefaultResolutionMode(pi, "exclusion")`. Drop the cascade `ponytail:` comment.
 - **`src/focus.ts` — `focusRelease` (step 3):** new, per D3. Guard against no-focus call (`getActiveAllowlist()` returns `undefined`) *before any state mutation* — return the hint message, write nothing. Otherwise: `setFocusUnit(null)` + `persistFocusUnit(null)`, flush per-toolset `{enabled: allowSet.has(spec.id)}` entries, `setDefaultResolutionMode(pi, "exclusion")`, `rerenderSlot`. `ponytail:` comment naming the tombstone-accumulation ceiling + pi-core compact-op upgrade path.
 - **Breaking-test updates done *in step 2* (not deferred):**
@@ -69,6 +69,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 - [ ] `focusRelease` no-focus guard: calling it with no active focus returns the hint message and mutates **nothing** — no per-toolset entries, mode unchanged, no toolset disabled.
 - [ ] B1/B2/B3 complete: no `"inclusion"` string assertions remain in the touched tests; `focus-exit.test.ts` is deleted; the `:593` test is removed; the `focusOff` re-actuate regression guard exists in `focus.test.ts`.
 - [ ] `src/focus.ts` header doc rewritten; the deleted `ponytail:` two-pass comment and the `{enabled:true}` branch are gone.
+- [ ] `focusUnit` returns the new `Focus on "<label>" — allowlist of N toolset(s).` message (verify the `— allowlist of N toolset(s).` suffix, not just `toContain("Focus on")`).
 - [ ] **Focus guard unchanged for actuation:** `all on|off`, `<group> on|off`, `+<toolset> on|off` still refused during focus. (`save`/`show`/`clear`/`restore` don't exist yet — N/A this sprint.)
 
 ---
@@ -83,11 +84,11 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 - **`index.ts`:** `case "defaults":` dispatching the four subcommands; `case "restore":` (sibling) emitting the redirect hint `"restore" is a defaults subcommand. Use /tbox defaults restore to apply settings defaults to live state (lifts focus).` (the N2 guard — does not delegate, does not call `describeGroup`).
 - **`src/reserved.ts`:** add `defaults`, `release`, `restore` to `RESERVED_WORDS` (`release` reserved belt-and-suspenders as a `focus` subcommand; `restore` reserved top-level so the bare typo hits the hint case, not the group fallback).
 - **Flag handling — mirror `src/list.ts`:** `KNOWN_DEFAULTS_FLAGS = new Set(["global", "help"])` (no `--project`; project is the default, `--project` is an unknown-flag error). `--help` prints `DEFAULTS_HELP` first; any other `--` flag → `Error: unknown flag --foo. See: /tbox defaults --help.`
-- **Scope resolution:** `resolveScope(flags)` → `flags.has("global") ? "global" : "project"`. `show`/`restore` ignore scope.
+- **Scope resolution:** `resolveScope(flags)` → `flags.has("global") ? "global" : "project"`. **`--global` is only meaningful for `save`** (the only subcommand that writes a scoped file). `show` and `restore` reject `--global` with `Error: --global only applies to 'save'. See: /tbox defaults --help.` rather than silently ignoring it.
 - **`save` (D1 — live-state-diff, mode-agnostic):** snapshot `readMergedToolsetDefaults()` once; for each registered toolset, pin where `live !== getEffectiveDefault(spec, snapshot)`. `writeToolsetDefaults(pins, scope)` merges — does not remove absent keys (stale-pin cleanup is `clear`'s job). Works mid-focus (no guard).
 - **`show` (D6 — pins only):** merged view + per-scope attribution via `readToolsetDefaults("global")` / `readToolsetDefaults("project")`. Project pin shadowing a global pin for the same `persistKey` → `(overrides global)`. Empty state → the no-pins message. No mode row. Rows sorted by `persistKey`.
 - **`clear`:** `clearToolsetDefaults(scope)`; `true`/`false` wording naming the file path.
-- **`restore` (D4 — lifts focus):** `clearAllToolsetEntries(pi, getBranch())` (dedup'd tombstone) → `setDefaultResolutionMode(pi, "exclusion")` → per-toolset `applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot))`. Output `Restored N toolset(s) to settings defaults.`
+- **`restore` (D4 — lifts focus):** `clearAllToolsetEntries(pi, ctx.sessionManager.getBranch())` (dedup'd tombstone) → `setDefaultResolutionMode(pi, "exclusion")` → per-toolset `applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot))`. Output `Restored N toolset(s) to settings defaults.`
 - **Output path resolution:** global → `<PI_CODING_AGENT_DIR ?? ~/.pi/agent>/settings.json`, project → `<cwd/.pi>/settings.json` (`settings.json` filename is load-bearing). `ponytail:` note with upgrade path "promote `settingsPath` in the library."
 - **Malformed-file surfacing:** `save`/`clear` catch `MalformedSettingsError` with `instanceof` (not string-match) → `ctx.ui.notify(..., "error")` naming the file. Never crash on a corrupt `settings.json`.
 - **New `__tests__/defaults.test.ts`:** uses both seams (`setSettingsOverrideForTests` + `setSettingsWriterOverrideForTests`); mirror the `setGroupsOverrideForTests` pattern from `__tests__/picker.test.ts`; round-trips clear **both** overrides or they mask each other. `show` attribution round-trips use the real-disk pattern (mkdtemp + `PI_CODING_AGENT_DIR` + `chdir`) — neither seam set.
@@ -100,10 +101,12 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 - [ ] `save` scope: bare → project; `--global` → global; `--project` → usage error, no write. Success message names the correct file path.
 - [ ] `show`: merged view + attribution — global-only pin → `[global]`; project pin shadowing global → `[project] (overrides global)`; empty state prints the no-pins message; rows sorted by `persistKey` (deterministic).
 - [ ] `clear`: removes the block; `true`/`false` wording correct; preserves other keys in `settings.json`; `MalformedSettingsError` surfaced as `error`-level notify naming the file (caught with `instanceof`).
+- [ ] `save`: a corrupt `settings.json` is surfaced the same way — `MalformedSettingsError` caught with `instanceof`, `error`-level notify naming the file, no crash.
 - [ ] `restore`: tombstones per-toolset entries; appends `exclusion` mode; applies `getEffectiveDefault` live via `applyToolsetEnabled`; **lifts focus** (`getActiveAllowlist()` `undefined` after). Dedup: repeat restore with no intervening toggle writes zero tombstones.
 - [ ] `/tbox restore` (bare) returns the redirect hint containing `defaults restore`; does **not** call `describeGroup`; mutates no toolset state.
 - [ ] `--help` prints `DEFAULTS_HELP` before any other check; an unknown `--` flag is rejected with the pointed error.
 - [ ] `defaults`, `release`, `restore` are in `RESERVED_WORDS`; a group named `restore` is rejected at creation with the reserved-word error.
+- [ ] `--global` is rejected on `show` and `restore` with the pointed error; accepted on `save` only. `--project` is an unknown-flag error on all four subcommands.
 - [ ] `src/defaults.ts` exists; `index.ts` `defaults`/`restore` cases delegate/emit correctly; `index.ts` is still thin (no handler logic inlined).
 - [ ] Seam tests never hit disk; the only disk-touching tests are the `show` attribution round-trips (mkdtemp + env + chdir, cleaned in `afterEach`).
 - [ ] Strict-TS guards present (`.enabled` `typeof` checks; no explicit-`undefined` on optional props).
@@ -121,6 +124,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
   - Update the focus description from "inclusion mode" to "allowlist mode."
   - "Where persistence actually lives": add `allowlist` to the list of modes owned by `pi-tool-masking` (pi-tbox now actively uses it).
   - Fix the pre-existing focus-guard location: the rule says "Enforced in `src/focus.ts`" but `checkFocusGuard` lives in `src/groups.ts` (called by `toggleAll` / `actuateToolset` / `actuateGroup`) — correct the reference.
+  - Sync the reserved-words list with `src/reserved.ts`: add `defaults`, `release`, `restore` (landed in Sprint 2) and `chars` (already in `reserved.ts` but missing from the doc). Keep the doc list as the source of truth for what's reserved.
 - **`src/focus.ts` header doc:** already rewritten in Sprint 1; verify it's coherent with the shipped behavior.
 - **`CHANGELOG.md` `[Unreleased]`** covering: new `/tbox defaults` (`save`/`show`/`clear`/`restore`, project-default + `--global`); allowlist-mode focus rewrite (`focus off` = defaults, `focus release` = retain); `actuateNewToolset` allowlist consultation; `defaults` + `release` reserved words; `pi-tool-masking@^1.2.0` dependency bump.
 - **Flatten to main:**
@@ -134,7 +138,7 @@ Each sprint is a shippable slice that **leaves `npm test` green**. The sprints m
 - [ ] `node_modules/pi-tool-masking` is the published package, **not** a symlink into `./pi-tool-masking` (verify with `ls -la`).
 - [ ] `package.json` reads `"pi-tool-masking": "^1.2.0"`; `package-lock.json` regenerated.
 - [ ] `./pi-tool-masking` does not appear in `git status` (gitignored or removed).
-- [ ] `AGENTS.md`: focus rule has the `save`/`show`/`clear`/`restore`-not-refused line; focus described as "allowlist mode"; `allowlist` listed among the masking-owned modes; focus-guard reference points at `src/groups.ts` (not `src/focus.ts`).
+- [ ] `AGENTS.md`: focus rule has the `save`/`show`/`clear`/`restore`-not-refused line; focus described as "allowlist mode"; `allowlist` listed among the masking-owned modes; focus-guard reference points at `src/groups.ts` (not `src/focus.ts`); reserved-words list matches `src/reserved.ts` (includes `defaults`, `release`, `restore`, `chars`).
 - [ ] `src/focus.ts` header doc matches shipped behavior (allowlist mode, array-is-authority, two exits).
 - [ ] `CHANGELOG.md` `[Unreleased]` covers all five bullet points above.
 - [ ] No regression from Sprint 2's acceptance criteria when run against the published package (re-run the Sprint 2 checks).
