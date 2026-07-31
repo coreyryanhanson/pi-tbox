@@ -76,6 +76,15 @@ Properties:
 - **Minimal pins.** A toolset still at its effective default is not
   pinned, so a later settings edit or default change flows to it
   correctly instead of being locked.
+- **`save` is additive; `clear` un-pins.** `writeToolsetDefaults` *merges*
+  `pins` into the existing `toolsetDefaults` block — it does not remove
+  keys absent from `pins`. So `save` can add or update a pin but cannot
+  restore a previously-pinned toolset to its packaged default. A user
+  who pinned `web` off, then wants `web` back at packaged default, must
+  `clear` (which removes the whole block) — there is no per-key un-pin.
+  This is fine for the live-state-diff model (the diff only ever *adds*
+  pins for current drift), but the plan should not imply `save` cleans
+  up stale pins from a prior `save`. Stale-pin cleanup is `clear`'s job.
 - **No focus guard.** `save` works mid-focus. No refusal, no two-step
   `focusOff`-then-`save` workflow.
 - **No drift mid-save.** The snapshot is frozen for the diff; the write
@@ -340,9 +349,10 @@ export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
     const activeSet = new Set(pi.getActiveTools());
     let changed = false;
 
+    const defaultsSnapshot = readMergedToolsetDefaults();
     const wantEnabled = (spec: ToolsetSpec): boolean => {
         if (allow !== undefined) return allow.includes(spec.id);
-        return getEffectiveDefault(spec, readMergedToolsetDefaults());
+        return getEffectiveDefault(spec, defaultsSnapshot);
     };
 
     for (const id of ids) {
@@ -504,17 +514,28 @@ against no longer applies as written. Two options, pick one in step 2:
 
 1. **Rewrite** the test to guard the allowlist-mode equivalent: after
    `focusUnit`, `setDefaultResolutionMode(pi, "exclusion")` *without*
-   `focusOff()` must still leave non-allowlisted toolsets off (the
-   now-branch-persisted exclusion mode + any pre-focus entries win),
-   and `focusOff()` must re-actuate to `getEffectiveDefault` to lift
-   them. The regression guard stays meaningful: a future "just flip
-   the mode bit" refactor would still break `focusOff`'s contract.
+   `focusOff()` must still leave non-allowlisted toolsets off, and
+   `focusOff()` must re-actuate to `getEffectiveDefault` to lift them.
 2. **Delete** the file and fold the regression guard into the
    `focusOff` test block in `focus.test.ts` ("a mode-flip-only exit is
    insufficient; `focusOff` must re-actuate").
 
-Option 1 is preferred (keeps the dedicated anti-pattern doc + negative
-test shape); option 2 only if the rewrite proves awkward.
+**Option 2 is the honest choice.** Option 1 as written above is
+incoherent under allowlist mode: the file's `setup()` enables all
+toolsets (writing `{enabled: true}` branch entries) before focus, and
+`focusUnit` under allowlist mode writes **no** per-toolset entries (the
+array is the authority). So after a mode-flip to exclusion + restore,
+those pre-focus `{enabled: true}` entries win and non-allowlisted
+toolsets come **on**, not off — the "stays off" assertion would fail.
+The anti-pattern this file guards (mode-flip leaves tools stuck off via
+focus-written `{enabled: false}` entries) does not exist under
+allowlist mode, because focus writes no per-toolset entries at all. A
+meaningful option 1 would need a fundamentally different test shape
+(no pre-focus enable-all, and a guard that `focusOff` re-actuates
+rather than a guard that a bare mode-flip leaves things off) — at that
+point it has converged on option 2's guard. Take option 2: delete the
+file, fold the "`focusOff` must re-actuate, not just flip the mode"
+regression guard into the `focusOff` test block in `focus.test.ts`.
 
 **B3 — `__tests__/focus.test.ts:593` tests the deleted branch:**
 
