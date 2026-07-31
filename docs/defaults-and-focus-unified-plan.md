@@ -1,8 +1,6 @@
 # Plan: `/tbox defaults` + allowlist-mode focus (unified)
 
-**Status:** Proposed. See "Why this design" below for the constraints
-that shaped the decisions (an earlier draft assumed a
-`toolsetResolutionMode` settings tier that the locked masking plan dropped).
+**Status:** Approved
 **Depends on:** `pi-tool-masking@1.2.0` (unreleased, on the
 `feat/stored-settings-and-allowlist` branch), specifically:
 `toolsetDefaults` settings tier + reader/writer/clearer, `getEffectiveDefault`,
