@@ -81,6 +81,11 @@ Properties:
 - **No drift mid-save.** The snapshot is frozen for the diff; the write
   doesn't mutate it. The only future "change" to the baseline is a later
   settings edit — the intended user lever.
+- **`getRegisteredToolsets()` inline is fine.** `for...of` evaluates its
+  iterable once at loop start, so `for (const { spec } of getRegisteredToolsets())`
+  snapshots the registry exactly once — equivalent to the current code's
+  `const registry = getRegisteredToolsets();` capture. No separate local
+  needed; this holds for every inline loop in the snippets below.
 - **Coupling note.** A′ depends on `getEffectiveDefault`'s
   mode-agnostic contract (settings pin → `spec.defaultEnabled`). That
   contract is documented in the masking plan and tested; it's a stable
@@ -221,9 +226,15 @@ deserves the explicit opt-in. `show` and `restore` take no scope flag —
 joins too (it's a `focus` subcommand, not top-level, but reserving it
 prevents a group named `release` from shadowing intent — belt-and-
 suspenders, matches the existing `off`/`edit`/`remove` reservations).
-`save`/`show`/`clear`/`restore` are `defaults` subcommands; reserving
-them top-level is optional (they never appear bare at top level) — skip
-unless a collision surfaces.
+`save`/`show`/`clear`/`restore` are `defaults` subcommands. Of these,
+`restore` is the common verb most likely to be typed bare (forgetting
+`defaults`); reserving it top-level + a `case "restore":` hint dispatch
+in `index.ts` turns the unhelpful `No group named "restore"` into a
+pointed redirect: `"restore" is a defaults subcommand. Use /tbox
+defaults restore to apply settings defaults to live state (lifts focus).`
+`save`/`show`/`clear` are rarer as bare typos and stay unreserved — the
+generic unknown-subcommand error is acceptable for them (skip unless a
+collision surfaces).
 
 ### `show` — pins only, annotated by scope
 
@@ -348,6 +359,15 @@ branch alongside `off`. Handlers live in a new `src/defaults.ts`
 module (keeps `index.ts` thin, matching `src/focus.ts` / `src/groups.ts`
 convention); `index.ts` just parses + delegates.
 
+Also add a `case "restore":` (sibling of `case "defaults":`) that
+doesn't delegate — it just emits the redirect hint
+`"restore" is a defaults subcommand. Use /tbox defaults restore to
+apply settings defaults to live state (lifts focus).` This is the N2
+guard: `restore` is reserved (step 4) so it never reaches the group
+fallback, and this case gives the mistype a useful pointer instead of
+`Unknown subcommand`. No `save`/`show`/`clear` siblings — those stay
+unreserved and fall through to the generic unknown-subcommand error.
+
 `restore` needs `ctx.sessionManager.getBranch()` for
 `clearAllToolsetEntries` — the command handler already has `ctx`
 (`applyToolsetEnabled` and `setDefaultResolutionMode` take `pi`).
@@ -398,15 +418,20 @@ library's guard means a corrupt file is never overwritten either way.
 **`show` row ordering.** Sort rows by `persistKey` for deterministic
 output (tests rely on it).
 
-### 4. `src/reserved.ts` — add `defaults`, `release`
+### 4. `src/reserved.ts` — add `defaults`, `release`, `restore`
 
 ```ts
 const RESERVED_WORDS: readonly string[] = [
     "status", "focus", "all", "list", "group",
     "on", "off", "edit", "remove", "chars",
-    "defaults", "release",
+    "defaults", "release", "restore",
 ];
 ```
+
+`restore` is reserved top-level not because there's a bare `restore`
+command (there isn't) but so `/tbox restore` hits the `case "restore":`
+hint dispatch in step 3 instead of falling through to the group path's
+`No group named "restore"`. See the reservation rationale above.
 
 ### 5. Docs + comments
 
@@ -655,6 +680,14 @@ assign `undefined` to an optional prop explicitly; omit the key.
 - During focus: lifts focus (allowlist no longer active after).
 - Dedup: repeat restore with no intervening toggle writes zero
   tombstones.
+
+**`/tbox restore` (bare, no `defaults`) — hint dispatch
+(`__tests__/integration.test.ts`):**
+
+- `/tbox restore` (no group named `restore`) returns the redirect hint
+  containing `defaults restore`; does *not* call `describeGroup`, does
+  not mutate any toolset state. Guards the N2 fix: reserved word reaches
+  the hint case, not the group fallback.
 
 ## Cross-cutting notes (apply every step)
 
