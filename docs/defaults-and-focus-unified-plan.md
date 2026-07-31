@@ -119,14 +119,17 @@ export function focusOff(pi: ExtensionAPI): string {
 ```
 
 - **Current behavior preserved.** Today's `focusOff` drives every toolset
-  to its default; this swaps `enable()`/`disable()` (which trigger the
-  `requires` cascade and can surprise re-enable) for `applyToolsetEnabled`
-  (no-cascade apply) and `spec.defaultEnabled` for `getEffectiveDefault`
-  (settings-aware). Same user-visible semantic, fixed mechanics.
-- **Smallest delta from current code.** The `getEffectiveDefault` swap is
-  already on the branch; this just replaces the `enable()/disable()` loop
-  with `applyToolsetEnabled` (which the masking plan ships for exactly
-  this path) and drops the cascade-undone `ponytail:` comment.
+  to its default via `getEffectiveDefault` (already settings-aware on the
+  branch); this swaps `enable()`/`disable()` (which trigger the `requires`
+  cascade and can surprise re-enable) for `applyToolsetEnabled` (no-cascade
+  apply). Same user-visible semantic, fixed mechanics. (The
+  `spec.defaultEnabled` → `getEffectiveDefault` swap is *not* part of this
+  plan — the branch already uses `getEffectiveDefault`.)
+- **Smallest delta from current code.** The only mechanics change is
+  `enable()/disable()` → `applyToolsetEnabled` (which the masking plan
+  ships for exactly this path) plus the `clearAllToolsetEntries` tombstone
+  (B1 fix); the `getEffectiveDefault` read is unchanged, and the
+  cascade-undone `ponytail:` comment is dropped.
 - **Durable via tombstone.** Under allowlist mode, focus-enter writes
   no per-toolset branch entries (the array is the authority), so a
   pristine session has none to clear. But a session with *pre-focus*
@@ -250,9 +253,12 @@ suspenders, matches the existing `off`/`edit`/`remove` reservations).
 in `index.ts` turns the unhelpful `No group named "restore"` into a
 pointed redirect: `"restore" is a defaults subcommand. Use /tbox
 defaults restore to apply settings defaults to live state (lifts focus).`
-`save`/`show`/`clear` are rarer as bare typos and stay unreserved — the
-generic unknown-subcommand error is acceptable for them (skip unless a
-collision surfaces).
+`save`/`show`/`clear` are rarer as bare typos and stay unreserved — a
+bare `save`/`show`/`clear` (no `defaults`) falls through to the
+group-not-found path (`describeGroup("save")` → `No group matching
+"save"`), not an unknown-subcommand error. That's acceptable for these
+rare typos (skip unless a collision surfaces); only `restore` earned the
+hint dispatch because it's the verb most likely to be typed bare.
 
 ### `show` — pins only, annotated by scope
 
@@ -384,8 +390,9 @@ doesn't delegate — it just emits the redirect hint
 apply settings defaults to live state (lifts focus).` This is the N2
 guard: `restore` is reserved (step 4) so it never reaches the group
 fallback, and this case gives the mistype a useful pointer instead of
-`Unknown subcommand`. No `save`/`show`/`clear` siblings — those stay
-unreserved and fall through to the generic unknown-subcommand error.
+`Unknown subcommand`. No `save`/`show`/`clear` siblings — those stay unreserved and fall
+through to the group-not-found path (`describeGroup("<name>")` → `No
+group matching "<name>"`), not an unknown-subcommand error.
 
 `restore` needs `ctx.sessionManager.getBranch()` for
 `clearAllToolsetEntries` — the command handler already has `ctx`
@@ -473,7 +480,11 @@ hint dispatch in step 3 instead of falling through to the group path's
   lives" paragraph: it currently says "inclusion/exclusion mode are owned
   by the `pi-tool-masking` dependency" — add `allowlist` to that list,
   since pi-tbox now actively uses it (not just the library's internal
-  concern).
+  concern). Also correct the pre-existing focus-guard location: the
+  rule says "Enforced in `src/focus.ts`" but the guard (`checkFocusGuard`)
+  lives in `src/groups.ts` (called by `toggleAll` / `actuateToolset` /
+  `actuateGroup`); fix the reference so the load-bearing location is
+  accurate.
 
 ## Test plan
 
