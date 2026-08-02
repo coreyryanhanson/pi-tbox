@@ -55,10 +55,10 @@ const DEFAULTS_HELP = `\
 /tbox defaults [subcommand]
 
 Subcommands:
-  (bare)   show pinned settings defaults (both scopes, annotated)
+  show     list settings-defaults pins, annotated by scope
+           (default: bare /tbox defaults)
   save     snapshot live on/off state into settings (project: full
            snapshot; --global: diff vs packaged default)
-  show     list settings-defaults pins, annotated by scope
   clear    remove the toolsetDefaults block from a scope (scope: project)
   restore  apply settings defaults to live state now (lifts focus)
 
