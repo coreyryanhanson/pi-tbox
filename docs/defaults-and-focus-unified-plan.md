@@ -337,8 +337,10 @@ message drops the old `${enabled} enabled, ${disabled} disabled` counts
 unit + forward `requires` closure becomes a finite allowlist array stored
 in the branch mode entry. The library's restore handler applies
 'in array → on, else → off' across all registered toolsets, including
-future installs. Two exits: `focus off` restores effective defaults;
-`focus release` retains the live selection."
+future installs. Three exits: `focus off` restores effective defaults;
+`focus release` retains the live selection; `/tbox defaults restore`
+ends focus while applying settings defaults (the mechanism lives in
+`applyEffectiveDefaults`)."
 
 ### 2. `src/registry.ts` — `actuateNewToolsets` allowlist branch
 
