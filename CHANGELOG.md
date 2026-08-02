@@ -2,6 +2,69 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`/tbox defaults` — settings-tier pin management.** A new subcommand
+  surface for pinning toolset on/off state into Pi's settings tier, so a
+  baseline survives `/reload`, resume, and global changes. `save`
+  snapshots live state: project scope writes a **full snapshot** (every
+  registered toolset pinned to its live on/off — a stable per-repo
+  baseline immune to later global drift), `--global save` writes a
+  **sparse diff against the packaged default** (`spec.defaultEnabled ??
+  true`) so the shared file only records tweaks vs upstream. `show`
+  lists pins from both scopes with per-row attribution (`[global]`, or
+  `[project] (overrides global)` where project shadows a global pin for
+  the same key), and is the default when `/tbox defaults` is run with no
+  subcommand. `clear` removes a scope's `toolsetDefaults` block.
+  `restore` applies the merged settings defaults to live state now and
+  lifts focus. `--global` is a write-scope flag (save/clear only); `show`
+  reads both scopes and `restore` applies the merged view, so `--global`
+  is a usage error there. Save works during focus — the allowlist
+  selection is captured either way. Backed by `pi-tool-masking`'s
+  `readMergedToolsetDefaults` / `writeToolsetDefaults` /
+  `clearToolsetDefaults`; tbox adds the scope rules and CLI, no new state.
+
+- **`/tbox focus release` — exit focus while keeping the live selection.**
+  The counterpart to `focus off`: instead of restoring every toolset to
+  its effective default, `release` flushes the current allowlist to
+  per-toolset branch entries (`{enabled:true}` for allowlist members,
+  `{enabled:false}` for the rest) and switches back to exclusion mode —
+  live state is untouched, so what you see is what you keep, and a later
+  `/reload` replays the flushed entries. Guarded: with no active focus,
+  returns a hint instead of flushing everything off.
+
+- **Reserved words `defaults`, `release`, `restore`.** Added to the
+  reserved-wordlist so they can never be group names. Bare `/tbox
+  restore` (a likely typo for `/tbox defaults restore`) gets a pointed
+  redirect to the right command instead of falling through to the group
+  fallback. Bare help and the USAGE line now advertise `defaults`.
+
+### Changed
+
+- **`focus off` now tombstones stale per-toolset branch entries.**
+  Previously `focus off` only re-applied defaults to live state; stale
+  branch entries from pre-focus manual toggles survived, so a `/reload`
+  after `off` could re-enable a toolset the user had toggled off before
+  focusing. `applyEffectiveDefaults` now calls `clearAllToolsetEntries`
+  (dedup'd) before re-actuating, so `/reload` after `off` falls through
+  to settings → exclusion floor → `defaultEnabled`, matching the live
+  state `off` just produced. `/tbox defaults restore` shares the same
+  tombstone-and-apply mechanism.
+
+- **Focus now uses `allowlist` mode instead of the deprecated `inclusion`
+  mode.** Focus was previously built on `pi-tool-masking`'s `"inclusion"`
+  resolution mode — an unbounded floor where unknown toolsets default
+  off, which could not actually guarantee focus's contract: a toolset
+  registered *after* focus was entered had no record to keep it off and
+  could leak on. tbox now sets `"allowlist"` mode, backed by a finite,
+  branch-persisted array of toolset ids (introduced in
+  `pi-tool-masking` 1.2.0, now the minimum version). The array is a
+  top-tier set-level override, so toolsets registered mid-focus stay off
+  by construction, and stale per-toolset branch entries / settings pins
+  can't bypass it. The exit commands (`focus off`, `focus release`) and
+  `/tbox defaults restore` all switch back to `"exclusion"` mode as
+  before.
+
 ## [0.1.1] - 2026-07-29
 
 ### Fixed
