@@ -2,9 +2,12 @@
  * /tbox defaults — settings-tier pin management.
  *
  * Thin dispatch over pi-tool-masking's toolsetDefaults reader/writer:
- * `save` snapshots the live on/off state as pins, `show` lists pins
- * annotated by scope, `clear` removes a scope's toolsetDefaults block,
- * `restore` applies settings defaults to live state (lifting focus).
+ * `save` snapshots live tool state as pins — project writes a **full
+ * snapshot** (stable per-repo baseline), `--global` writes a **sparse
+ * diff against the packaged default** (shared tweak layer); `show` lists
+ * pins annotated by scope, `clear` removes a scope's toolsetDefaults
+ * block, `restore` applies settings defaults to live state (lifting
+ * focus).
  *
  * Scope default is project; `--global` opts into the shared file — for
  * `save` and `clear` only (the write-scoped subcommands). `show` reads
@@ -20,7 +23,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	clearToolsetDefaults,
-	getEffectiveDefault,
 	getRegisteredToolsets,
 	MalformedSettingsError,
 	readMergedToolsetDefaults,
@@ -54,7 +56,8 @@ const DEFAULTS_HELP = `\
 
 Subcommands:
   (bare)   show pinned settings defaults (both scopes, annotated)
-  save     snapshot the live on/off state into settings (scope: project)
+  save     snapshot live on/off state into settings (project: full
+           snapshot; --global: diff vs packaged default)
   show     list settings-defaults pins, annotated by scope
   clear    remove the toolsetDefaults block from a scope (scope: project)
   restore  apply settings defaults to live state now (lifts focus)
@@ -88,21 +91,27 @@ function globalOnlyForWrites(): DefaultsResult {
 // ---------------------------------------------------------------------------
 
 /**
- * save — live-state-diff, mode-agnostic.
+ * save — project: full snapshot; --global: tweaks-vs-packaged diff.
  *
- * Pins every registered toolset whose live on/off differs from its
- * effective default (snapshot read once). Works during focus: the diff
- * captures the allowlist selection as exclusion pins. `writeToolsetDefaults`
- * merges — stale pins from a prior save are `clear`'s job to remove.
+ * Project save pins **every** registered toolset to its live on/off, so
+ * a later `defaults restore` reproduces the save exactly — immune to
+ * subsequent global changes (a sparse diff would leave silent keys open
+ * to global override). Global save pins only toolsets whose live state
+ * differs from the packaged default (`spec.defaultEnabled ?? true`):
+ * global is the shared "tweak vs upstream" layer, so diffing against the
+ * merged view would bake project-context state into the shared file.
+ * Works during focus: the allowlist selection is captured either way.
+ * `writeToolsetDefaults` merges — stale pins from a prior save are
+ * `clear`'s job to remove.
  */
 function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
 	const scope = resolveScope(flags);
-	const snapshot = readMergedToolsetDefaults();
 	const pins: Record<string, { enabled: boolean }> = {};
 	for (const { spec, toolset } of getRegisteredToolsets()) {
-		const baseline = getEffectiveDefault(spec, snapshot);
 		const live = toolset.isEnabled(pi);
-		if (live !== baseline) pins[spec.persistKey] = { enabled: live };
+		if (scope === "project" || live !== (spec.defaultEnabled ?? true)) {
+			pins[spec.persistKey] = { enabled: live };
+		}
 	}
 
 	let path: string;

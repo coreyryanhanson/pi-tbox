@@ -130,21 +130,36 @@ describe("/tbox defaults (seams)", () => {
 	}
 
 	describe("save", () => {
-		it("pins only toolsets whose live state differs from their effective default", () => {
-			// Everything at its effective default → zero pins.
+		it("project save writes a full snapshot; global save writes a sparse diff", () => {
+			// Everything at its packaged default → project pins all three to
+			// live state (full snapshot, not a diff).
 			let result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.level).toBe("info");
-			expect(result.message).toContain("Saved 0 toolset defaults");
-			expect(writer.project).toEqual({});
+			expect(result.message).toContain("Saved 3 toolset defaults");
+			expect(writer.project).toEqual({
+				[KEY.alpha]: { enabled: true },
+				[KEY.beta]: { enabled: true },
+				[KEY.gamma]: { enabled: false },
+			});
 
-			// Toggle beta off → one pin, wrapped shape.
+			// Toggle beta off → the project snapshot reflects it; the global
+			// diff only pins beta (alpha/gamma still match their packaged
+			// defaults).
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
 				.toolset.disable(pi);
 			result = handleDefaults(pi, ctx(), "defaults save");
-			expect(result.message).toContain("Saved 1 toolset default");
+			expect(result.message).toContain("Saved 3 toolset defaults");
 			expect(result.message).toContain(".pi/settings.json");
-			expect(writer.project).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(writer.project).toEqual({
+				[KEY.alpha]: { enabled: true },
+				[KEY.beta]: { enabled: false },
+				[KEY.gamma]: { enabled: false },
+			});
+
+			result = handleDefaults(pi, ctx(), "defaults save --global");
+			expect(result.message).toContain("Saved 1 toolset default");
+			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
 		});
 
 		it("scope: bare → project, --global → global, --project → usage error, no write", () => {
@@ -153,7 +168,11 @@ describe("/tbox defaults (seams)", () => {
 				.toolset.disable(pi);
 
 			handleDefaults(pi, ctx(), "defaults save");
-			expect(writer.project).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(writer.project).toEqual({
+				[KEY.alpha]: { enabled: true },
+				[KEY.beta]: { enabled: false },
+				[KEY.gamma]: { enabled: false },
+			});
 			expect(writer.global).toEqual({});
 
 			const globalResult = handleDefaults(pi, ctx(), "defaults save --global");
@@ -172,7 +191,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(writer).toEqual(before);
 		});
 
-		it("during focus captures the allowlist selection as exclusion pins (not refused)", () => {
+		it("during focus captures the allowlist selection as pins (not refused)", () => {
 			// Focus gamma (packaged default off) → gamma on, alpha/beta off.
 			focusUnit(pi, "+gamma.tool");
 
@@ -180,8 +199,7 @@ describe("/tbox defaults (seams)", () => {
 
 			expect(result.level).toBe("info"); // no focus-guard refusal
 			expect(result.message).toContain("Saved 3 toolset defaults");
-			// gamma live on vs default off → {enabled:true}; alpha/beta live
-			// off vs default on → {enabled:false}.
+			// Full snapshot of the allowlist selection: gamma on, alpha/beta off.
 			expect(writer.project).toEqual({
 				[KEY.gamma]: { enabled: true },
 				[KEY.alpha]: { enabled: false },
@@ -189,7 +207,9 @@ describe("/tbox defaults (seams)", () => {
 			});
 		});
 
-		it("during focus honors --global: same pins, routed to the global writer", () => {
+		it("during focus honors --global: diff vs packaged default, routed to the global writer", () => {
+			// Focus gamma → live gamma on, alpha/beta off. Every toolset
+			// differs from its packaged default, so all three get pinned.
 			focusUnit(pi, "+gamma.tool");
 
 			const result = handleDefaults(pi, ctx(), "defaults save --global");
