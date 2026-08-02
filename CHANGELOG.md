@@ -34,10 +34,10 @@
   returns a hint instead of flushing everything off.
 
 - **Reserved words `defaults`, `release`, `restore`.** Added to the
-  reserved-wordlist so they can never be group names. Bare `/tbox
-  restore` (a likely typo for `/tbox defaults restore`) gets a pointed
-  redirect to the right command instead of falling through to the group
-  fallback. Bare help and the USAGE line now advertise `defaults`.
+  reserved-wordlist so they can never be group names; bare `/tbox restore`
+  (a likely typo for `/tbox defaults restore`) hits the reserved-word
+  guard instead of falling through to the group fallback. Bare help and
+  the USAGE line now advertise `defaults`.
 
 ### Changed
 

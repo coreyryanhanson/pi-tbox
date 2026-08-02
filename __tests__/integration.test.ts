@@ -740,7 +740,7 @@ describe("integration — multi-extension registry", () => {
 		);
 	});
 
-	it("bikeshed: bare /tbox restore returns the redirect hint, not a group lookup", async () => {
+	it("bikeshed: bare /tbox restore is reserved, not a group lookup", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);
 		mock.fireLifecycleEvent("session_start");
@@ -751,10 +751,8 @@ describe("integration — multi-extension registry", () => {
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("defaults restore");
-		expect(notify!.message).toContain("lifts focus");
+		expect(notify!.message).toContain('Unknown subcommand: "restore"');
 		expect(notify!.message).not.toContain("No group");
-		// Mutates no toolset state.
 		expect(new Set(pi.getActiveTools())).toEqual(activeBefore);
 	});
 

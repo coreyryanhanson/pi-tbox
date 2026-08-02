@@ -163,16 +163,6 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					ctx.ui.notify(result.message, result.level);
 					break;
 				}
-				case "restore": {
-					// N2 guard: `restore` is reserved top-level; bare /tbox restore
-					// (a common typo for /tbox defaults restore) gets a pointed
-					// redirect instead of falling through to the group fallback.
-					ctx.ui.notify(
-						`"restore" is a defaults subcommand. Use /tbox defaults restore to apply settings defaults to live state (lifts focus).`,
-						"info",
-					);
-					break;
-				}
 				default: {
 					// `+` prefix → toolset direct toggle
 					if (command.startsWith("+")) {
