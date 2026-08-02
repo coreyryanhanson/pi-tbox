@@ -278,12 +278,14 @@ tier.
 ### `clear` — remove the `toolsetDefaults` block
 
 Same scope default as `save`: project unless `--global`. Calls
-`clearToolsetDefaults(scope)`. Returns `true` if the block existed.
-Output: `Cleared toolset defaults from <path> (<scope>).` or `No
-toolsetDefaults block in <path> (<scope>) — nothing to clear.` After
-`clear`, every toolset in that scope falls back to tier 3
-(`spec.defaultEnabled ?? true`), or for project scope, to the global
-scope's pins.
+`clearToolsetDefaults(scope)`. Returns the path of the settings
+file the block was removed from, or `null` if the block was
+already absent (or the file was missing).
+Output: `Cleared toolset defaults from <path> (<scope>).` or
+`No toolsetDefaults block in <scope> scope — nothing to clear.`
+After `clear`, every toolset in that scope falls back to tier 3
+(`spec.defaultEnabled ?? true`), or for project scope, to the
+global scope's pins.
 
 ## Changes required in pi-tbox
 

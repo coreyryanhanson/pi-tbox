@@ -27,8 +27,6 @@ import {
 	readToolsetDefaults,
 	writeToolsetDefaults,
 } from "pi-tool-masking";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { parseArgs } from "./list.js";
 import { applyEffectiveDefaults } from "./focus.js";
 
@@ -76,21 +74,6 @@ function resolveScope(flags: Set<string>): "global" | "project" {
 	return flags.has("global") ? "global" : "project";
 }
 
-/**
- * Resolve a scope's settings.json path, mirroring pi-tool-masking's
- * private `settingsPath` so success/error messages name the real file.
- *
- * ponytail: ~3-line duplication of the library's private path helper.
- * Upgrade path: promote `settingsPath` in the library.
- */
-function settingsPathFor(scope: "global" | "project"): string {
-	const agentDir =
-		process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-	return scope === "global"
-		? join(agentDir, "settings.json")
-		: join(process.cwd(), ".pi", "settings.json");
-}
-
 /** Pointed error for --global misuse (accepted on save/clear only). */
 function globalOnlyForWrites(): DefaultsResult {
 	return {
@@ -122,9 +105,9 @@ function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
 		if (live !== baseline) pins[spec.persistKey] = { enabled: live };
 	}
 
-	const path = settingsPathFor(scope);
+	let path: string;
 	try {
-		writeToolsetDefaults(pins, scope);
+		path = writeToolsetDefaults(pins, scope);
 	} catch (err: unknown) {
 		if (err instanceof MalformedSettingsError) {
 			return { message: `Error: ${err.message}`, level: "error" };
@@ -134,7 +117,7 @@ function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
 
 	const count = Object.keys(pins).length;
 	return {
-		message: `Saved ${count} toolset default${count !== 1 ? "s" : ""} to ${path} (${scope}).`,
+		message: `Saved ${count} toolset default${count !== 1 ? "s" : ""} to ${path}.`,
 		level: "info",
 	};
 }
@@ -147,7 +130,7 @@ function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
  * `[project] (overrides global)`. Rows sorted by persistKey. No mode row —
  * there is no mode settings tier.
  */
-function defaultsShow(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
+function defaultsShow(flags: Set<string>): DefaultsResult {
 	if (flags.has("global")) return globalOnlyForWrites();
 
 	const merged = readMergedToolsetDefaults();
@@ -183,16 +166,15 @@ function defaultsShow(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
  */
 function defaultsClear(flags: Set<string>): DefaultsResult {
 	const scope = resolveScope(flags);
-	const path = settingsPathFor(scope);
 	try {
-		const cleared = clearToolsetDefaults(scope);
-		return cleared
+		const path = clearToolsetDefaults(scope);
+		return path
 			? {
-					message: `Cleared toolset defaults from ${path} (${scope}).`,
+					message: `Cleared toolset defaults from ${path}.`,
 					level: "info",
 				}
 			: {
-					message: `No toolsetDefaults block in ${path} (${scope}) — nothing to clear.`,
+					message: `No toolsetDefaults block in ${scope} scope — nothing to clear.`,
 					level: "info",
 				};
 	} catch (err: unknown) {
@@ -259,7 +241,7 @@ export function handleDefaults(
 		case "save":
 			return defaultsSave(pi, flags);
 		case "show":
-			return defaultsShow(pi, flags);
+			return defaultsShow(flags);
 		case "clear":
 			return defaultsClear(flags);
 		case "restore":

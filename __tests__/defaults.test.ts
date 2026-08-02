@@ -144,7 +144,6 @@ describe("/tbox defaults (seams)", () => {
 			result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.message).toContain("Saved 1 toolset default");
 			expect(result.message).toContain(".pi/settings.json");
-			expect(result.message).toContain("(project)");
 			expect(writer.project).toEqual({ [KEY.beta]: { enabled: false } });
 		});
 
@@ -159,7 +158,6 @@ describe("/tbox defaults (seams)", () => {
 
 			const globalResult = handleDefaults(pi, ctx(), "defaults save --global");
 			expect(globalResult.level).toBe("info");
-			expect(globalResult.message).toContain("(global)");
 			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
 
 			const before = JSON.parse(JSON.stringify(writer)) as typeof writer;
@@ -189,6 +187,21 @@ describe("/tbox defaults (seams)", () => {
 				[KEY.alpha]: { enabled: false },
 				[KEY.beta]: { enabled: false },
 			});
+		});
+
+		it("during focus honors --global: same pins, routed to the global writer", () => {
+			focusUnit(pi, "+gamma.tool");
+
+			const result = handleDefaults(pi, ctx(), "defaults save --global");
+
+			expect(result.level).toBe("info");
+			expect(result.message).toContain("Saved 3 toolset defaults");
+			expect(writer.global).toEqual({
+				[KEY.gamma]: { enabled: true },
+				[KEY.alpha]: { enabled: false },
+				[KEY.beta]: { enabled: false },
+			});
+			expect(writer.project).toEqual({});
 		});
 	});
 
@@ -230,12 +243,11 @@ describe("/tbox defaults (seams)", () => {
 			let result = handleDefaults(pi, ctx(), "defaults clear --global");
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Cleared toolset defaults from");
-			expect(result.message).toContain("(global)");
 			expect(writer.global).toEqual({});
 
 			result = handleDefaults(pi, ctx(), "defaults clear");
 			expect(result.message).toContain("No toolsetDefaults block in");
-			expect(result.message).toContain("(project)");
+			expect(result.message).toContain("project scope");
 			expect(result.message).toContain("— nothing to clear.");
 		});
 	});
@@ -441,7 +453,6 @@ describe("/tbox defaults (disk round-trips)", () => {
 		const save = handleDefaults(pi, ctx(), "defaults save");
 		expect(save.level).toBe("info");
 		expect(save.message).toContain(projectPath());
-		expect(save.message).toContain("(project)");
 		expect(existsSync(projectPath())).toBe(true);
 
 		const show = handleDefaults(pi, ctx(), "defaults show");
