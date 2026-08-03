@@ -219,6 +219,10 @@ export function focusOff(
  *
  * Guarded: with no active focus, `getActiveAllowlist()` is `undefined` —
  * return a hint instead of flushing `{enabled:false}` for every toolset.
+ *
+ * Note: unlike `focusOff`, this takes no `branch` — no tombstone, so no
+ * stale-entry clearing (see `applyEffectiveDefaults`). The branch is only
+ * needed by the shared exit-to-defaults path.
  */
 export function focusRelease(pi: ExtensionAPI): string {
 	const allow = getActiveAllowlist();
