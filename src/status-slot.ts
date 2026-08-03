@@ -10,8 +10,11 @@
  * @module
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TOOLSET_EVENTS } from "pi-tool-masking";
+import type {
+	ExtensionAPI,
+	SessionEntry,
+} from "@earendil-works/pi-coding-agent";
+import { lastCustomEntry, TOOLSET_EVENTS } from "pi-tool-masking";
 import { extensionToolCounts } from "./chars.js";
 
 // ---------------------------------------------------------------------------
@@ -130,15 +133,14 @@ export function persistFocusUnit(pi: ExtensionAPI, unit: string | null): void {
  * `● focus:<unit>` glyph repaints on resume. No-op if no entry exists.
  */
 export function restoreFocusUnit(ctx: {
-	sessionManager: { getBranch: () => unknown[] };
+	sessionManager: { getBranch: () => SessionEntry[] };
 }): void {
-	const branch = ctx.sessionManager.getBranch();
-	const entries = branch.filter(
-		(b: any) =>
-			b.customType === FOCUS_PERSIST_KEY && b.data && "unit" in b.data,
+	const last = lastCustomEntry<{ unit: string | null }>(
+		ctx.sessionManager.getBranch(),
+		FOCUS_PERSIST_KEY,
 	);
-	if (entries.length > 0) {
-		_focusUnit = (entries[entries.length - 1] as any).data.unit;
+	if (last?.data && "unit" in last.data) {
+		_focusUnit = last.data.unit;
 	}
 }
 
