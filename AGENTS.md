@@ -46,7 +46,7 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
   everything else is imported by it.
 - **`src/`** — domain modules: `registry` (auto-register builtin + orphan
   toolsets), `groups` (actuate/describe/edit/list + focus guard),
-  `group-editor` (TUI picker), `focus` (inclusion-mode entry/exit),
+  `group-editor` (TUI picker), `focus` (allowlist-mode entry/exit),
   `defaults` (settings-tier pin save/show/clear/restore), `list` (parse +
   format output), `status-slot` (bar slot render/wire), `chars` (context
   char-counting), `requires-graph` (dependency closure), `reserved`
@@ -94,10 +94,9 @@ used for the picker; the source of truth is the library.
 - While focus is active, actuation commands (`all on|off`, `<group> on|off`,
   `+<toolset> on|off`) must be refused. Enforced via `checkFocusGuard` in
   `src/groups.ts` (every actuation path calls it) — don't bypass it.
-- Focus exits two ways with different semantics: `focus off` restores
-  effective defaults; `focus release` keeps the live selection but lifts the
-  guard. `/tbox defaults restore` also ends focus while applying settings
-  defaults. All three go through the same tombstone/apply mechanism in
-  `src/focus.ts` — don't reinvent a fourth.
+- Focus exits three ways: `focus off` and `/tbox defaults restore` share
+  `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` has a
+  separate flush path — it writes the live selection to per-toolset `{enabled}`
+  entries, no tombstone, no re-actuation. Don't reinvent a fourth.
 - Builtin tools and `sdk`-source (host `customTools`) tools are out of scope:
   read-only in `--flat` listings, never togglable.
