@@ -178,6 +178,7 @@ export class GroupEditorComponent {
 	// -----------------------------------------------------------------------
 
 	private enableAll(): void {
+		this.lastCue = ""; // previous per-toggle cascade cue is stale after bulk op
 		const targets = this.filteredItems;
 		for (const u of targets) {
 			this.checkedToolsets.add(u.id);
@@ -189,6 +190,7 @@ export class GroupEditorComponent {
 	}
 
 	private clearAll(): void {
+		this.lastCue = ""; // previous per-toggle cascade cue is stale after bulk op
 		// Reverse-closure (which includes its seeds) unchecks the visible items
 		// plus any hidden dependents, so a saved group never retains a check on
 		// a toolset whose required dep is unchecked. Matches single-item uncheck
