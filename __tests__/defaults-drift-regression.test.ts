@@ -170,11 +170,5 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 		// from step 6 cannot turn it off.
 		expect(live(WEB)).toBe(true);
 		expect(live(SEARCH)).toBe(true);
-
-		// The regression: web and search must BOTH stay enabled at the end —
-		// the project full snapshot pins search on, so the global off-pin
-		// from step 6 cannot turn it off.
-		expect(live(WEB)).toBe(true);
-		expect(live(SEARCH)).toBe(true);
 	});
 });
