@@ -485,7 +485,7 @@ describe("/tbox defaults (disk round-trips)", () => {
 		writeFileSync(
 			projectPath(),
 			JSON.stringify({
-				provider: "openai",
+				provider: "mistral",
 				toolsetDefaults: { [KEY.alpha]: { enabled: false } },
 			}) + "\n",
 		);
@@ -499,7 +499,7 @@ describe("/tbox defaults (disk round-trips)", () => {
 			string,
 			unknown
 		>;
-		expect(parsed.provider).toBe("openai");
+		expect(parsed.provider).toBe("mistral");
 		expect("toolsetDefaults" in parsed).toBe(false);
 	});
 
