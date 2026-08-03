@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TOOLSET_EVENTS } from "pi-tool-masking";
-import { countActiveExtensionTools, countExtensionTools } from "./chars.js";
+import { extensionToolCounts } from "./chars.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,21 +54,21 @@ export const FOCUS_PERSIST_KEY = "tbox-focus-state";
  * Compute the current slot state based on focus and excluded count.
  */
 export function computeSlotState(pi: ExtensionAPI): SlotState {
-	const activeExtensionCount = countActiveExtensionTools(pi);
+	const { active, total } = extensionToolCounts(pi);
 
 	if (_focusUnit !== null) {
-		if (activeExtensionCount === 0) {
+		if (active === 0) {
 			return { kind: "focus-empty" };
 		}
 		return {
 			kind: "focus",
 			unit: _focusUnit,
-			count: activeExtensionCount,
+			count: active,
 		};
 	}
 
 	// Excluded = all extension tools minus active extension tools.
-	const excluded = countExtensionTools(pi) - activeExtensionCount;
+	const excluded = total - active;
 	if (excluded === 0) {
 		return { kind: "pristine" };
 	}

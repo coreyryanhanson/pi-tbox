@@ -29,17 +29,20 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
-/** Count of all extension tools (togglable, not builtin, not sdk). */
-export function countExtensionTools(pi: ExtensionAPI): number {
-	return pi.getAllTools().filter(isExtensionTool).length;
-}
-
-/** Count of extension tools currently active. */
-export function countActiveExtensionTools(pi: ExtensionAPI): number {
+/** Counts of all extension tools and active extension tools (single pass). */
+export function extensionToolCounts(pi: ExtensionAPI): {
+	total: number;
+	active: number;
+} {
 	const active = new Set(pi.getActiveTools());
-	return pi
-		.getAllTools()
-		.filter((t) => isExtensionTool(t) && active.has(t.name)).length;
+	let total = 0;
+	let activeCount = 0;
+	for (const t of pi.getAllTools()) {
+		if (!isExtensionTool(t)) continue;
+		total++;
+		if (active.has(t.name)) activeCount++;
+	}
+	return { total, active: activeCount };
 }
 
 // ---------------------------------------------------------------------------
