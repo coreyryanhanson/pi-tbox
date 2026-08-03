@@ -8,7 +8,7 @@
  *   - Group management: edit (picker), remove, list, describe.
  *
  * Actuation writes per-toolset entries; editing the group later does not
- * retroact (drift, point 7 — documented in the output). The moved set is
+ * retroact (drift — documented in the output). The moved set is
  * computed by **diffing `getActiveTools()` before vs. after** actuation,
  * reflecting reality (including cross-extension companions the static
  * graph wouldn't predict) — not by predicting it via `reverseClosure`.
@@ -31,7 +31,7 @@ import { getFocusUnit } from "./status-slot.js";
 import { GroupEditorComponent } from "./group-editor.js";
 
 // ---------------------------------------------------------------------------
-// Drift caveat (point 7)
+// Drift caveat
 // ---------------------------------------------------------------------------
 
 const DRIFT_CAVEAT =

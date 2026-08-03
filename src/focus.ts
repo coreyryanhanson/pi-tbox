@@ -156,7 +156,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 
 /**
  * Exit focus to effective defaults — the shared mechanism behind `focus off`
- * and `/tbox defaults restore` (D4: same tombstone + apply mechanism, one
+ * and `/tbox defaults restore` (shared tombstone + apply mechanism, one
  * message per surface).
  *
  * Durable via tombstone: stale per-toolset branch entries (e.g. pre-focus
