@@ -29,7 +29,7 @@ import {
 	readToolsetDefaults,
 	writeToolsetDefaults,
 } from "pi-tool-masking";
-import { parseArgs } from "./list.js";
+import { parseArgs, unknownFlagsError } from "./list.js";
 import { applyEffectiveDefaults } from "./focus.js";
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,21 @@ function globalOnlyForWrites(): DefaultsResult {
 // ---------------------------------------------------------------------------
 
 /**
+ * Run a settings write, converting a malformed-settings failure into an
+ * error result instead of throwing.
+ */
+function withMalformed(fn: () => DefaultsResult): DefaultsResult {
+	try {
+		return fn();
+	} catch (err: unknown) {
+		if (err instanceof MalformedSettingsError) {
+			return { message: `Error: ${err.message}`, level: "error" };
+		}
+		throw err;
+	}
+}
+
+/**
  * save — project: full snapshot; --global: tweaks-vs-packaged diff.
  *
  * Project save pins **every** registered toolset to its live on/off, so
@@ -105,30 +120,23 @@ function globalOnlyForWrites(): DefaultsResult {
  * `clear`'s job to remove.
  */
 function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
-	const scope = resolveScope(flags);
-	const pins: Record<string, { enabled: boolean }> = {};
-	for (const { spec, toolset } of getRegisteredToolsets()) {
-		const live = toolset.isEnabled(pi);
-		if (scope === "project" || live !== (spec.defaultEnabled ?? true)) {
-			pins[spec.persistKey] = { enabled: live };
+	return withMalformed(() => {
+		const scope = resolveScope(flags);
+		const pins: Record<string, { enabled: boolean }> = {};
+		for (const { spec, toolset } of getRegisteredToolsets()) {
+			const live = toolset.isEnabled(pi);
+			if (scope === "project" || live !== (spec.defaultEnabled ?? true)) {
+				pins[spec.persistKey] = { enabled: live };
+			}
 		}
-	}
 
-	let path: string;
-	try {
-		path = writeToolsetDefaults(pins, scope);
-	} catch (err: unknown) {
-		if (err instanceof MalformedSettingsError) {
-			return { message: `Error: ${err.message}`, level: "error" };
-		}
-		throw err;
-	}
-
-	const count = Object.keys(pins).length;
-	return {
-		message: `Saved ${count} toolset default${count !== 1 ? "s" : ""} to ${path}.`,
-		level: "info",
-	};
+		const path = writeToolsetDefaults(pins, scope);
+		const count = Object.keys(pins).length;
+		return {
+			message: `Saved ${count} toolset default${count !== 1 ? "s" : ""} to ${path}.`,
+			level: "info",
+		};
+	});
 }
 
 /**
@@ -175,7 +183,7 @@ function defaultsShow(flags: Set<string>): DefaultsResult {
  */
 function defaultsClear(flags: Set<string>): DefaultsResult {
 	const scope = resolveScope(flags);
-	try {
+	return withMalformed(() => {
 		const path = clearToolsetDefaults(scope);
 		return path
 			? {
@@ -186,12 +194,7 @@ function defaultsClear(flags: Set<string>): DefaultsResult {
 					message: `No toolsetDefaults block in ${scope} scope — nothing to clear.`,
 					level: "info",
 				};
-	} catch (err: unknown) {
-		if (err instanceof MalformedSettingsError) {
-			return { message: `Error: ${err.message}`, level: "error" };
-		}
-		throw err;
-	}
+	});
 }
 
 /**
@@ -235,14 +238,9 @@ export function handleDefaults(
 		return { message: DEFAULTS_HELP, level: "info" };
 	}
 
-	const unknown = [...flags].filter((f) => !KNOWN_DEFAULTS_FLAGS.has(f));
-	if (unknown.length > 0) {
-		return {
-			message: `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown
-				.map((f) => `--${f}`)
-				.join(", ")}. See: /tbox defaults --help.`,
-			level: "error",
-		};
+	const unknownErr = unknownFlagsError(flags, KNOWN_DEFAULTS_FLAGS, "defaults");
+	if (unknownErr !== null) {
+		return { message: unknownErr, level: "error" };
 	}
 
 	const sub = rest[1] ?? "show";
