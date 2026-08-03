@@ -86,12 +86,12 @@ const DISABLED_GLYPH = "\u2717";
 
 /** Left-align `s` in a field of width `w`, padding right with non-breaking spaces. */
 function lpad(s: string, w: number): string {
-	return s + "\u00a0".repeat(Math.max(0, w - s.length));
+	return s.padEnd(w, "\u00a0");
 }
 
 /** Right-align `s` in a field of width `w`, padding left with non-breaking spaces. */
 function rpad(s: string, w: number): string {
-	return "\u00a0".repeat(Math.max(0, w - s.length)) + s;
+	return s.padStart(w, "\u00a0");
 }
 
 /**
