@@ -29,6 +29,22 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
+/** Counts of all extension tools and active extension tools (single pass). */
+export function extensionToolCounts(pi: ExtensionAPI): {
+	total: number;
+	active: number;
+} {
+	const active = new Set(pi.getActiveTools());
+	let total = 0;
+	let activeCount = 0;
+	for (const t of pi.getAllTools()) {
+		if (!isExtensionTool(t)) continue;
+		total++;
+		if (active.has(t.name)) activeCount++;
+	}
+	return { total, active: activeCount };
+}
+
 // ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------

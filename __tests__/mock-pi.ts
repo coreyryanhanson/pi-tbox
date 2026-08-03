@@ -219,6 +219,12 @@ export class MockPI implements Partial<ExtensionAPI> {
 		this._sessionEntries = [];
 	}
 
+	// --- Entry rendering (no-op — tbox doesn't exercise the render path) ---
+
+	registerEntryRenderer(_customType: string, _renderer: any): void {
+		// no-op — tbox doesn't exercise the render path
+	}
+
 	// --- Events ---
 
 	on(event: any, handler: any): void {
@@ -292,6 +298,8 @@ export class MockPI implements Partial<ExtensionAPI> {
 			cwd: "/mock",
 			modelRegistry: {} as any,
 			model: undefined,
+			scopedModels: [] as const,
+			isProjectTrusted: () => false,
 			isIdle: () => true,
 			signal: undefined,
 			abort: () => {},

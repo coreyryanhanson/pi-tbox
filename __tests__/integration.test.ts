@@ -16,7 +16,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	getActiveAllowlist,
+	getRegisteredToolsets,
+	type RegistryEntry,
+	setSettingsOverrideForTests,
+} from "pi-tool-masking";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
@@ -241,6 +246,7 @@ describe("integration — multi-extension registry", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
+		setSettingsOverrideForTests({});
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -258,7 +264,10 @@ describe("integration — multi-extension registry", () => {
 		buildRealisticPopulation(mock, pi);
 	});
 
-	afterEach(() => setGroupsOverrideForTests(null));
+	afterEach(() => {
+		setSettingsOverrideForTests(null);
+		setGroupsOverrideForTests(null);
+	});
 
 	// -----------------------------------------------------------------------
 	// list (grouped default)
@@ -479,9 +488,10 @@ describe("integration — multi-extension registry", () => {
 	// Focus
 	// -----------------------------------------------------------------------
 
-	it("focus host.api enters inclusion mode with only host.api (+ closure) on", () => {
+	it("focus host.api enters allowlist mode with only host.api (+ closure) on", () => {
 		const msg = focusUnit(pi, "+host.api");
 		expect(msg).toContain("Focus on");
+		expect(getActiveAllowlist()).toEqual(["host.api"]);
 
 		const active = mock.getActiveTools();
 		// host.api tools are on
@@ -520,7 +530,10 @@ describe("integration — multi-extension registry", () => {
 		// Enter focus
 		focusUnit(pi, "+host.api");
 		// Exit focus
-		const msg = focusOff(pi);
+		const msg = focusOff(
+			pi,
+			mock.createCommandContext().sessionManager.getBranch(),
+		);
 		expect(msg).toContain("Focus off");
 
 		const active = mock.getActiveTools();
@@ -550,6 +563,54 @@ describe("integration — multi-extension registry", () => {
 
 		const groupMsg = actuateGroup(pi, "my-group", true);
 		expect(groupMsg).toContain("focus mode");
+	});
+
+	it("during focus, a newly-registered toolset in the allowlist comes on; one not in it is off", () => {
+		// Focus on a group that forward-references a not-yet-registered
+		// toolset, so the allowlist includes it before it exists.
+		writeGroup("fwd-group", { toolsets: ["host.api", "future.tool"] });
+		focusUnit(pi, "fwd-group");
+		expect(getActiveAllowlist()).toEqual(["host.api", "future.tool"]);
+
+		// Register the forward-referenced toolset now (mid-focus install).
+		mock.registerTool({
+			name: "future-tool",
+			description: "Future tool",
+			sourceInfo: {
+				path: "future.ts",
+				source: "future-plugin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "future.tool",
+			names: new Set(["future-tool"]),
+			persistKey: "toolset-state:future.tool",
+			defaultEnabled: true,
+		});
+		actuateNewToolsets(pi, ["future.tool"]);
+		expect(pi.getActiveTools()).toContain("future-tool");
+
+		// A toolset NOT in the allowlist lands off.
+		mock.registerTool({
+			name: "later-tool",
+			description: "Later tool",
+			sourceInfo: {
+				path: "later.ts",
+				source: "later-plugin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.defineFakeToolset({
+			id: "later-plugin",
+			names: new Set(["later-tool"]),
+			persistKey: "toolset-state:later-plugin",
+			defaultEnabled: true,
+		});
+		actuateNewToolsets(pi, ["later-plugin"]);
+		expect(pi.getActiveTools()).not.toContain("later-tool");
 	});
 
 	// -----------------------------------------------------------------------
@@ -679,6 +740,22 @@ describe("integration — multi-extension registry", () => {
 		);
 	});
 
+	it("bikeshed: bare /tbox restore is reserved, not a group lookup", async () => {
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		const activeBefore = new Set(pi.getActiveTools());
+		await mock.dispatchCommand("restore");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toContain('Unknown subcommand: "restore"');
+		expect(notify!.message).not.toContain("No group");
+		expect(new Set(pi.getActiveTools())).toEqual(activeBefore);
+	});
+
 	// -----------------------------------------------------------------------
 	// Per-source orphan toolset shape
 	// -----------------------------------------------------------------------
@@ -709,5 +786,61 @@ describe("integration — multi-extension registry", () => {
 		expect(lensEntry).toBeDefined();
 		// Multi-tool → no description
 		expect(lensEntry!.spec.description).toBeUndefined();
+	});
+
+	describe("actuateNewToolsets with settings defaults", () => {
+		it("respects settings-pinned-off over defaultEnabled true", () => {
+			mock.registerTool({
+				name: "settings-off-tool",
+				description: "Settings pin test",
+				sourceInfo: {
+					path: "test.ts",
+					source: "settings-off-source",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.defineFakeToolset({
+				id: "settings-off-source",
+				names: new Set(["settings-off-tool"]),
+				persistKey: "toolset-state:settings-off-source",
+				defaultEnabled: true,
+			});
+
+			setSettingsOverrideForTests({
+				"toolset-state:settings-off-source": { enabled: false },
+			});
+
+			actuateNewToolsets(pi, ["settings-off-source"]);
+
+			expect(pi.getActiveTools()).not.toContain("settings-off-tool");
+		});
+
+		it("respects settings-pinned-on over defaultEnabled false", () => {
+			mock.registerTool({
+				name: "settings-on-tool",
+				description: "Settings pin test",
+				sourceInfo: {
+					path: "test.ts",
+					source: "settings-on-source",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.defineFakeToolset({
+				id: "settings-on-source",
+				names: new Set(["settings-on-tool"]),
+				persistKey: "toolset-state:settings-on-source",
+				defaultEnabled: false,
+			});
+
+			setSettingsOverrideForTests({
+				"toolset-state:settings-on-source": { enabled: true },
+			});
+
+			actuateNewToolsets(pi, ["settings-on-source"]);
+
+			expect(pi.getActiveTools()).toContain("settings-on-tool");
+		});
 	});
 });

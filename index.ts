@@ -19,6 +19,7 @@ import {
 	wireSlot,
 	render,
 	clearSlot,
+	rerenderSlot,
 	setFocusUnit,
 	restoreFocusUnit,
 	type SlotCtx,
@@ -41,7 +42,8 @@ import {
 	toggleAll,
 } from "./src/groups.js";
 import { removeGroup } from "./config/settings-reader.js";
-import { focusUnit, focusOff } from "./src/focus.js";
+import { focusUnit, focusOff, focusRelease } from "./src/focus.js";
+import { handleDefaults } from "./src/defaults.js";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -58,9 +60,10 @@ import { focusUnit, focusOff } from "./src/focus.js";
 export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Capture the session context so TOOLSET_EVENTS can re-render ---
 	let lastCtx: SlotCtx | null = null;
+	let rerenderWired = false;
 
 	const USAGE =
-		"/tbox [list|status|all|focus|group|chars] | /tbox <group> on|off | /tbox +<toolset> on|off";
+		"/tbox [list|status|all|focus|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -144,15 +147,22 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {
-						ctx.ui.notify(focusOff(pi), "info");
+						ctx.ui.notify(focusOff(pi, ctx.sessionManager.getBranch()), "info");
+					} else if (sub === "release") {
+						ctx.ui.notify(focusRelease(pi), "info");
 					} else if (sub) {
 						ctx.ui.notify(focusUnit(pi, sub), "info");
 					} else {
 						ctx.ui.notify(
-							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off — focus on a group or toolset.",
+							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off | /tbox focus release — focus on a group or toolset, or exit focus.",
 							"info",
 						);
 					}
+					break;
+				}
+				case "defaults": {
+					const result = handleDefaults(pi, ctx, trimmed);
+					ctx.ui.notify(result.message, result.level);
 					break;
 				}
 				default: {
@@ -205,6 +215,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			},
 		);
 		render(pi, lastCtx);
+
+		// Re-render the slot at every turn boundary so the count reflects the
+		// live active set, not whatever the last TOOLSET_EVENTS fanout left.
+		// Registered from session_start (not the factory body) so it runs AFTER
+		// factory-registered before_agent_start reconcilers and shows the true
+		// post-reconciler state, not a pre-leak snapshot.
+		// ponytail: a pi-core TOOLSET_EVENTS emit on every setActiveTools call
+		// would make this redundant; drop this handler if that ever ships.
+		if (!rerenderWired) {
+			pi.on("before_agent_start", () => rerenderSlot(pi));
+			rerenderWired = true;
+		}
 	};
 
 	pi.on("session_start", (_event, ctx) => captureAndRender(ctx));

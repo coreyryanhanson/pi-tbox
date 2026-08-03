@@ -158,8 +158,9 @@ describe("formatGroupedList", () => {
 	});
 
 	it("shows smallest-toolset-wins with no duplication", () => {
-		// big = {a, b, c, web-learn} (size 4), small = {web-learn} (size 1)
-		for (const name of ["a", "b", "c", "web-learn"]) {
+		// big = {a, b, c} (size 3), small = {d} (size 1) — disjoint names per
+		// pi-tool-masking@1.1.0 name-overlap guard
+		for (const name of ["a", "b", "c", "d"]) {
 			mock.registerTool({
 				name,
 				description: `Tool ${name}`,
@@ -174,12 +175,12 @@ describe("formatGroupedList", () => {
 
 		mock.defineFakeToolset({
 			id: "big",
-			names: new Set(["a", "b", "c", "web-learn"]),
+			names: new Set(["a", "b", "c"]),
 			persistKey: "toolset-state:big",
 		});
 		mock.defineFakeToolset({
 			id: "small",
-			names: new Set(["web-learn"]),
+			names: new Set(["d"]),
 			persistKey: "toolset-state:small",
 		});
 
@@ -188,7 +189,7 @@ describe("formatGroupedList", () => {
 		const output = formatGroupedList(pi);
 
 		// Sections are ordered by group insertion
-		const bigIdx = output.indexOf("big (0 active, 4 inactive, +0 chars)");
+		const bigIdx = output.indexOf("big (0 active, 3 inactive, +0 chars)");
 		const smallIdx = output.indexOf("small (0 active, 1 inactive, +0 chars)");
 
 		expect(bigIdx).toBeGreaterThanOrEqual(0);
@@ -199,11 +200,11 @@ describe("formatGroupedList", () => {
 		expect(bigSection).toContain("a");
 		expect(bigSection).toContain("b");
 		expect(bigSection).toContain("c");
-		expect(bigSection).not.toContain("web-learn");
+		expect(bigSection).not.toContain("d");
 
 		// Everything from small onward is the small section
 		const smallSection = output.slice(smallIdx);
-		expect(smallSection).toContain("web-learn");
+		expect(smallSection).toContain("d");
 	});
 
 	it("shows toolset members as individual rows", () => {

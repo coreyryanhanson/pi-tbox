@@ -25,6 +25,9 @@ const RESERVED_WORDS: readonly string[] = [
 	"edit",
 	"remove",
 	"chars",
+	"defaults",
+	"release",
+	"restore",
 ];
 
 const RESERVED_SET: ReadonlySet<string> = new Set(RESERVED_WORDS);

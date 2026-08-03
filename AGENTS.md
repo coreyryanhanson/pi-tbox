@@ -45,10 +45,12 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
   `session_tree` / `session_shutdown` handlers. This is the only entrypoint;
   everything else is imported by it.
 - **`src/`** — domain modules: `registry` (auto-register builtin + orphan
-  toolsets), `groups` (actuate/describe/edit/list), `group-editor` (TUI
-  picker), `focus` (inclusion-mode focus), `list` (parse + format output),
-  `status-slot` (bar slot render/wire), `chars` (context char-counting),
-  `requires-graph` (dependency closure), `reserved` (reserved-word guard).
+  toolsets), `groups` (actuate/describe/edit/list + focus guard),
+  `group-editor` (TUI picker), `focus` (allowlist-mode entry/exit),
+  `defaults` (settings-tier pin save/show/clear/restore), `list` (parse +
+  format output), `status-slot` (bar slot render/wire), `chars` (context
+  char-counting), `requires-graph` (dependency closure), `reserved`
+  (reserved-word guard).
 - **`config/settings-reader.ts`** — **the group store**, despite the name.
   Reads/writes `~/.pi/agent/pi-tbox/groups.json` (a bare `{ toolsets: string[] }`
   table, no wrapper key). It is *not* pi-core `settings.json` — see the file's
@@ -86,10 +88,15 @@ used for the picker; the source of truth is the library.
   load-bearing in `index.ts`'s command dispatch and `reserved.ts`. Don't
   blur it.
 - Reserved words (`status`, `focus`, `all`, `list`, `group`, `on`, `off`,
-  `edit`, `remove`) are rejected as group names in `reserved.ts`; keep that
-  list in sync if subcommands change.
+  `edit`, `remove`, `chars`, `defaults`, `release`, `restore`) are rejected
+  as group names in `reserved.ts`; keep that list in sync if subcommands
+  change.
 - While focus is active, actuation commands (`all on|off`, `<group> on|off`,
-  `+<toolset> on|off`) must be refused. Enforced in `src/focus.ts` — don't
-  bypass it.
+  `+<toolset> on|off`) must be refused. Enforced via `checkFocusGuard` in
+  `src/groups.ts` (every actuation path calls it) — don't bypass it.
+- Focus exits three ways: `focus off` and `/tbox defaults restore` share
+  `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` has a
+  separate flush path — it writes the live selection to per-toolset `{enabled}`
+  entries, no tombstone, no re-actuation. Don't reinvent a fourth.
 - Builtin tools and `sdk`-source (host `customTools`) tools are out of scope:
   read-only in `--flat` listings, never togglable.

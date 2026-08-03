@@ -46,8 +46,17 @@ have the one before it:
    restricts the model to Pi's builtins plus that one unit, and the choice
    *persists in chat state* — it survives reloads and resume, and survives
    installing new extensions without drifting. `focus off` restores
-   defaults.
-5. **Glance at the cost.** A status-bar slot shows masking and focus state
+   defaults; `focus release` exits focus but keeps the live selection,
+   flushing it to per-toolset state so a `/reload` replays what you see.
+5. **Pin a baseline.** `/tbox defaults` snapshots live on/off state into
+   Pi's settings tier, so a baseline survives `/reload`, resume, *and*
+   later global changes. `save` writes a full per-project snapshot (a
+   stable repo baseline) or, with `--global`, a sparse diff against each
+   toolset's packaged default (a shared tweak layer). `show` lists pins
+   from both scopes with attribution, `clear` removes a scope's block,
+   and `restore` applies the merged settings to live state now (lifting
+   focus).
+6. **Glance at the cost.** A status-bar slot shows masking and focus state
    at a glance; `/tbox status` reports a serialized character count split
    into a `core` floor (builtins — immutable overhead) and an `extension`
    budget (what you can actually move with `/tbox`), so the number becomes
@@ -68,7 +77,8 @@ Then in any Pi session:
 ```
 
 The status slot appears in your bar automatically and updates live as you
-toggle. Its four states:
+toggle. Its four states (unchanged by `defaults`, which writes to settings,
+not chat state):
 
 | Glyph | State | Meaning |
 |---|---|---|
@@ -83,8 +93,9 @@ All commands live under the `/tbox` shortcut. Two addressability rules keep
 the surface unambiguous: a **`+` prefix means a toolset**, a **bare name
 means a group**, so `+find` is always the toolset and `find` is always the
 group even if they share a name. Reserved words (`status`, `focus`, `all`,
-`list`, `group`, `on`, `off`, `edit`, `remove`, `chars`) are rejected at group
-creation, so bare `/tbox <group> on|off` always works.
+`list`, `group`, `on`, `off`, `edit`, `remove`, `chars`, `defaults`,
+`release`, `restore`) are rejected at group creation, so bare
+`/tbox <group> on|off` always works.
 
 | Command | Effect |
 |---|---|
@@ -99,7 +110,12 @@ creation, so bare `/tbox <group> on|off` always works.
 | `/tbox group <name>` | describe a single group |
 | `/tbox group list` | list every group with its toolsets |
 | `/tbox focus <group>` / `focus +<toolset>` | enter focus on a group or toolset |
-| `/tbox focus off` | exit focus → restore defaults |
+| `/tbox focus off` | exit focus → restore effective defaults |
+| `/tbox focus release` | exit focus → keep the live selection (flush to per-toolset state) |
+| `/tbox defaults [show]` | list settings-tier pins, annotated by scope |
+| `/tbox defaults save [--global]` | snapshot live state into settings (project: full; `--global`: diff vs packaged default) |
+| `/tbox defaults clear [--global]` | remove a scope's `toolsetDefaults` block |
+| `/tbox defaults restore` | apply settings defaults to live state now (lifts focus) |
 | `/tbox all on` / `off` | enable all / disable all non-builtin toolsets |
 | `/tbox status` | full status: toolsets, groups, focus, char-count split |
 
@@ -116,6 +132,30 @@ The default grouped view resolves overlapping toolsets by
 smallest-toolset-wins: each tool appears once under its most specific
 containing toolset, no duplication. `--active` / `--inactive` let you
 focus on only the enabled or disabled tools.
+
+### `/tbox defaults` — settings-tier pins
+
+```
+/tbox defaults [show]           list pins from both scopes (default)
+/tbox defaults save [--global]  snapshot live on/off into settings
+/tbox defaults clear [--global] remove a scope's toolsetDefaults block
+/tbox defaults restore          apply settings defaults to live state now
+```
+
+`save` writes **project** scope by default — a *full snapshot* pinning
+every registered toolset to its live on/off, so a later `restore`
+reproduces the save exactly even if global settings later change. With
+`--global`, it writes a *sparse diff* against each toolset's packaged
+default (`spec.defaultEnabled ?? true`), so the shared file records only
+your tweaks vs upstream — project-context state never leaks into the
+shared file. `show` reads both scopes and annotates each row `[global]`
+or `[project]` (with `(overrides global)` where project shadows a global
+pin for the same key). `restore` applies the merged settings to live
+state and lifts focus, using the same tombstone-and-apply path as
+`focus off`. `--global` is a write-scope flag (save/clear only); `show`
+and `restore` already read/apply both scopes, so `--global` is a usage
+error there. `save` works during focus — the allowlist selection is
+captured either way.
 
 ### `/tbox chars` — budget view
 
@@ -147,20 +187,28 @@ graph. Groups are global/user-scoped — defined once, usable from any
 directory.
 
 **Focus** is a stronger constraint than toggling: it flips the underlying
-library into inclusion mode so that only the focused unit's allowlist (plus
-Pi's builtins) is active, and *unknown toolsets default off*. That means a
-focus snapshot survives new-extension installs without re-applying. While
-focus is active, the actuation commands (`all on|off`, `<group> on|off`,
+library into **allowlist mode** so that only the focused unit's allowlist
+(plus Pi's builtins) is active, and *unknown toolsets default off* — the
+allowlist is a finite, branch-persisted array, so a toolset registered
+*after* focus was entered stays off by construction. That means a focus
+snapshot survives new-extension installs without re-applying. While focus
+is active, the actuation commands (`all on|off`, `<group> on|off`,
 `+<toolset> on|off`) are refused — the slot advertises a known working set,
 and toggling underneath it would make that promise a lie. Use `focus off`
+(restore effective defaults) or `focus release` (keep the live selection)
 first.
 
 **Drift, honestly.** `/tbox <group> on|off` writes per-toolset state at the
 moment it runs, so editing a group later doesn't retroactively change past
 sessions — only the resulting per-toolset state was stored, and you
-re-adjust with `/tbox` commands. **Focus is the exception:** inclusion mode
-makes it drift-free by design. If you want a choice that holds, use focus;
-if you want a one-off toggle, use `on`/`off`.
+re-adjust with `/tbox` commands. **Focus is the exception:** allowlist mode
+makes it drift-free by design. `focus off` also tombstones stale
+per-toolset branch entries from before the focus, so a `/reload` after
+`off` falls through to settings → exclusion floor → `defaultEnabled`
+matching the live state `off` just produced — no pre-focus toggle can
+resurface. If you want a choice that holds, use focus; if you want a
+one-off toggle, use `on`/`off`; if you want a baseline that holds across
+machines/checkouts, pin it with `/tbox defaults save`.
 
 **What tbox won't touch.** Pi's builtin tools are always-on and outside
 tbox's scope — they're never registered into a toolset, so no group, focus,
@@ -194,7 +242,7 @@ by selection)`) and auto-unchecked dependents as you toggle.
 tbox is the user-facing layer; the persistence machinery lives in its
 dependency [`pi-tool-masking`](https://www.npmjs.com/package/pi-tool-masking),
 which owns per-toolset on/off memory, the `requires` cascade, and the
-inclusion/exclusion default-resolution mode that makes focus drift-free.
+allowlist/exclusion default-resolution mode that makes focus drift-free.
 tbox operates entirely through that library's events, so it layers on top
 of any installed extension without disrupting the event flow those
 extensions already depend on — toggles survive reloads and resume, focus
@@ -204,9 +252,14 @@ survives new installs, and nothing reaches into extension internals.
 
 Groups are stored as user data in `~/.pi/agent/pi-tbox/groups.json` — the
 groups table directly, no wrapper key. A group defined in one directory is
-usable from any other. (Per-project *actuation defaults* — which groups
-auto-on in a given checkout — are a future concern and would name global
-groups in `.pi/settings.json` rather than redeclare them.)
+usable from any other.
+
+**Settings-tier defaults** (from `/tbox defaults save`) are written into
+Pi's settings files via `pi-tool-masking`: project scope pins land in the
+repo's `.pi/settings.json`, `--global` scope pins land in the shared global
+settings file. Both store a `toolsetDefaults` block of `{ <persistKey>:
+{ enabled: bool } }` entries. `show` reads the merged view across both
+scopes; `restore` applies it to live state.
 
 ## License
 
