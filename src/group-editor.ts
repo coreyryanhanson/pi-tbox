@@ -19,7 +19,7 @@ import {
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { PickerUnit } from "./groups.js";
 import { buildPickerUnits, toggleToolsetUnit } from "./groups.js";
-import { forwardClosure } from "./requires-graph.js";
+import { forwardClosure, reverseClosure } from "./requires-graph.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,6 +178,7 @@ export class GroupEditorComponent {
 	// -----------------------------------------------------------------------
 
 	private enableAll(): void {
+		this.lastCue = ""; // previous per-toggle cascade cue is stale after bulk op
 		const targets = this.filteredItems;
 		for (const u of targets) {
 			this.checkedToolsets.add(u.id);
@@ -189,9 +190,14 @@ export class GroupEditorComponent {
 	}
 
 	private clearAll(): void {
-		const targets = this.filteredItems;
-		for (const u of targets) {
-			this.checkedToolsets.delete(u.id);
+		this.lastCue = ""; // previous per-toggle cascade cue is stale after bulk op
+		// Reverse-closure (which includes its seeds) unchecks the visible items
+		// plus any hidden dependents, so a saved group never retains a check on
+		// a toolset whose required dep is unchecked. Matches single-item uncheck
+		// in toggleToolsetUnit.
+		const deleted = this.filteredItems.map((u) => u.id);
+		for (const id of reverseClosure(deleted)) {
+			this.checkedToolsets.delete(id);
 		}
 	}
 

@@ -205,15 +205,11 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 	// --- Session handlers ---
 
-	const captureAndRender = async (ctx: ExtensionContext) => {
+	const captureAndRender = (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds);
 		lastCtx = ctx as unknown as SlotCtx;
-		restoreFocusUnit(
-			ctx as unknown as {
-				sessionManager: { getBranch: () => unknown[] };
-			},
-		);
+		restoreFocusUnit(ctx);
 		render(pi, lastCtx);
 
 		// Re-render the slot at every turn boundary so the count reflects the

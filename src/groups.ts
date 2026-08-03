@@ -27,6 +27,7 @@ import {
 	type GroupSpec,
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
+import { isReserved } from "./reserved.js";
 import { getFocusUnit } from "./status-slot.js";
 import { GroupEditorComponent } from "./group-editor.js";
 
@@ -107,6 +108,9 @@ export async function editGroup(
 	name: string,
 	ctx: ExtensionContext,
 ): Promise<string> {
+	if (isReserved(name) || name.includes("+")) {
+		return `"${name}" is not a valid group name (reserved word or "+").`;
+	}
 	if (ctx.mode !== "tui") {
 		return "Group editing requires interactive mode.";
 	}
@@ -231,8 +235,7 @@ function checkFocusGuard(enable: boolean, noun: string): string | null {
 /**
  * Enable or disable every registered toolset (`/tbox all on|off`).
  *
- * When disabling, `pi.builtin` is protected (kept enabled) in normal mode.
- * SDK tools are never touched (they are in no toolset).
+ * Builtins and SDK tools are never in the registry, so they cannot be affected.
  *
  * @returns A summary message.
  */

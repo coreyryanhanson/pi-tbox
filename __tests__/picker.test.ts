@@ -503,6 +503,28 @@ describe("picker — Ctrl+A (enableAll) with forward closure", () => {
 
 		expect(comp.isDirty).toBe(true);
 	});
+
+	it("ctrl+x reverse-cascades to dependents hidden outside the filtered set", () => {
+		// portal.learn requires portal.web. Check both, then search-filter down
+		// to only portal.web so portal.learn is checked but not visible.
+		const comp = createComp({
+			initial: { toolsets: ["portal.web", "portal.learn"] },
+		});
+		comp.handleInput("w");
+		comp.handleInput("e");
+		comp.handleInput("b");
+
+		expect(comp.filteredItems.map((u) => u.id)).toEqual(["portal.web"]);
+
+		comp.handleInput(KEY.clearAll);
+
+		// The visible item is cleared...
+		expect(comp.checkedToolsets.has("portal.web")).toBe(false);
+		// ...and the hidden dependent portal.learn is uncheck via reverse cascade.
+		expect(comp.checkedToolsets.has("portal.learn")).toBe(false);
+		expect(comp.checkedToolsets.size).toBe(0);
+		expect(comp.isDirty).toBe(true);
+	});
 });
 
 describe("picker — search typing and backspace", () => {

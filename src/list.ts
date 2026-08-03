@@ -86,12 +86,12 @@ const DISABLED_GLYPH = "\u2717";
 
 /** Left-align `s` in a field of width `w`, padding right with non-breaking spaces. */
 function lpad(s: string, w: number): string {
-	return s + "\u00a0".repeat(Math.max(0, w - s.length));
+	return s.padEnd(w, "\u00a0");
 }
 
 /** Right-align `s` in a field of width `w`, padding left with non-breaking spaces. */
 function rpad(s: string, w: number): string {
-	return "\u00a0".repeat(Math.max(0, w - s.length)) + s;
+	return s.padStart(w, "\u00a0");
 }
 
 /**
@@ -426,6 +426,23 @@ Filters (mutually exclusive):
 
 const KNOWN_LIST_FLAGS = new Set(["flat", "active", "inactive", "help"]);
 
+/**
+ * Return an "unknown flag" error line, or null when every flag is known.
+ * Shared by /tbox list and /tbox defaults — help handling stays at the
+ * call site (each surface returns its own output type).
+ */
+export function unknownFlagsError(
+	flags: ReadonlySet<string>,
+	known: ReadonlySet<string>,
+	cmd: string,
+): string | null {
+	const unknown = [...flags].filter((f) => !known.has(f));
+	if (unknown.length === 0) return null;
+	return `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown
+		.map((f) => `--${f}`)
+		.join(", ")}. See: /tbox ${cmd} --help.`;
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
@@ -471,13 +488,8 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 	}
 
 	// Reject unknown flags
-	const unknown: string[] = [];
-	for (const f of flags) {
-		if (!KNOWN_LIST_FLAGS.has(f)) unknown.push(`--${f}`);
-	}
-	if (unknown.length > 0) {
-		return `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown.join(", ")}. See: /tbox list --help.`;
-	}
+	const unknownErr = unknownFlagsError(flags, KNOWN_LIST_FLAGS, "list");
+	if (unknownErr !== null) return unknownErr;
 
 	// Error if both --active and --inactive
 	if (flags.has("active") && flags.has("inactive")) {

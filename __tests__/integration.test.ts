@@ -756,6 +756,29 @@ describe("integration — multi-extension registry", () => {
 		expect(new Set(pi.getActiveTools())).toEqual(activeBefore);
 	});
 
+	it("/tbox group <reserved> edit refuses early without opening the picker", async () => {
+		// Regression: `/tbox group list edit` used to reach editGroup("list"),
+		// which opened the picker and then threw inside the save callback when
+		// writeGroup rejected the reserved name.
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+
+		for (const name of ["list", "status", "+portal.web"]) {
+			mock.clearUiRecords();
+			// Queue a plausible picker interaction; if the picker ever opens,
+			// the drain loop hits the onSave TypeError and the dispatch rejects.
+			mock.setCustomKeySequence([mock.keyFor("ctrl+s")]);
+			await mock.dispatchCommand(`group ${name} edit`);
+
+			const notify = mock.getLastNotify();
+			expect(notify).toBeDefined();
+			expect(notify!.message).toContain(`"${name}" is not a valid group name`);
+			expect(notify!.message).not.toContain("saved");
+			expect(notify!.message).not.toContain("cancelled");
+		}
+	});
+
 	// -----------------------------------------------------------------------
 	// Per-source orphan toolset shape
 	// -----------------------------------------------------------------------
