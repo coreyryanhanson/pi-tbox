@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Status slot now re-renders on `before_agent_start` to reflect the live active-tool count.** The slot previously only refreshed on `session_start` / `session_tree` and on `TOOLSET_EVENTS` fanout, so a third-party reconciler (or any plugin) calling `pi.setActiveTools` directly — without emitting `TOOLSET_EVENTS` — left the slot showing a pre-leak snapshot until the next toolset event. The rerender is registered from `session_start` (after all factories load) so it runs *after* factory-registered `before_agent_start` reconcilers and shows the true post-reconciler state. Complements `pi-tool-masking@1.2.1`'s allowlist re-assertion (Option A): when A wins the race the count stays correct, and when A loses the slot now shows the real leaked count instead of lying.
+
 ### Added
 
 - **`/tbox defaults` — settings-tier pin management.** A new subcommand
