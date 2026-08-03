@@ -235,8 +235,7 @@ function checkFocusGuard(enable: boolean, noun: string): string | null {
 /**
  * Enable or disable every registered toolset (`/tbox all on|off`).
  *
- * When disabling, `pi.builtin` is protected (kept enabled) in normal mode.
- * SDK tools are never touched (they are in no toolset).
+ * Builtins and SDK tools are never in the registry, so they cannot be affected.
  *
  * @returns A summary message.
  */

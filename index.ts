@@ -205,7 +205,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 
 	// --- Session handlers ---
 
-	const captureAndRender = async (ctx: ExtensionContext) => {
+	const captureAndRender = (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds);
 		lastCtx = ctx as unknown as SlotCtx;
