@@ -59,7 +59,7 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
 
 ## Where persistence actually lives
 
-Per-toolset on/off memory, the `requires` cascade, and inclusion/exclusion
+Per-toolset on/off memory, the `requires` cascade, and allowlist/exclusion
 mode are owned by the **`pi-tool-masking`** dependency, not this repo. tbox
 operates entirely through that library's events. Do not reimplement masking
 state, focus default-resolution, or the `requires` closure here — call into
