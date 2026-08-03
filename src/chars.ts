@@ -29,6 +29,19 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
+/** Count of all extension tools (togglable, not builtin, not sdk). */
+export function countExtensionTools(pi: ExtensionAPI): number {
+	return pi.getAllTools().filter(isExtensionTool).length;
+}
+
+/** Count of extension tools currently active. */
+export function countActiveExtensionTools(pi: ExtensionAPI): number {
+	const active = new Set(pi.getActiveTools());
+	return pi
+		.getAllTools()
+		.filter((t) => isExtensionTool(t) && active.has(t.name)).length;
+}
+
 // ---------------------------------------------------------------------------
 // Serialization
 // ---------------------------------------------------------------------------

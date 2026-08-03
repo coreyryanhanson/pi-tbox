@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TOOLSET_EVENTS } from "pi-tool-masking";
-import { isExtensionTool } from "./chars.js";
+import { countActiveExtensionTools, countExtensionTools } from "./chars.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,43 +51,28 @@ export const FOCUS_PERSIST_KEY = "tbox-focus-state";
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the excluded count: extension tools (not builtin, not sdk)
- * that are not currently active.
- */
-function computeExcludedCount(pi: ExtensionAPI): number {
-	const allTools = pi.getAllTools();
-	const activeTools = new Set(pi.getActiveTools());
-
-	return allTools.filter((t) => isExtensionTool(t) && !activeTools.has(t.name))
-		.length;
-}
-
-/**
  * Compute the current slot state based on focus and excluded count.
  */
 export function computeSlotState(pi: ExtensionAPI): SlotState {
-	if (_focusUnit !== null) {
-		const allTools = pi.getAllTools();
-		const activeTools = new Set(pi.getActiveTools());
-		const activeExtensionTools = allTools.filter(
-			(t) => isExtensionTool(t) && activeTools.has(t.name),
-		);
+	const activeExtensionCount = countActiveExtensionTools(pi);
 
-		if (activeExtensionTools.length === 0) {
+	if (_focusUnit !== null) {
+		if (activeExtensionCount === 0) {
 			return { kind: "focus-empty" };
 		}
 		return {
 			kind: "focus",
 			unit: _focusUnit,
-			count: activeExtensionTools.length,
+			count: activeExtensionCount,
 		};
 	}
 
-	const n = computeExcludedCount(pi);
-	if (n === 0) {
+	// Excluded = all extension tools minus active extension tools.
+	const excluded = countExtensionTools(pi) - activeExtensionCount;
+	if (excluded === 0) {
 		return { kind: "pristine" };
 	}
-	return { kind: "count", n };
+	return { kind: "count", n: excluded };
 }
 
 /**
