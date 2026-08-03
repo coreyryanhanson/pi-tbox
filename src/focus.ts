@@ -205,8 +205,8 @@ export function focusOff(
 	pi: ExtensionAPI,
 	branch: readonly SessionEntry[],
 ): string {
-	applyEffectiveDefaults(pi, branch);
-	return `Focus off — toolsets restored to effective defaults.`;
+	const count = applyEffectiveDefaults(pi, branch);
+	return `Focus off — ${count} toolset${count !== 1 ? "s" : ""} restored to effective defaults.`;
 }
 
 /**

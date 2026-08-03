@@ -225,7 +225,7 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 function checkFocusGuard(enable: boolean, noun: string): string | null {
 	const fu = getFocusUnit();
 	if (fu === null) return null;
-	return `Cannot ${enable ? "enable" : "disable"} ${noun} while in focus mode (${fu}). Run /tbox focus off first.`;
+	return `Cannot ${enable ? "enable" : "disable"} ${noun} while in focus mode (${fu}). Run /tbox focus off, focus release, or defaults restore first.`;
 }
 
 /**
