@@ -19,6 +19,7 @@ import {
 	wireSlot,
 	render,
 	clearSlot,
+	rerenderSlot,
 	setFocusUnit,
 	restoreFocusUnit,
 	type SlotCtx,
@@ -59,6 +60,7 @@ import { handleDefaults } from "./src/defaults.js";
 export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Capture the session context so TOOLSET_EVENTS can re-render ---
 	let lastCtx: SlotCtx | null = null;
+	let rerenderWired = false;
 
 	const USAGE =
 		"/tbox [list|status|all|focus|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
@@ -213,6 +215,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			},
 		);
 		render(pi, lastCtx);
+
+		// Re-render the slot at every turn boundary so the count reflects the
+		// live active set, not whatever the last TOOLSET_EVENTS fanout left.
+		// Registered from session_start (not the factory body) so it runs AFTER
+		// factory-registered before_agent_start reconcilers and shows the true
+		// post-reconciler state, not a pre-leak snapshot.
+		// ponytail: a pi-core TOOLSET_EVENTS emit on every setActiveTools call
+		// would make this redundant; drop this handler if that ever ships.
+		if (!rerenderWired) {
+			pi.on("before_agent_start", () => rerenderSlot(pi));
+			rerenderWired = true;
+		}
 	};
 
 	pi.on("session_start", (_event, ctx) => captureAndRender(ctx));
