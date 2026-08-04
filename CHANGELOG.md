@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped `pi-tool-masking` from 1.2.2 to 1.2.3, extending the turn-boundary leak re-assert to exclusion and inclusion modes (not just allowlist) so a disabled toolset can no longer leak back into the turn via another extension's `pi.setActiveTools` reconciler.
+
 ## [0.2.0] - 2026-08-03
 
 ### Fixed

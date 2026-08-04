@@ -51,7 +51,7 @@
 		"release:major": "node scripts/release.mjs major"
 	},
 	"dependencies": {
-		"pi-tool-masking": "^1.2.2"
+		"pi-tool-masking": "^1.2.3"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
