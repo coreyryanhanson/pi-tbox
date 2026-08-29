@@ -73,11 +73,14 @@ describe("/tbox solo", () => {
 		setSettingsOverrideForTests({});
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
-		setGroupsOverrideForTests(null);
+		// Keep writeGroup() off the real ~/.pi/agent/pi-tbox/groups.json —
+		// an empty override routes all writes to memory, never disk.
+		setGroupsOverrideForTests({});
 		setFocusUnit(null);
 	});
 
 	afterEach(() => {
+		setGroupsOverrideForTests(null);
 		setSettingsOverrideForTests(null);
 	});
 
@@ -107,7 +110,7 @@ describe("/tbox solo", () => {
 
 	it("group: enables group toolsets (+ deps) only, others off", () => {
 		setup(pi, mock);
-		writeGroup("web", { toolsets: ["portal.web"] });
+		writeGroup("web", { toolsets: ["portal.web"] }); // goes to the override, not disk
 
 		const result = soloUnit(pi, "web");
 
