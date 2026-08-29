@@ -42,7 +42,7 @@ import {
 	toggleAll,
 } from "./src/groups.js";
 import { removeGroup } from "./config/settings-reader.js";
-import { focusUnit, focusOff, focusRelease } from "./src/focus.js";
+import { focusUnit, focusOff, focusRelease, soloUnit } from "./src/focus.js";
 import { handleDefaults } from "./src/defaults.js";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	let rerenderWired = false;
 
 	const USAGE =
-		"/tbox [list|status|all|focus|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
+		"/tbox [list|status|all|focus|solo|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -140,6 +140,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 
+				case "solo": {
+					const target = rest[1];
+					if (!target) {
+						ctx.ui.notify(
+							"Usage: /tbox solo <group> | /tbox solo +<toolset> — everything off, one unit on. No lock: /tbox all on undoes it.",
+							"info",
+						);
+						break;
+					}
+					ctx.ui.notify(soloUnit(pi, target), "info");
+					break;
+				}
 				case "chars": {
 					ctx.ui.notify(formatByChars(pi), "info");
 					break;
@@ -208,6 +220,8 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	const captureAndRender = (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds);
+		// SAFETY: SlotCtx is a structural subset of ExtensionContext (ui + sessionManager);
+		// every field SlotCtx reads exists on the real context.
 		lastCtx = ctx as unknown as SlotCtx;
 		restoreFocusUnit(ctx);
 		render(pi, lastCtx);
@@ -229,6 +243,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.on("session_tree", (_event, ctx) => captureAndRender(ctx));
 
 	pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
+		// SAFETY: clearSlot only touches ctx.ui.setStatus, guaranteed on ExtensionContext.
 		clearSlot(
 			ctx as unknown as {
 				ui: { setStatus: (slot: string, text: string) => void };

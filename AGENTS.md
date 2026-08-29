@@ -87,13 +87,14 @@ used for the picker; the source of truth is the library.
 - `+` prefix = toolset, bare name = group — this addressability rule is
   load-bearing in `index.ts`'s command dispatch and `reserved.ts`. Don't
   blur it.
-- Reserved words (`status`, `focus`, `all`, `list`, `group`, `on`, `off`,
-  `edit`, `remove`, `chars`, `defaults`, `release`, `restore`) are rejected
+- Reserved words (`status`, `focus`, `solo`, `all`, `list`, `group`, `on`,
+  `off`, `edit`, `remove`, `chars`, `defaults`, `release`, `restore`) are rejected
   as group names in `reserved.ts`; keep that list in sync if subcommands
   change.
 - While focus is active, actuation commands (`all on|off`, `<group> on|off`,
-  `+<toolset> on|off`) must be refused. Enforced via `checkFocusGuard` in
-  `src/groups.ts` (every actuation path calls it) — don't bypass it.
+  `+<toolset> on|off`, `solo <unit>`) must be refused. Enforced via
+  `checkFocusGuard` in `src/groups.ts` (every actuation path calls it) —
+  don't bypass it.
 - Focus exits three ways: `focus off` and `/tbox defaults restore` share
   `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` has a
   separate flush path — it writes the live selection to per-toolset `{enabled}`

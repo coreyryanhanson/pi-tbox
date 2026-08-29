@@ -226,7 +226,7 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 }
 
 /** Return an error when focus mode is active, or null if safe to proceed. */
-function checkFocusGuard(enable: boolean, noun: string): string | null {
+export function checkFocusGuard(enable: boolean, noun: string): string | null {
 	const fu = getFocusUnit();
 	if (fu === null) return null;
 	return `Cannot ${enable ? "enable" : "disable"} ${noun} while in focus mode (${fu}). Run /tbox focus off, focus release, or defaults restore first.`;

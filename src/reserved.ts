@@ -17,6 +17,7 @@
 const RESERVED_WORDS: readonly string[] = [
 	"status",
 	"focus",
+	"solo",
 	"all",
 	"list",
 	"group",

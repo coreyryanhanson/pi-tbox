@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`/tbox solo <group>` / `solo +<toolset>`** — lockless single-unit mode: equivalent to `all off` followed by enabling the unit (its `requires` deps come along via the library's forward cascade). Persists as ordinary per-toolset entries — no allowlist mode, no lock, no exit command; `/tbox all on` or `/tbox defaults restore` undoes it, and `/reload` replays it. Refused while focus is active, like every other actuation path. `solo` joins the reserved-word list.
+
 ## [0.2.1] - 2026-08-04
 
 ### Changed

@@ -28,7 +28,7 @@ import {
 	setDefaultResolutionMode,
 } from "pi-tool-masking";
 import { forwardClosure } from "./requires-graph.js";
-import { resolveGroup } from "./groups.js";
+import { resolveGroup, toggleAll, checkFocusGuard } from "./groups.js";
 import { setFocusUnit, rerenderSlot, persistFocusUnit } from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,42 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 
 	rerenderSlot(pi);
 
-	return `Focus on "${resolved.label}" — allowlist of ${ids.length} toolset${ids.length !== 1 ? "s" : ""}.`;
+	return `Focus on "${resolved.label}" — allowlist of ${ids.length} toolset${ids.length === 1 ? "" : "s"}.`;
+}
+
+/**
+ * Solo on a single unit — the lockless cousin of focus.
+ *
+ * Equivalent to `/tbox all off` followed by enabling the unit: every
+ * registered toolset is disabled, then the resolved unit (+ its `requires`
+ * deps via the library's forward cascade) is enabled. Persists as ordinary
+ * per-toolset `{enabled}` entries — no allowlist mode, no lock, no exit
+ * command — `/tbox all on` or `/tbox defaults restore` undoes it, and
+ * /reload replays the solo state.
+ *
+ * Refused while focus is active (via toggleAll's focus guard) — exit focus
+ * first, like every other actuation path.
+ *
+ * @returns A human-readable result or error message.
+ */
+export function soloUnit(pi: ExtensionAPI, input: string): string {
+	const resolved = resolveFocusUnit(input);
+	if (!resolved.ok) return resolved.error;
+
+	const guard = checkFocusGuard(true, "solo");
+	if (guard !== null) return guard;
+
+	// toggleAll carries the same guard — double-guarded is harmless.
+	toggleAll(pi, false);
+
+	const registry = getRegisteredToolsets();
+	const byId = new Map(registry.map((e) => [e.spec.id, e]));
+	for (const id of resolved.toolsetIds) {
+		byId.get(id)?.toolset.enable(pi);
+	}
+
+	const n = resolved.toolsetIds.length;
+	return `Solo on "${resolved.label}" — ${n} toolset${n === 1 ? "" : "s"} (+ requires deps) on, everything else off.`;
 }
 
 /**
@@ -206,7 +241,7 @@ export function focusOff(
 	branch: readonly SessionEntry[],
 ): string {
 	const count = applyEffectiveDefaults(pi, branch);
-	return `Focus off — ${count} toolset${count !== 1 ? "s" : ""} restored to effective defaults.`;
+	return `Focus off — ${count} toolset${count === 1 ? "" : "s"} restored to effective defaults.`;
 }
 
 /**

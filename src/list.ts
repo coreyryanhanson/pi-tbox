@@ -545,9 +545,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 		.getAllTools()
 		.filter((t) => t.sourceInfo.source === "builtin");
 	if (builtinTools.length > 0) {
-		const activeCount = builtinTools.filter((t) =>
-			activeSet.has(t.name),
-		).length;
+		const activeCount = builtinTools.filter((t) => activeSet.has(t.name)).length;
 		tableRows.push([
 			"pi.builtin",
 			ENABLED_GLYPH,
@@ -565,13 +563,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 	const focusUnit = getFocusUnit();
 	const focusLine = focusUnit ? `Focus: on (${focusUnit})` : "Focus: off";
 
-	return [
-		table,
-		"",
-		groupLine,
-		focusLine,
-		formatCharSplit(computeCharCount(pi)),
-	]
+	return [table, "", groupLine, focusLine, formatCharSplit(computeCharCount(pi))]
 		.join("\n")
 		.trimEnd();
 }
@@ -585,7 +577,8 @@ export function formatStatus(pi: ExtensionAPI): string {
  */
 export function formatBareHelp(): string {
 	return (
-		"Subcommands: list, status, all, focus, group, chars, defaults\n" +
+		"Subcommands: list, status, all, focus, solo, group, chars, defaults\n" +
+		"  /tbox solo <group>|+<toolset> \u2014 everything off, one unit on (no lock)\n" +
 		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters\n" +
 		"  /tbox defaults [save|show|clear|restore] \u2014 run /tbox defaults --help for details"
 	);

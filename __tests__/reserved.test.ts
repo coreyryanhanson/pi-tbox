@@ -18,6 +18,7 @@ describe("reserved wordlist", () => {
 		for (const w of [
 			"status",
 			"focus",
+			"solo",
 			"all",
 			"list",
 			"group",

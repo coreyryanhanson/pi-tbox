@@ -48,6 +48,9 @@ have the one before it:
    installing new extensions without drifting. `focus off` restores
    defaults; `focus release` exits focus but keeps the live selection,
    flushing it to per-toolset state so a `/reload` replays what you see.
+   For a throwaway constraint without a lock, `/tbox solo <group>` (or
+   `solo +<toolset>`) is equivalent to `all off` + the unit `on` — plain
+   per-toolset state, no allowlist; `/tbox all on` undoes it.
 5. **Pin a baseline.** `/tbox defaults` snapshots live on/off state into
    Pi's settings tier, so a baseline survives `/reload`, resume, *and*
    later global changes. `save` writes a full per-project snapshot (a
@@ -92,8 +95,8 @@ not chat state):
 All commands live under the `/tbox` shortcut. Two addressability rules keep
 the surface unambiguous: a **`+` prefix means a toolset**, a **bare name
 means a group**, so `+find` is always the toolset and `find` is always the
-group even if they share a name. Reserved words (`status`, `focus`, `all`,
-`list`, `group`, `on`, `off`, `edit`, `remove`, `chars`, `defaults`,
+group even if they share a name. Reserved words (`status`, `focus`, `solo`,
+`all`, `list`, `group`, `on`, `off`, `edit`, `remove`, `chars`, `defaults`,
 `release`, `restore`) are rejected at group creation, so bare
 `/tbox <group> on|off` always works.
 
@@ -112,6 +115,7 @@ group even if they share a name. Reserved words (`status`, `focus`, `all`,
 | `/tbox focus <group>` / `focus +<toolset>` | enter focus on a group or toolset |
 | `/tbox focus off` | exit focus → restore effective defaults |
 | `/tbox focus release` | exit focus → keep the live selection (flush to per-toolset state) |
+| `/tbox solo <group>` / `solo +<toolset>` | everything off, one unit on (no lock — `/tbox all on` undoes it) |
 | `/tbox defaults [show]` | list settings-tier pins, annotated by scope |
 | `/tbox defaults save [--global]` | snapshot live state into settings (project: full; `--global`: diff vs packaged default) |
 | `/tbox defaults clear [--global]` | remove a scope's `toolsetDefaults` block |
