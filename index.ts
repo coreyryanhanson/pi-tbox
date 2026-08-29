@@ -144,7 +144,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					const target = rest[1];
 					if (!target) {
 						ctx.ui.notify(
-							"Usage: /tbox solo <group> | /tbox solo +<toolset> — everything off, one unit on. No lock: /tbox all on undoes it.",
+							"Usage: /tbox solo <group> | /tbox solo +<toolset> — everything off, one unit on. Like focus, but no lock.",
 							"info",
 						);
 						break;

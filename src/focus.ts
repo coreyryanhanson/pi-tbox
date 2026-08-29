@@ -161,8 +161,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
  * registered toolset is disabled, then the resolved unit (+ its `requires`
  * deps via the library's forward cascade) is enabled. Persists as ordinary
  * per-toolset `{enabled}` entries — no allowlist mode, no lock, no exit
- * command — `/tbox all on` or `/tbox defaults restore` undoes it, and
- * /reload replays the solo state.
+ * command. /reload replays the solo state.
  *
  * Refused while focus is active (via toggleAll's focus guard) — exit focus
  * first, like every other actuation path.
