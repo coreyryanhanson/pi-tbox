@@ -55,7 +55,11 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
   Reads/writes `~/.pi/agent/pi-tbox/groups.json` (a bare `{ toolsets: string[] }`
   table, no wrapper key). It is *not* pi-core `settings.json` — see the file's
   header comment. Groups are user/global-scoped: defined once, usable from any
-  directory.
+  directory. Writes are atomic (`.tmp` + `renameSync`) and *loud*: they throw
+  `GroupsFileCorruptError` on an unparseable file rather than overwriting user
+  data, while read paths degrade to an empty table (zero-byte file = absent).
+  Route all writes through `writeGroupsFile` and surface the error in callers —
+  don't "fix" the read/write asymmetry, it's deliberate.
 
 ## Where persistence actually lives
 
