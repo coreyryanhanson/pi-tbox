@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getActiveAllowlist,
@@ -70,7 +70,7 @@ describe("/tbox solo", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests({});
+		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		// Keep writeGroup() off the real ~/.pi/agent/pi-tbox/groups.json —

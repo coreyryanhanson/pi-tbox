@@ -7,8 +7,31 @@ import type {
 	SessionEntry,
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
-import { defineToolset, getRegisteredToolsets } from "pi-tool-masking";
+import {
+	defineToolset,
+	getRegisteredToolsets,
+	setSettingsOverrideForTests,
+} from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
+
+type ToolsetDefaultsMap = ReturnType<
+	typeof import("pi-tool-masking").readMergedToolsetDefaults
+>;
+
+/**
+ * Test seam for settings-pinned toolset defaults. Wraps pi-tool-masking's
+ * `setSettingsOverrideForTests`, whose signature is full parsed settings
+ * objects per scope — this accepts just the flat `toolsetDefaults` map.
+ * Pass no argument for an empty settings state.
+ */
+export function pinSettingsDefaultsForTests(
+	defaults?: ToolsetDefaultsMap,
+): void {
+	setSettingsOverrideForTests({
+		global: defaults ? { toolsetDefaults: defaults } : undefined,
+		project: undefined,
+	});
+}
 
 // -------------------------------------------------------------------------
 // Component mount state (for ctx.ui.custom)
