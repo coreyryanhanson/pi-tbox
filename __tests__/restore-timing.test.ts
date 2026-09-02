@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
@@ -36,7 +36,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests({});
+		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);

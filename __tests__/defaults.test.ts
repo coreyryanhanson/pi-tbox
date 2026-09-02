@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getActiveAllowlist,
@@ -111,7 +111,7 @@ describe("/tbox defaults (seams)", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests({});
+		pinSettingsDefaultsForTests();
 		writer = { global: {}, project: {} };
 		setSettingsWriterOverrideForTests(writer);
 		mock = new MockPI();
@@ -180,11 +180,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
 
 			const before = JSON.parse(JSON.stringify(writer)) as typeof writer;
-			const projectResult = handleDefaults(
-				pi,
-				ctx(),
-				"defaults save --project",
-			);
+			const projectResult = handleDefaults(pi, ctx(), "defaults save --project");
 			expect(projectResult.level).toBe("error");
 			expect(projectResult.message).toContain("unknown flag --project");
 			expect(projectResult.message).toContain("/tbox defaults --help");
@@ -229,20 +225,18 @@ describe("/tbox defaults (seams)", () => {
 		it("empty state prints the no-pins message", () => {
 			const result = handleDefaults(pi, ctx(), "defaults show");
 			expect(result.level).toBe("info");
-			expect(result.message).toContain(
-				"No toolset defaults pinned in settings",
-			);
+			expect(result.message).toContain("No toolset defaults pinned in settings");
 		});
 
 		it("bare /tbox defaults defaults to show", () => {
-			setSettingsOverrideForTests({ [KEY.alpha]: { enabled: false } });
+			pinSettingsDefaultsForTests({ [KEY.alpha]: { enabled: false } });
 			const result = handleDefaults(pi, ctx(), "defaults");
 			expect(result.message).toContain("Toolset defaults pinned in settings");
 			expect(result.message).toContain(KEY.alpha);
 		});
 
 		it("lists pins with enabled/disabled words, sorted by persistKey", () => {
-			setSettingsOverrideForTests({
+			pinSettingsDefaultsForTests({
 				[KEY.beta]: { enabled: false },
 				[KEY.alpha]: { enabled: true },
 			});
@@ -329,10 +323,7 @@ describe("/tbox defaults (seams)", () => {
 		});
 
 		it("--global is rejected on show and restore; accepted on save and clear", () => {
-			for (const args of [
-				"defaults show --global",
-				"defaults restore --global",
-			]) {
+			for (const args of ["defaults show --global", "defaults restore --global"]) {
 				const result = handleDefaults(pi, ctx(), args);
 				expect(result.level).toBe("error");
 				expect(result.message).toContain(
@@ -349,9 +340,7 @@ describe("/tbox defaults (seams)", () => {
 		it("an unknown defaults subcommand is rejected", () => {
 			const result = handleDefaults(pi, ctx(), "defaults frobnicate");
 			expect(result.level).toBe("error");
-			expect(result.message).toContain(
-				'unknown defaults subcommand "frobnicate"',
-			);
+			expect(result.message).toContain('unknown defaults subcommand "frobnicate"');
 		});
 	});
 
@@ -520,8 +509,6 @@ describe("/tbox defaults (disk round-trips)", () => {
 		const result = handleDefaults(pi, ctx(), "defaults clear");
 		expect(result.level).toBe("error");
 		expect(result.message).toContain(projectPath());
-		expect(readFileSync(projectPath(), "utf-8")).toBe(
-			JSON.stringify([1, 2, 3]),
-		);
+		expect(readFileSync(projectPath(), "utf-8")).toBe(JSON.stringify([1, 2, 3]));
 	});
 });

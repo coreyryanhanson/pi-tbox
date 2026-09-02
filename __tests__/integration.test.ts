@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getActiveAllowlist,
@@ -246,7 +246,7 @@ describe("integration — multi-extension registry", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests({});
+		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -830,7 +830,7 @@ describe("integration — multi-extension registry", () => {
 				defaultEnabled: true,
 			});
 
-			setSettingsOverrideForTests({
+			pinSettingsDefaultsForTests({
 				"toolset-state:settings-off-source": { enabled: false },
 			});
 
@@ -857,7 +857,7 @@ describe("integration — multi-extension registry", () => {
 				defaultEnabled: false,
 			});
 
-			setSettingsOverrideForTests({
+			pinSettingsDefaultsForTests({
 				"toolset-state:settings-on-source": { enabled: true },
 			});
 

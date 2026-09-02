@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getActiveAllowlist,
@@ -174,7 +174,7 @@ describe("/tbox focus", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests({});
+		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setGroupsOverrideForTests(null);
@@ -380,9 +380,7 @@ describe("/tbox focus", () => {
 			expect(msgOn).toContain("/tbox focus off");
 
 			const msgOff = toggleAll(pi, false);
-			expect(msgOff).toContain(
-				"Cannot disable all toolsets while in focus mode",
-			);
+			expect(msgOff).toContain("Cannot disable all toolsets while in focus mode");
 			expect(msgOff).toContain("/tbox focus off");
 		});
 
@@ -479,7 +477,7 @@ describe("/tbox focus", () => {
 			// cascading the pin away (applyToolsetEnabled is the no-cascade
 			// path; the old enable()-based loop re-enabled the dep via the
 			// forward requires cascade).
-			setSettingsOverrideForTests({
+			pinSettingsDefaultsForTests({
 				"toolset-state:portal.web": { enabled: false },
 			});
 
@@ -519,7 +517,7 @@ describe("/tbox focus", () => {
 			expect(pi.getActiveTools()).toContain("pin-off-test");
 
 			// Pin it off via settings override
-			setSettingsOverrideForTests({ [key]: { enabled: false } });
+			pinSettingsDefaultsForTests({ [key]: { enabled: false } });
 			expect(getEffectiveDefault(entry.spec, readMergedToolsetDefaults())).toBe(
 				false,
 			);
@@ -561,7 +559,7 @@ describe("/tbox focus", () => {
 			expect(pi.getActiveTools()).toContain("test-pin-on");
 
 			// Pin it on via settings override
-			setSettingsOverrideForTests({ [key]: { enabled: true } });
+			pinSettingsDefaultsForTests({ [key]: { enabled: true } });
 
 			const result = focusOff(pi, branchOf(mock));
 			expect(result).toContain("Focus off");
@@ -677,8 +675,7 @@ describe("/tbox focus", () => {
 						.filter((e) => e.customType === entry.spec.persistKey)
 						.at(-1);
 					expect(last).toBeDefined();
-					const enabled = (last!.data as Record<string, unknown> | null)
-						?.enabled;
+					const enabled = (last!.data as Record<string, unknown> | null)?.enabled;
 					expect(enabled).toBe(entry.spec.id === "portal.web");
 				}
 
