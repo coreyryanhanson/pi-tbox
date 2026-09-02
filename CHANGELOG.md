@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the new `MockPI` API (`pinSettingsDefaultsForTests` replaces `setSettingsOverrideForTests`); release script simplified. No changes to tbox source.
+
 ## [0.2.2] - 2026-08-29
 
 ### Added
