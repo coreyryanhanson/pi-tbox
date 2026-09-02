@@ -2,9 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A corrupt `groups.json` is no longer silently overwritten.** Parse errors in
+  `readGroupsFile` previously degraded to an empty table, so the next group
+  save/remove wrote that empty table over the file — one malformed write
+  (e.g. a crash-truncated file) destroyed the user's entire groups table.
+  Reads (`/tbox list`, describe) still degrade to an empty table (zero-byte
+  files are treated as absent, so `touch`ed files don't block writes), but
+  write paths now throw `GroupsFileCorruptError`, and `/tbox group edit`'s
+  save and `/tbox group <name> remove` surface it at the `"error"` level
+  instead of proceeding. Writes are also atomic now (`.tmp` + `renameSync`),
+  so a mid-write crash can't truncate the file in the first place.
+
 ### Changed
 
-- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the new `MockPI` API (`pinSettingsDefaultsForTests` replaces `setSettingsOverrideForTests`); release script simplified. No changes to tbox source.
+- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the new `MockPI` API (`pinSettingsDefaultsForTests` replaces `setSettingsOverrideForTests`); release script simplified.
 
 ## [0.2.2] - 2026-08-29
 
