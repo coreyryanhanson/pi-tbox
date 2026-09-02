@@ -725,6 +725,24 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toContain("test-group");
 	});
 
+	it("/tbox group list <extra> shows usage, not a group lookup", async () => {
+		// "list" is reserved, so trailing args are a usage mistake — show
+		// usage rather than 'No group named "list"'.
+		writeGroup("test-group", { toolsets: ["portal.web"] });
+
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("group list oops");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.message).toContain("Usage: /tbox group list");
+		expect(notify!.message).not.toContain('No group named "list"');
+	});
+
 	it("bikeshed: dispatchCommand /tbox chars renders budget view", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);

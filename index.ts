@@ -127,6 +127,19 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 
 					const sub = rest[2];
+
+					// /tbox group list <junk> — "list" is a reserved word and
+					// can never be a group name, so the trailing args are a
+					// usage mistake. Show usage instead of the confusing
+					// 'No group named "list"'. edit/remove still route below
+					// so the reserved-name refusal path stays regression-safe.
+					if (name === "list" && sub !== "edit" && sub !== "remove") {
+						ctx.ui.notify(
+							'Usage: /tbox group list — list all groups. "list" is a reserved word and cannot be a group name.',
+							"info",
+						);
+						break;
+					}
 					if (sub === "edit") {
 						ctx.ui.notify(await editGroup(name, ctx), "info");
 					} else if (sub === "remove") {
