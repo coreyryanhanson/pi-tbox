@@ -89,6 +89,15 @@ export class GroupEditorComponent {
 	// -----------------------------------------------------------------------
 
 	handleInput(data: string): void {
+		try {
+			this.handleInputInner(data);
+		} catch (err) {
+			console.error(err); // non-cycle bugs must not vanish behind the footer cue
+			this.lastCue = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	private handleInputInner(data: string): void {
 		// Down
 		if (this.kb.matches(data, "tui.select.down")) {
 			const max = this.filteredItems.length - 1;
@@ -214,9 +223,7 @@ export class GroupEditorComponent {
 		lines.push("");
 
 		// ── Header: session-only note ──
-		lines.push(
-			trunc(th.fg("dim", "Session-only.  Ctrl+S to save to settings.")),
-		);
+		lines.push(trunc(th.fg("dim", "Session-only.  Ctrl+S to save to settings.")));
 
 		// ── Empty line ──
 		lines.push("");

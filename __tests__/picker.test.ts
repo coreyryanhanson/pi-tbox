@@ -632,3 +632,66 @@ describe("picker — windowing", () => {
 		expect(scroll).toBeDefined();
 	});
 });
+
+describe("picker — requires cycle surfaces as cue instead of crashing", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	/** registry: cyc.a requires cyc.b, cyc.b requires cyc.a */
+	function setupCyclicRegistry(): void {
+		mock.defineFakeToolset({
+			id: "cyc.a",
+			names: new Set(["cyc-a-tool"]),
+			persistKey: "toolset-state:cyc.a",
+			requires: ["cyc.b"],
+		});
+		mock.defineFakeToolset({
+			id: "cyc.b",
+			names: new Set(["cyc-b-tool"]),
+			persistKey: "toolset-state:cyc.b",
+			requires: ["cyc.a"],
+		});
+	}
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
+	});
+
+	afterEach(() => {
+		setGroupsOverrideForTests(null);
+		MockPI.cleanRegistry();
+	});
+
+	it("shows the cycle cue instead of crashing on a requires cycle", () => {
+		setupCyclicRegistry();
+
+		const comp = createComp();
+		const idx = comp.filteredItems.findIndex((u) => u.id === "cyc.a");
+		expect(idx).toBeGreaterThanOrEqual(0);
+		comp.selectedIndex = idx;
+
+		// Confirm keystroke on the cyc.a row: forward closure hits the cycle.
+		// Without the handleInput catch this would crash the TUI key handler.
+		expect(() => comp.handleInput(KEY.enter)).not.toThrow();
+		comp.render(120); // cue paints on the next render pass
+		expect(comp.lastCue).toMatch(/requires cycle/);
+
+		// The picker stays interactive: navigating still works.
+		comp.handleInput(KEY.down);
+		expect(comp.selectedIndex).toBe(idx + 1);
+	});
+
+	it("Ctrl+A on a cyclic registry shows the cue instead of crashing", () => {
+		setupCyclicRegistry();
+
+		const comp = createComp();
+
+		// Bulk op as the FIRST interaction — enableAll calls forwardClosure.
+		expect(() => comp.handleInput(KEY.enableAll)).not.toThrow();
+		comp.render(120);
+		expect(comp.lastCue).toMatch(/requires cycle/);
+	});
+});
