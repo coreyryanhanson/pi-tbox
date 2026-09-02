@@ -358,6 +358,10 @@ export function actuateGroup(
 
 	const after = new Set(pi.getActiveTools());
 
+	// Skipped: toolsets named in the group but not currently registered
+	// (e.g. provider extension uninstalled after the group was saved).
+	const missing = [...targetToolsetIds].filter((id) => !byId.has(id));
+
 	// Diff: which tools moved (added on enable, removed on disable).
 	const moved = enable
 		? [...after].filter((n) => !before.has(n))
@@ -381,6 +385,9 @@ export function actuateGroup(
 		lines.push(
 			`Cascaded (moved by library, not in group): ${cascaded.join(", ")}`,
 		);
+	}
+	if (missing.length > 0) {
+		lines.push(`Not registered (skipped): ${missing.join(", ")}`);
 	}
 	lines.push(DRIFT_CAVEAT);
 

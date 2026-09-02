@@ -178,9 +178,7 @@ describe("actuateGroup", () => {
 	it("on enables every toolset in the group; requires deps come on via cascade", () => {
 		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		// Disable portal.web (and its dependent portal.learn) first.
-		const web = getRegisteredToolsets().find(
-			(e) => e.spec.id === "portal.web",
-		)!;
+		const web = getRegisteredToolsets().find((e) => e.spec.id === "portal.web")!;
 		web.toolset.disable(pi);
 
 		const msg = actuateGroup(pi, "webgroup", true);
@@ -216,6 +214,19 @@ describe("actuateGroup", () => {
 		expect(msg).toContain('Enabled group "mixed"');
 		expect(mock.getActiveTools()).toContain("host-call");
 		expect(mock.getActiveTools()).toContain("web-learn");
+	});
+
+	it("group referencing an unregistered toolset → reported as skipped", () => {
+		setGroupsOverrideForTests({
+			webgroup: { toolsets: ["portal.web", "ghost.tool"] },
+		});
+		const web = getRegisteredToolsets().find((e) => e.spec.id === "portal.web")!;
+		web.toolset.disable(pi);
+
+		const msg = actuateGroup(pi, "webgroup", true);
+		expect(msg).toContain('Enabled group "webgroup"');
+		expect(mock.getActiveTools()).toContain("web-fetch");
+		expect(msg).toContain("Not registered (skipped): ghost.tool");
 	});
 
 	it("actuating a non-existent group → clear error", () => {
