@@ -251,7 +251,10 @@ function writeGroupsFile(
 	groups: Record<string, GroupSpec>,
 ): void {
 	mkdirSync(dirname(path), { recursive: true });
-	const tmp = `${path}.tmp`;
+	// pid suffix: two pi sessions share this file; a fixed name lets session
+	// B truncate session A's in-flight temp and get renamed over the real file.
+	// Crash leaves a stale .tmp.<pid> litter — acceptable vs. clobbering groups.
+	const tmp = `${path}.tmp.${process.pid}`;
 	writeFileSync(tmp, JSON.stringify(groups, null, 2) + "\n");
 	renameSync(tmp, path);
 }

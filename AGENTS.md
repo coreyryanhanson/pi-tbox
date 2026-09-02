@@ -15,9 +15,8 @@ npm run test:watch  # vitest watch
 Run a single test file: `npx vitest run __tests__/groups.test.ts`
 Run by name pattern: `npx vitest run -t "focus off"`
 
-**Typecheck is not in CI** (`.github/workflows/tests.yml` only runs `npm test`).
-Run `npm run typecheck` yourself before shipping — strict settings below
-will catch things vitest won't.
+**Typecheck runs in CI** (`.github/workflows/tests.yml` runs `npm run typecheck`
+before `npm test`) — strict settings below will catch things vitest won't.
 
 No build, no lint, no format, no codegen. Node 22 (CI matrix).
 
