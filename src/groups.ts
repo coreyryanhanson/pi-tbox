@@ -25,6 +25,7 @@ import {
 	readGroups,
 	writeGroup,
 	type GroupSpec,
+	GroupsFileCorruptError,
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
 import { isReserved } from "./reserved.js";
@@ -125,8 +126,20 @@ export async function editGroup(
 					groupName: name,
 					initial: existingGroup,
 					onSave: (spec) => {
-						writeGroup(name, spec);
-						done({ saved: true });
+						try {
+							writeGroup(name, spec);
+							done({ saved: true });
+						} catch (err) {
+							// Corrupt groups file: refuse loudly instead of
+							// silently overwriting user data.
+							ctx.ui.notify(
+								err instanceof GroupsFileCorruptError
+									? err.message
+									: `Failed to save group "${name}": ${String(err)}`,
+								"error",
+							);
+							done({ saved: false });
+						}
 					},
 					onCancel: () => done({ saved: false }),
 				},
@@ -222,7 +235,7 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 	if (!entry) return `No toolset "${id}".`;
 	const state = entry.toolset.isEnabled(pi) ? "enabled" : "disabled";
 	const toolList = [...entry.spec.names].join(", ");
-	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size !== 1 ? "s" : ""} (${toolList}). State: ${state}.`;
+	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size === 1 ? "" : "s"} (${toolList}). State: ${state}.`;
 }
 
 /** Return an error when focus mode is active, or null if safe to proceed. */
@@ -362,7 +375,7 @@ export function actuateGroup(
 	// Build summary
 	const action = enable ? "Enabled" : "Disabled";
 	const lines: string[] = [
-		`${action} group "${name}" — ${moved.length} tool${moved.length !== 1 ? "s" : ""} moved.`,
+		`${action} group "${name}" — ${moved.length} tool${moved.length === 1 ? "" : "s"} moved.`,
 	];
 	if (cascaded.length > 0) {
 		lines.push(

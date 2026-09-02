@@ -23,6 +23,7 @@ import {
 	writeGroup,
 	removeGroup,
 	setGroupsOverrideForTests,
+	GroupsFileCorruptError,
 } from "../config/settings-reader.js";
 
 describe("groups store — global, cross-directory", () => {
@@ -149,12 +150,8 @@ describe("groups store — global, cross-directory", () => {
 
 	describe("writeGroup validation", () => {
 		it("rejects reserved keywords", () => {
-			expect(() => writeGroup("focus", { toolsets: [] })).toThrow(
-				"reserved word",
-			);
-			expect(() => writeGroup("list", { toolsets: [] })).toThrow(
-				"reserved word",
-			);
+			expect(() => writeGroup("focus", { toolsets: [] })).toThrow("reserved word");
+			expect(() => writeGroup("list", { toolsets: [] })).toThrow("reserved word");
 			expect(() => writeGroup("on", { toolsets: [] })).toThrow("reserved word");
 			expect(() => writeGroup("remove", { toolsets: [] })).toThrow(
 				"reserved word",
@@ -172,15 +169,70 @@ describe("groups store — global, cross-directory", () => {
 
 		it("allows valid names including toolset ids", () => {
 			const file = join(tmp, "groups.json");
+			expect(() => writeGroup("research", { toolsets: [] }, file)).not.toThrow();
+			expect(() => writeGroup("portal.web", { toolsets: [] }, file)).not.toThrow();
+			expect(() => writeGroup("my-group", { toolsets: [] }, file)).not.toThrow();
+		});
+	});
+
+	describe("corrupt-file safety", () => {
+		let tmp: string;
+
+		beforeEach(() => {
+			setGroupsOverrideForTests(null);
+			tmp = mkdtempSync(join(tmpdir(), "tbox-groups-"));
+		});
+
+		afterEach(() => {
+			setGroupsOverrideForTests(null);
+			rmSync(tmp, { recursive: true, force: true });
+		});
+
+		it("writeGroup refuses to overwrite an unparseable file, preserving bytes", () => {
+			const file = join(tmp, "groups.json");
+			const corrupt = '{"research": {"toolsets": ["portal.web'; // truncated
+			writeFileSync(file, corrupt);
+
+			expect(() => writeGroup("host", { toolsets: ["host.api"] }, file)).toThrow(
+				GroupsFileCorruptError,
+			);
+			// The original (corrupt) bytes are untouched — no silent wipe.
+			expect(readFileSync(file, "utf-8")).toBe(corrupt);
+		});
+
+		it("removeGroup refuses to proceed on a corrupt file", () => {
+			const file = join(tmp, "groups.json");
+			const corrupt = '[{"nope"}]'; // valid JSON, wrong shape
+			writeFileSync(file, corrupt);
+
+			expect(() => removeGroup("host", file)).toThrow(GroupsFileCorruptError);
+			expect(readFileSync(file, "utf-8")).toBe(corrupt);
+		});
+
+		it("readGroups degrades to {} on a corrupt file — reads stay harmless", () => {
+			const file = join(tmp, "groups.json");
+			writeFileSync(file, "{not json");
+			expect(readGroups(file)).toEqual({});
+		});
+
+		it("an empty (zero-byte) file is treated as absent, not corrupt", () => {
+			const file = join(tmp, "groups.json");
+			writeFileSync(file, "");
+			expect(readGroups(file)).toEqual({});
 			expect(() =>
-				writeGroup("research", { toolsets: [] }, file),
+				writeGroup("research", { toolsets: ["portal.web"] }, file),
 			).not.toThrow();
-			expect(() =>
-				writeGroup("portal.web", { toolsets: [] }, file),
-			).not.toThrow();
-			expect(() =>
-				writeGroup("my-group", { toolsets: [] }, file),
-			).not.toThrow();
+		});
+
+		it("writes are atomic — no .tmp leftover after a successful save", () => {
+			const file = join(tmp, "groups.json");
+			writeGroup("research", { toolsets: ["portal.web"] }, file);
+			expect(existsSync(`${file}.tmp`)).toBe(false);
+			const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<
+				string,
+				unknown
+			>;
+			expect(raw["research"]).toEqual({ toolsets: ["portal.web"] });
 		});
 	});
 });

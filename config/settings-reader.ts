@@ -30,7 +30,13 @@
  * @module
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+	existsSync,
+	readFileSync,
+	writeFileSync,
+	mkdirSync,
+	renameSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { isReserved } from "../src/reserved.js";
@@ -85,32 +91,56 @@ export function setGroupsOverrideForTests(
 // Reader
 // ---------------------------------------------------------------------------
 
-/** Read and parse the groups file. Returns {} on any failure. */
+/**
+ * Thrown when the groups file exists but cannot be parsed as a groups
+ * table. Writers refuse to proceed so a corrupt file is never overwritten
+ * (that would silently destroy every user-defined group); read paths catch
+ * this and degrade to an empty table.
+ */
+export class GroupsFileCorruptError extends Error {}
+
+/**
+ * Read and parse the groups file. Returns {} when the file is missing or
+ * empty. Throws `GroupsFileCorruptError` when the file exists but is not a
+ * valid groups table — callers must never write over such a file.
+ */
 function readGroupsFile(
 	path: string = GROUPS_FILE_PATH,
 ): Record<string, GroupSpec> {
+	if (!existsSync(path)) return {};
+	const raw = readFileSync(path, "utf-8");
+	// An empty (zero-byte) file is indistinguishable from "no groups yet" —
+	// treat it as absent rather than blocking writes on a `touch`ed file.
+	if (!raw.trim()) return {};
+
+	let parsed: unknown;
 	try {
-		if (!existsSync(path)) return {};
-		const raw = readFileSync(path, "utf-8");
-		const parsed = JSON.parse(raw);
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return {};
-		}
-		const groups: Record<string, GroupSpec> = {};
-		for (const [name, val] of Object.entries(
-			parsed as Record<string, unknown>,
-		)) {
-			if (!val || typeof val !== "object" || Array.isArray(val)) continue;
-			const g = val as Record<string, unknown>;
-			const toolsets = Array.isArray(g["toolsets"])
-				? g["toolsets"].filter((s): s is string => typeof s === "string")
-				: [];
-			groups[name] = { toolsets };
-		}
-		return groups;
-	} catch {
-		return {};
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		throw new GroupsFileCorruptError(
+			`Groups file at ${path} is not valid JSON; refusing to overwrite it. Fix or delete the file, then retry.`,
+			{ cause: err },
+		);
 	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new GroupsFileCorruptError(
+			`Groups file at ${path} is not a groups table (expected a JSON object); refusing to overwrite it.`,
+		);
+	}
+
+	// Per-entry normalization is lenient, not strict: malformed entries are
+	// dropped, never fatal — the table-level checks above already refused
+	// anything that isn't a plain object.
+	const groups: Record<string, GroupSpec> = {};
+	for (const [name, val] of Object.entries(parsed as Record<string, unknown>)) {
+		if (!val || typeof val !== "object" || Array.isArray(val)) continue;
+		const g = val as Record<string, unknown>;
+		const toolsets = Array.isArray(g["toolsets"])
+			? g["toolsets"].filter((s): s is string => typeof s === "string")
+			: [];
+		groups[name] = { toolsets };
+	}
+	return groups;
 }
 
 /**
@@ -124,7 +154,12 @@ export function readGroups(
 	path: string = GROUPS_FILE_PATH,
 ): Record<string, GroupSpec> {
 	if (_override !== null) return { ..._override };
-	return readGroupsFile(path);
+	try {
+		return readGroupsFile(path);
+	} catch (err) {
+		if (err instanceof GroupsFileCorruptError) return {};
+		throw err;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -171,12 +206,12 @@ export function writeGroup(
 		return;
 	}
 
-	// Production: read-merge-write the global groups file.
+	// Production: read-merge-write the global groups file. readGroupsFile
+	// throws GroupsFileCorruptError on an unparseable file, refusing to
+	// clobber user data — callers surface the error.
 	const current = readGroupsFile(path);
 	current[name] = { toolsets: [...spec.toolsets] };
-
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+	writeGroupsFile(path, current);
 }
 
 /**
@@ -202,8 +237,21 @@ export function removeGroup(
 	const current = readGroupsFile(path);
 	if (!(name in current)) return false;
 	delete current[name];
-
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+	writeGroupsFile(path, current);
 	return true;
+}
+
+/**
+ * Atomically replace the groups file: write to a temp sibling, then rename
+ * over the target. A crash mid-write can no longer truncate the real file
+ * (the failure mode that corrupts it in the first place).
+ */
+function writeGroupsFile(
+	path: string,
+	groups: Record<string, GroupSpec>,
+): void {
+	mkdirSync(dirname(path), { recursive: true });
+	const tmp = `${path}.tmp`;
+	writeFileSync(tmp, JSON.stringify(groups, null, 2) + "\n");
+	renameSync(tmp, path);
 }
