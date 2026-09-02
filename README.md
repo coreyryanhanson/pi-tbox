@@ -244,7 +244,7 @@ by selection)`) and auto-unchecked dependents as you toggle.
 ## How state persists
 
 tbox is the user-facing layer; the persistence machinery lives in its
-dependency [`pi-tool-masking`](https://www.npmjs.com/package/pi-tool-masking),
+dependency [`pi-tool-masking`](https://github.com/coreyryanhanson/pi-tool-masking),
 which owns per-toolset on/off memory, the `requires` cascade, and the
 allowlist/exclusion default-resolution mode that makes focus drift-free.
 tbox operates entirely through that library's events, so it layers on top
@@ -264,6 +264,20 @@ repo's `.pi/settings.json`, `--global` scope pins land in the shared global
 settings file. Both store a `toolsetDefaults` block of `{ <persistKey>:
 { enabled: bool } }` entries. `show` reads the merged view across both
 scopes; `restore` applies it to live state.
+
+## Subagent integration
+
+By default, pins and toggles apply to your session, not to sessions spawned
+by subagent plugins — subagents configure their own tool sets explicitly,
+and your pins won't strip tools their frontmatter requests. If you want
+settings-tier pins enforced in subagent children too, opt in globally:
+
+```json
+{ "piToolMasking": { "childPolicy": "settings" } }
+```
+
+Details and caveats are in the
+[pi-tool-masking README](https://github.com/coreyryanhanson/pi-tool-masking#subagent-inheritance-child-policy-defer).
 
 ## License
 
