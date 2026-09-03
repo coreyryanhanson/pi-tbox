@@ -12,6 +12,7 @@ import {
 	mkdtempSync,
 	rmSync,
 	existsSync,
+	readdirSync,
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
@@ -227,7 +228,10 @@ describe("groups store — global, cross-directory", () => {
 		it("writes are atomic — no .tmp leftover after a successful save", () => {
 			const file = join(tmp, "groups.json");
 			writeGroup("research", { toolsets: ["portal.web"] }, file);
-			expect(existsSync(`${file}.tmp`)).toBe(false);
+			const leftovers = readdirSync(tmp).filter((n) =>
+				n.startsWith("groups.json.tmp"),
+			);
+			expect(leftovers).toEqual([]);
 			const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<
 				string,
 				unknown
