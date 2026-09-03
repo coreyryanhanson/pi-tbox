@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **Focus state no longer survives branch navigation to a pre-focus
+  leaf.** `restoreFocusUnit` only assigned the focus label when the
+  branch had a `tbox-focus-state` entry; it never reset the in-memory
+  label when the entry was absent. `session_tree` fires in-process on
+  `/tree` navigation, so focusing a unit on branch A and then navigating
+  to a leaf created before the focus entry left tbox's status slot
+  showing `● focus:<unit>` with the actuation guard refusing every
+  command — while the library's `doRestore` (same event) had already
+  lifted the allowlist, and `focus release` answered "Focus is not
+  active". The two states now agree: absence of a focus entry on the
+  branch is treated as a focus fact and resets the label. Navigating to
+  a leaf *after* the focus entry still replays focus correctly.
+
 - **A `requires` cycle no longer crashes the TUI when hit from the
   group-edit picker.** `forwardClosure`/`reverseClosure` deliberately throw
   on cyclic toolset specs, but nothing in the picker caught that throw —

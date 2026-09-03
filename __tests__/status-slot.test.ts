@@ -139,12 +139,7 @@ describe("status-slot", () => {
 					origin: "top-level",
 				},
 			});
-			mock.setActiveTools([
-				"web-fetch",
-				"web-learn",
-				"browser-navigate",
-				"read",
-			]);
+			mock.setActiveTools(["web-fetch", "web-learn", "browser-navigate", "read"]);
 
 			const state = computeSlotState(pi);
 			expect(state).toEqual({ kind: "focus", unit: "portal.web", count: 3 });
@@ -172,22 +167,19 @@ describe("status-slot", () => {
 
 	describe("renderSlotText", () => {
 		it("renders pristine state", () => {
-			const fg = (color: string, text: string) =>
-				`<${color}>${text}</${color}>`;
+			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "pristine" }, fg);
 			expect(text).toBe("<dim>○</dim> tbox");
 		});
 
 		it("renders count state with masked suffix", () => {
-			const fg = (color: string, text: string) =>
-				`<${color}>${text}</${color}>`;
+			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "count", n: 3 }, fg);
 			expect(text).toBe("<accent>●</accent> tbox 3 masked");
 		});
 
 		it("renders focus state with count in parens", () => {
-			const fg = (color: string, text: string) =>
-				`<${color}>${text}</${color}>`;
+			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText(
 				{ kind: "focus", unit: "portal.web", count: 12 },
 				fg,
@@ -196,8 +188,7 @@ describe("status-slot", () => {
 		});
 
 		it("renders focus-empty state", () => {
-			const fg = (color: string, text: string) =>
-				`<${color}>${text}</${color}>`;
+			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "focus-empty" }, fg);
 			expect(text).toBe("<error>●</error> focus:∅");
 		});
@@ -443,6 +434,22 @@ describe("status-slot", () => {
 			// A later focus-off entry supersedes an earlier focus-on entry
 			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: null });
 			restoreFocusUnit(mock.createContext());
+			expect(getFocusUnit()).toBeNull();
+		});
+
+		it("branch navigation to a pre-focus leaf clears the stale focus label", () => {
+			// Focus on branch A (label set in memory + persisted)...
+			setFocusUnit("group:coding");
+			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: "group:coding" });
+			expect(getFocusUnit()).toBe("group:coding");
+
+			// ...then /tree to a leaf created BEFORE focus: the new branch has
+			// no tbox-focus-state entry, and absence is itself a focus fact.
+			// (In-process session_tree fires restoreFocusUnit with the new branch;
+			// the library's doRestore has already lifted the allowlist there.)
+			mock.clearEntries();
+			restoreFocusUnit(mock.createContext());
+
 			expect(getFocusUnit()).toBeNull();
 		});
 

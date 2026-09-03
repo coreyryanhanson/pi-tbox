@@ -223,7 +223,9 @@ export class GroupEditorComponent {
 		lines.push("");
 
 		// ── Header: session-only note ──
-		lines.push(trunc(th.fg("dim", "Session-only.  Ctrl+S to save to settings.")));
+		lines.push(
+			trunc(th.fg("dim", "Session-only.  Ctrl+S to save to your groups.")),
+		);
 
 		// ── Empty line ──
 		lines.push("");
