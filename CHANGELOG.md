@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **`/tbox solo` during focus now reports the focus refusal instead of a
+  unit-resolution error.** `soloUnit` resolved the unit before the focus
+  guard, so `/tbox solo <bad-unit>` while focus was active answered
+  `No toolset matching ...` and hid the actual problem. The guard now
+  runs first, matching every other actuation path.
+
 - **Focus state no longer survives branch navigation to a pre-focus
   leaf.** `restoreFocusUnit` only assigned the focus label when the
   branch had a `tbox-focus-state` entry; it never reset the in-memory
