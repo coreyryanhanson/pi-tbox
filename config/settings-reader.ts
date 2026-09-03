@@ -256,6 +256,10 @@ function writeGroupsFile(
 	// pid suffix: two pi sessions share this file; a fixed name lets session
 	// B truncate session A's in-flight temp and get renamed over the real file.
 	// Crash leaves a stale .tmp.<pid> litter — acceptable vs. clobbering groups.
+	// ponytail: read-merge-write in writeGroup/removeGroup has a lost-update
+	// window if two sessions save simultaneously (later rename drops the
+	// earlier write). Single human driving saves makes this unreachable in
+	// practice; add an mtime re-check before rename if that ever changes.
 	const tmp = `${path}.tmp.${process.pid}`;
 	writeFileSync(tmp, JSON.stringify(groups, null, 2) + "\n");
 	renameSync(tmp, path);
