@@ -47,6 +47,18 @@
 
 ### Changed
 
+- **The groups file now honors `PI_CODING_AGENT_DIR`.** `groups.json` was
+  hardcoded to `~/.pi/agent/pi-tbox/groups.json`, while settings-tier
+  defaults (`/tbox defaults save`) resolve their base dir from
+  `PI_CODING_AGENT_DIR ?? ~/.pi/agent` — so a user with a relocated agent
+  dir got their groups and their defaults pins written into two different
+  trees, and `/tbox status`'s "User Groups" wouldn't match the settings
+  tbox had just written. The path is now
+  `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`, matching
+  the library. Default installs resolve to the identical path — no action
+  needed. If you set `PI_CODING_AGENT_DIR` and already have groups, move
+  the old `groups.json` into the new location once.
+
 - Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the
   new `MockPI` API (`pinSettingsDefaultsForTests` replaces
   `setSettingsOverrideForTests`); release script simplified.

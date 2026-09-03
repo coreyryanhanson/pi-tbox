@@ -254,7 +254,8 @@ survives new installs, and nothing reaches into extension internals.
 
 ## Config
 
-Groups are stored as user data in `~/.pi/agent/pi-tbox/groups.json` — the
+Groups are stored as user data in
+`${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json` — the
 groups table directly, no wrapper key. A group defined in one directory is
 usable from any other.
 

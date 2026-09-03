@@ -7,7 +7,7 @@
  * `~/.pi/agent/settings.json` (which holds pi-core config: providers,
  * theme, packages — static wiring, not user-authored collections).
  *
- * Storage location: `~/.pi/agent/pi-tbox/groups.json`, shape:
+ * Storage location: `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`, shape:
  *
  * ```jsonc
  * {
@@ -48,14 +48,16 @@ import { isReserved } from "../src/reserved.js";
 /**
  * The single global path where user groups are stored. Deliberately not
  * derived from `process.cwd()` — groups follow the user, not the repo.
+ *
+ * Base agent dir honors `PI_CODING_AGENT_DIR`, matching how the rest of
+ * pi state (incl. the pi-tool-masking settings tier) resolves its dir, so
+ * groups.json never lands in a different tree than settings-tier pins.
  */
-export const GROUPS_FILE_PATH = join(
-	homedir(),
-	".pi",
-	"agent",
-	"pi-tbox",
-	"groups.json",
-);
+export function getGroupsFilePath(): string {
+	const agentDir =
+		process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+	return join(agentDir, "pi-tbox", "groups.json");
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,7 +107,7 @@ export class GroupsFileCorruptError extends Error {}
  * valid groups table — callers must never write over such a file.
  */
 function readGroupsFile(
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): Record<string, GroupSpec> {
 	if (!existsSync(path)) return {};
 	const raw = readFileSync(path, "utf-8");
@@ -147,11 +149,11 @@ function readGroupsFile(
  * Read the user's group definitions from the global store.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * returns the injected table. In production, reads
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * returns the injected table. In production, reads the global groups
+ * file (see {@link getGroupsFilePath}).
  */
 export function readGroups(
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): Record<string, GroupSpec> {
 	if (_override !== null) return { ..._override };
 	try {
@@ -190,13 +192,13 @@ function validateGroupName(name: string): void {
  * Throws `TypeError` if `name` is a reserved word or contains `+`.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * updates the override in place. In production, writes to
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * updates the override in place. In production, writes to the global
+ * groups file (see {@link getGroupsFilePath}).
  */
 export function writeGroup(
 	name: string,
 	spec: GroupSpec,
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): void {
 	validateGroupName(name);
 
@@ -218,15 +220,15 @@ export function writeGroup(
  * Remove a group from the global store, preserving all other groups.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * removes from the override in place. In production, writes to
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * removes from the override in place. In production, writes to the
+ * global groups file (see {@link getGroupsFilePath}).
  *
  * Returns `true` if the group existed and was removed, `false` if it
  * didn't exist.
  */
 export function removeGroup(
 	name: string,
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): boolean {
 	if (_override !== null) {
 		if (!(name in _override)) return false;
