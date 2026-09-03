@@ -41,7 +41,10 @@ import {
 	actuateToolset,
 	toggleAll,
 } from "./src/groups.js";
-import { removeGroup } from "./config/settings-reader.js";
+import {
+	removeGroup,
+	GroupsFileCorruptError,
+} from "./config/settings-reader.js";
 import { focusUnit, focusOff, focusRelease, soloUnit } from "./src/focus.js";
 import { handleDefaults } from "./src/defaults.js";
 
@@ -124,15 +127,39 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 
 					const sub = rest[2];
+
+					// /tbox group list <junk> — "list" is a reserved word and
+					// can never be a group name, so the trailing args are a
+					// usage mistake. Show usage instead of the confusing
+					// 'No group named "list"'. edit/remove still route below
+					// so the reserved-name refusal path stays regression-safe.
+					if (name === "list" && sub !== "edit" && sub !== "remove") {
+						ctx.ui.notify(
+							'Usage: /tbox group list — list all groups. "list" is a reserved word and cannot be a group name.',
+							"info",
+						);
+						break;
+					}
 					if (sub === "edit") {
 						ctx.ui.notify(await editGroup(name, ctx), "info");
 					} else if (sub === "remove") {
-						ctx.ui.notify(
-							removeGroup(name)
-								? `Group "${name}" removed.`
-								: `No group named "${name}".`,
-							"info",
-						);
+						try {
+							ctx.ui.notify(
+								removeGroup(name)
+									? `Group "${name}" removed.`
+									: `No group named "${name}".`,
+								"info",
+							);
+						} catch (err) {
+							// Corrupt groups file: refuse loudly instead of
+							// silently overwriting user data.
+							ctx.ui.notify(
+								err instanceof GroupsFileCorruptError
+									? err.message
+									: `Failed to remove group: ${String(err)}`,
+								"error",
+							);
+						}
 					} else {
 						// Bare `/tbox group <name>` — report the group's units.
 						ctx.ui.notify(describeGroup(name), "info");

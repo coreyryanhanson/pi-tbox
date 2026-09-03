@@ -107,7 +107,7 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 		const spec: ToolsetSpec = {
 			id: orphanToolsetId(source),
 			label: source,
-			...(description !== undefined ? { description } : {}),
+			...(description === undefined ? {} : { description }),
 			names: new Set(names),
 			persistKey: orphanPersistKey(source),
 			defaultEnabled: true,
@@ -188,6 +188,10 @@ export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
 	if (changed) {
 		pi.setActiveTools([...activeSet]);
 		// Emit so wireSlot's listener re-renders the status bar
+		// ponytail: payload satisfies ToolsetChangedEvent's shape, but this is a
+		// re-render tick for wireSlot — id matches no sibling filter and enabled is
+		// not truthful (pass can enable and disable). Per-toolset emits only if a
+		// listener ever needs tbox restore states.
 		pi.events.emit(TOOLSET_EVENTS.changed, {
 			id: "tbox.restore-timing",
 			enabled: true,

@@ -295,9 +295,9 @@ export function formatGroupedList(
  * Excludes builtins and zero-charge toolsets (no active members).
  *
  * Inactive counts are intentionally omitted: toolsets toggle all-or-nothing,
- * so inactive members cost 0 chars and carry no budget signal. The only case
- * where a shown toolset has inactive members is overlap (a disabled toolset
- * whose tools stay alive via another, enabled toolset) — still 0-cost here.
+ * so inactive members cost 0 chars and carry no budget signal. Overlap is
+ * impossible — defineToolset rejects two toolsets claiming the same tool name
+ * — so an active tool always belongs to its own (enabled) toolset.
  */
 export function formatByChars(pi: ExtensionAPI): string {
 	const allTools = pi.getAllTools();

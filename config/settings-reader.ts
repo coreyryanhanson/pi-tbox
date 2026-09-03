@@ -7,7 +7,7 @@
  * `~/.pi/agent/settings.json` (which holds pi-core config: providers,
  * theme, packages — static wiring, not user-authored collections).
  *
- * Storage location: `~/.pi/agent/pi-tbox/groups.json`, shape:
+ * Storage location: `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`, shape:
  *
  * ```jsonc
  * {
@@ -30,7 +30,13 @@
  * @module
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+	existsSync,
+	readFileSync,
+	writeFileSync,
+	mkdirSync,
+	renameSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { isReserved } from "../src/reserved.js";
@@ -42,14 +48,16 @@ import { isReserved } from "../src/reserved.js";
 /**
  * The single global path where user groups are stored. Deliberately not
  * derived from `process.cwd()` — groups follow the user, not the repo.
+ *
+ * Base agent dir honors `PI_CODING_AGENT_DIR`, matching how the rest of
+ * pi state (incl. the pi-tool-masking settings tier) resolves its dir, so
+ * groups.json never lands in a different tree than settings-tier pins.
  */
-export const GROUPS_FILE_PATH = join(
-	homedir(),
-	".pi",
-	"agent",
-	"pi-tbox",
-	"groups.json",
-);
+export function getGroupsFilePath(): string {
+	const agentDir =
+		process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+	return join(agentDir, "pi-tbox", "groups.json");
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,46 +93,75 @@ export function setGroupsOverrideForTests(
 // Reader
 // ---------------------------------------------------------------------------
 
-/** Read and parse the groups file. Returns {} on any failure. */
+/**
+ * Thrown when the groups file exists but cannot be parsed as a groups
+ * table. Writers refuse to proceed so a corrupt file is never overwritten
+ * (that would silently destroy every user-defined group); read paths catch
+ * this and degrade to an empty table.
+ */
+export class GroupsFileCorruptError extends Error {}
+
+/**
+ * Read and parse the groups file. Returns {} when the file is missing or
+ * empty. Throws `GroupsFileCorruptError` when the file exists but is not a
+ * valid groups table — callers must never write over such a file.
+ */
 function readGroupsFile(
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): Record<string, GroupSpec> {
+	if (!existsSync(path)) return {};
+	const raw = readFileSync(path, "utf-8");
+	// An empty (zero-byte) file is indistinguishable from "no groups yet" —
+	// treat it as absent rather than blocking writes on a `touch`ed file.
+	if (!raw.trim()) return {};
+
+	let parsed: unknown;
 	try {
-		if (!existsSync(path)) return {};
-		const raw = readFileSync(path, "utf-8");
-		const parsed = JSON.parse(raw);
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return {};
-		}
-		const groups: Record<string, GroupSpec> = {};
-		for (const [name, val] of Object.entries(
-			parsed as Record<string, unknown>,
-		)) {
-			if (!val || typeof val !== "object" || Array.isArray(val)) continue;
-			const g = val as Record<string, unknown>;
-			const toolsets = Array.isArray(g["toolsets"])
-				? g["toolsets"].filter((s): s is string => typeof s === "string")
-				: [];
-			groups[name] = { toolsets };
-		}
-		return groups;
-	} catch {
-		return {};
+		parsed = JSON.parse(raw);
+	} catch (err) {
+		throw new GroupsFileCorruptError(
+			`Groups file at ${path} is not valid JSON; refusing to overwrite it. Fix or delete the file, then retry.`,
+			{ cause: err },
+		);
 	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new GroupsFileCorruptError(
+			`Groups file at ${path} is not a groups table (expected a JSON object); refusing to overwrite it.`,
+		);
+	}
+
+	// Per-entry normalization is lenient, not strict: malformed entries are
+	// dropped, never fatal — the table-level checks above already refused
+	// anything that isn't a plain object.
+	const groups: Record<string, GroupSpec> = {};
+	for (const [name, val] of Object.entries(parsed as Record<string, unknown>)) {
+		if (!val || typeof val !== "object" || Array.isArray(val)) continue;
+		const g = val as Record<string, unknown>;
+		const toolsets = Array.isArray(g["toolsets"])
+			? g["toolsets"].filter((s): s is string => typeof s === "string")
+			: [];
+		groups[name] = { toolsets };
+	}
+	return groups;
 }
 
 /**
  * Read the user's group definitions from the global store.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * returns the injected table. In production, reads
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * returns the injected table. In production, reads the global groups
+ * file (see {@link getGroupsFilePath}).
  */
 export function readGroups(
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): Record<string, GroupSpec> {
 	if (_override !== null) return { ..._override };
-	return readGroupsFile(path);
+	try {
+		return readGroupsFile(path);
+	} catch (err) {
+		if (err instanceof GroupsFileCorruptError) return {};
+		throw err;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -155,13 +192,13 @@ function validateGroupName(name: string): void {
  * Throws `TypeError` if `name` is a reserved word or contains `+`.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * updates the override in place. In production, writes to
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * updates the override in place. In production, writes to the global
+ * groups file (see {@link getGroupsFilePath}).
  */
 export function writeGroup(
 	name: string,
 	spec: GroupSpec,
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): void {
 	validateGroupName(name);
 
@@ -171,27 +208,27 @@ export function writeGroup(
 		return;
 	}
 
-	// Production: read-merge-write the global groups file.
+	// Production: read-merge-write the global groups file. readGroupsFile
+	// throws GroupsFileCorruptError on an unparseable file, refusing to
+	// clobber user data — callers surface the error.
 	const current = readGroupsFile(path);
 	current[name] = { toolsets: [...spec.toolsets] };
-
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+	writeGroupsFile(path, current);
 }
 
 /**
  * Remove a group from the global store, preserving all other groups.
  *
  * In test mode (when `setGroupsOverrideForTests` has set an override),
- * removes from the override in place. In production, writes to
- * `~/.pi/agent/pi-tbox/groups.json`.
+ * removes from the override in place. In production, writes to the
+ * global groups file (see {@link getGroupsFilePath}).
  *
  * Returns `true` if the group existed and was removed, `false` if it
  * didn't exist.
  */
 export function removeGroup(
 	name: string,
-	path: string = GROUPS_FILE_PATH,
+	path: string = getGroupsFilePath(),
 ): boolean {
 	if (_override !== null) {
 		if (!(name in _override)) return false;
@@ -202,8 +239,28 @@ export function removeGroup(
 	const current = readGroupsFile(path);
 	if (!(name in current)) return false;
 	delete current[name];
-
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, JSON.stringify(current, null, 2) + "\n");
+	writeGroupsFile(path, current);
 	return true;
+}
+
+/**
+ * Atomically replace the groups file: write to a temp sibling, then rename
+ * over the target. A crash mid-write can no longer truncate the real file
+ * (the failure mode that corrupts it in the first place).
+ */
+function writeGroupsFile(
+	path: string,
+	groups: Record<string, GroupSpec>,
+): void {
+	mkdirSync(dirname(path), { recursive: true });
+	// pid suffix: two pi sessions share this file; a fixed name lets session
+	// B truncate session A's in-flight temp and get renamed over the real file.
+	// Crash leaves a stale .tmp.<pid> litter — acceptable vs. clobbering groups.
+	// ponytail: read-merge-write in writeGroup/removeGroup has a lost-update
+	// window if two sessions save simultaneously (later rename drops the
+	// earlier write). Single human driving saves makes this unreachable in
+	// practice; add an mtime re-check before rename if that ever changes.
+	const tmp = `${path}.tmp.${process.pid}`;
+	writeFileSync(tmp, JSON.stringify(groups, null, 2) + "\n");
+	renameSync(tmp, path);
 }

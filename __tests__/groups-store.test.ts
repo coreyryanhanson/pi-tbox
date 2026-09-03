@@ -2,7 +2,7 @@
  * Tests for the dedicated global groups store (`config/settings-reader.ts`).
  *
  * Groups are user-scoped: they live in one global file
- * (`~/.pi/agent/pi-tbox/groups.json`), not per-project, so a group
+ * (`${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`), not per-project, so a group
  * defined in one directory is usable from any other. These tests
  * exercise the real disk path through temp files (the override is kept
  * null) and assert the default path is not derived from `process.cwd()`.
@@ -12,17 +12,19 @@ import {
 	mkdtempSync,
 	rmSync,
 	existsSync,
+	readdirSync,
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
-	GROUPS_FILE_PATH,
+	getGroupsFilePath,
 	readGroups,
 	writeGroup,
 	removeGroup,
 	setGroupsOverrideForTests,
+	GroupsFileCorruptError,
 } from "../config/settings-reader.js";
 
 describe("groups store — global, cross-directory", () => {
@@ -36,16 +38,26 @@ describe("groups store — global, cross-directory", () => {
 
 	afterEach(() => {
 		setGroupsOverrideForTests(null);
+		delete process.env.PI_CODING_AGENT_DIR;
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("GROUPS_FILE_PATH is the global user path, not cwd-derived", () => {
+	it("groups file path is the global user path, not cwd-derived", () => {
 		// The whole point: groups follow the user, not the repo.
-		expect(GROUPS_FILE_PATH).toBe(
+		delete process.env.PI_CODING_AGENT_DIR;
+		expect(getGroupsFilePath()).toBe(
 			join(homedir(), ".pi", "agent", "pi-tbox", "groups.json"),
 		);
 		// Belt-and-braces: it never references the current working dir.
-		expect(GROUPS_FILE_PATH.includes(process.cwd())).toBe(false);
+		expect(getGroupsFilePath().includes(process.cwd())).toBe(false);
+	});
+
+	it("groups file path honors PI_CODING_AGENT_DIR like the settings tier", () => {
+		// Same agent-dir resolution as pi-tool-masking settings — one tree.
+		process.env.PI_CODING_AGENT_DIR = "/relocated/agent/dir";
+		expect(getGroupsFilePath()).toBe(
+			join("/relocated/agent/dir", "pi-tbox", "groups.json"),
+		);
 	});
 
 	it("writeGroup then readGroups round-trips through a real file", () => {
@@ -149,12 +161,8 @@ describe("groups store — global, cross-directory", () => {
 
 	describe("writeGroup validation", () => {
 		it("rejects reserved keywords", () => {
-			expect(() => writeGroup("focus", { toolsets: [] })).toThrow(
-				"reserved word",
-			);
-			expect(() => writeGroup("list", { toolsets: [] })).toThrow(
-				"reserved word",
-			);
+			expect(() => writeGroup("focus", { toolsets: [] })).toThrow("reserved word");
+			expect(() => writeGroup("list", { toolsets: [] })).toThrow("reserved word");
 			expect(() => writeGroup("on", { toolsets: [] })).toThrow("reserved word");
 			expect(() => writeGroup("remove", { toolsets: [] })).toThrow(
 				"reserved word",
@@ -172,15 +180,73 @@ describe("groups store — global, cross-directory", () => {
 
 		it("allows valid names including toolset ids", () => {
 			const file = join(tmp, "groups.json");
+			expect(() => writeGroup("research", { toolsets: [] }, file)).not.toThrow();
+			expect(() => writeGroup("portal.web", { toolsets: [] }, file)).not.toThrow();
+			expect(() => writeGroup("my-group", { toolsets: [] }, file)).not.toThrow();
+		});
+	});
+
+	describe("corrupt-file safety", () => {
+		let tmp: string;
+
+		beforeEach(() => {
+			setGroupsOverrideForTests(null);
+			tmp = mkdtempSync(join(tmpdir(), "tbox-groups-"));
+		});
+
+		afterEach(() => {
+			setGroupsOverrideForTests(null);
+			rmSync(tmp, { recursive: true, force: true });
+		});
+
+		it("writeGroup refuses to overwrite an unparseable file, preserving bytes", () => {
+			const file = join(tmp, "groups.json");
+			const corrupt = '{"research": {"toolsets": ["portal.web'; // truncated
+			writeFileSync(file, corrupt);
+
+			expect(() => writeGroup("host", { toolsets: ["host.api"] }, file)).toThrow(
+				GroupsFileCorruptError,
+			);
+			// The original (corrupt) bytes are untouched — no silent wipe.
+			expect(readFileSync(file, "utf-8")).toBe(corrupt);
+		});
+
+		it("removeGroup refuses to proceed on a corrupt file", () => {
+			const file = join(tmp, "groups.json");
+			const corrupt = '[{"nope"}]'; // valid JSON, wrong shape
+			writeFileSync(file, corrupt);
+
+			expect(() => removeGroup("host", file)).toThrow(GroupsFileCorruptError);
+			expect(readFileSync(file, "utf-8")).toBe(corrupt);
+		});
+
+		it("readGroups degrades to {} on a corrupt file — reads stay harmless", () => {
+			const file = join(tmp, "groups.json");
+			writeFileSync(file, "{not json");
+			expect(readGroups(file)).toEqual({});
+		});
+
+		it("an empty (zero-byte) file is treated as absent, not corrupt", () => {
+			const file = join(tmp, "groups.json");
+			writeFileSync(file, "");
+			expect(readGroups(file)).toEqual({});
 			expect(() =>
-				writeGroup("research", { toolsets: [] }, file),
+				writeGroup("research", { toolsets: ["portal.web"] }, file),
 			).not.toThrow();
-			expect(() =>
-				writeGroup("portal.web", { toolsets: [] }, file),
-			).not.toThrow();
-			expect(() =>
-				writeGroup("my-group", { toolsets: [] }, file),
-			).not.toThrow();
+		});
+
+		it("writes are atomic — no .tmp leftover after a successful save", () => {
+			const file = join(tmp, "groups.json");
+			writeGroup("research", { toolsets: ["portal.web"] }, file);
+			const leftovers = readdirSync(tmp).filter((n) =>
+				n.startsWith("groups.json.tmp"),
+			);
+			expect(leftovers).toEqual([]);
+			const raw = JSON.parse(readFileSync(file, "utf-8")) as Record<
+				string,
+				unknown
+			>;
+			expect(raw["research"]).toEqual({ toolsets: ["portal.web"] });
 		});
 	});
 });

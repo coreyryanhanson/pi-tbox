@@ -25,6 +25,7 @@ import {
 	readGroups,
 	writeGroup,
 	type GroupSpec,
+	GroupsFileCorruptError,
 } from "../config/settings-reader.js";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
 import { isReserved } from "./reserved.js";
@@ -125,8 +126,23 @@ export async function editGroup(
 					groupName: name,
 					initial: existingGroup,
 					onSave: (spec) => {
-						writeGroup(name, spec);
-						done({ saved: true });
+						try {
+							writeGroup(name, spec);
+							done({ saved: true });
+							return true;
+						} catch (err) {
+							// Corrupt groups file: refuse loudly instead of
+							// silently overwriting user data. Keep the picker
+							// open so the curated selection isn't lost; Esc is
+							// the user's explicit exit.
+							ctx.ui.notify(
+								err instanceof GroupsFileCorruptError
+									? err.message
+									: `Failed to save group "${name}": ${String(err)}`,
+								"error",
+							);
+							return false;
+						}
 					},
 					onCancel: () => done({ saved: false }),
 				},
@@ -180,7 +196,7 @@ export function toggleToolsetUnit(
 
 /** All configured group names (for status listing). */
 export function getGroupNames(): string[] {
-	return Object.keys(readGroups());
+	return Object.keys(readGroups()).sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -222,7 +238,7 @@ export function describeToolset(pi: ExtensionAPI, id: string): string {
 	if (!entry) return `No toolset "${id}".`;
 	const state = entry.toolset.isEnabled(pi) ? "enabled" : "disabled";
 	const toolList = [...entry.spec.names].join(", ");
-	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size !== 1 ? "s" : ""} (${toolList}). State: ${state}.`;
+	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size === 1 ? "" : "s"} (${toolList}). State: ${state}.`;
 }
 
 /** Return an error when focus mode is active, or null if safe to proceed. */
@@ -345,6 +361,10 @@ export function actuateGroup(
 
 	const after = new Set(pi.getActiveTools());
 
+	// Skipped: toolsets named in the group but not currently registered
+	// (e.g. provider extension uninstalled after the group was saved).
+	const missing = [...targetToolsetIds].filter((id) => !byId.has(id));
+
 	// Diff: which tools moved (added on enable, removed on disable).
 	const moved = enable
 		? [...after].filter((n) => !before.has(n))
@@ -362,12 +382,15 @@ export function actuateGroup(
 	// Build summary
 	const action = enable ? "Enabled" : "Disabled";
 	const lines: string[] = [
-		`${action} group "${name}" — ${moved.length} tool${moved.length !== 1 ? "s" : ""} moved.`,
+		`${action} group "${name}" — ${moved.length} tool${moved.length === 1 ? "" : "s"} moved.`,
 	];
 	if (cascaded.length > 0) {
 		lines.push(
 			`Cascaded (moved by library, not in group): ${cascaded.join(", ")}`,
 		);
+	}
+	if (missing.length > 0) {
+		lines.push(`Not registered (skipped): ${missing.join(", ")}`);
 	}
 	lines.push(DRIFT_CAVEAT);
 

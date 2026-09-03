@@ -28,7 +28,8 @@ import { forwardClosure, reverseClosure } from "./requires-graph.js";
 export interface GroupEditorConfig {
 	groupName: string;
 	initial: { toolsets: string[] };
-	onSave: (spec: { toolsets: string[] }) => void;
+	/** Return true when saved; false keeps the picker open (isDirty stays set). */
+	onSave: (spec: { toolsets: string[] }) => boolean;
 	onCancel: () => void;
 	/** Inject units for demo/testing (default: buildPickerUnits()). */
 	units?: PickerUnit[];
@@ -89,6 +90,15 @@ export class GroupEditorComponent {
 	// -----------------------------------------------------------------------
 
 	handleInput(data: string): void {
+		try {
+			this.handleInputInner(data);
+		} catch (err) {
+			console.error(err); // non-cycle bugs must not vanish behind the footer cue
+			this.lastCue = err instanceof Error ? err.message : String(err);
+		}
+	}
+
+	private handleInputInner(data: string): void {
 		// Down
 		if (this.kb.matches(data, "tui.select.down")) {
 			const max = this.filteredItems.length - 1;
@@ -145,10 +155,13 @@ export class GroupEditorComponent {
 
 		// Ctrl+S — save
 		if (matchesKey(data, "ctrl+s")) {
-			this.config.onSave({
-				toolsets: [...this.checkedToolsets],
-			});
-			this.isDirty = false;
+			if (
+				this.config.onSave({
+					toolsets: [...this.checkedToolsets],
+				})
+			) {
+				this.isDirty = false;
+			}
 			return;
 		}
 
@@ -215,7 +228,7 @@ export class GroupEditorComponent {
 
 		// ── Header: session-only note ──
 		lines.push(
-			trunc(th.fg("dim", "Session-only.  Ctrl+S to save to settings.")),
+			trunc(th.fg("dim", "Session-only.  Ctrl+S to save to your groups.")),
 		);
 
 		// ── Empty line ──

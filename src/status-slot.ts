@@ -130,7 +130,10 @@ export function persistFocusUnit(pi: ExtensionAPI, unit: string | null): void {
 /**
  * Restore the focus-unit label from the session branch. Call from the
  * session_start/session_tree capture handler before `render()` so the
- * `● focus:<unit>` glyph repaints on resume. No-op if no entry exists.
+ * `● focus:<unit>` glyph repaints on resume. Absence of an entry is itself
+ * a focus fact: a branch with no entry resets the label, so navigating
+ * /tree to a leaf created before focus (in-process session_tree) clears
+ * the stale glyph and lifts the guard instead of leaving focus half-on.
  */
 export function restoreFocusUnit(ctx: {
 	sessionManager: { getBranch: () => SessionEntry[] };
@@ -141,6 +144,8 @@ export function restoreFocusUnit(ctx: {
 	);
 	if (last?.data && "unit" in last.data) {
 		_focusUnit = last.data.unit;
+	} else {
+		_focusUnit = null;
 	}
 }
 

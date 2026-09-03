@@ -163,17 +163,18 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
  * per-toolset `{enabled}` entries — no allowlist mode, no lock, no exit
  * command. /reload replays the solo state.
  *
- * Refused while focus is active (via toggleAll's focus guard) — exit focus
- * first, like every other actuation path.
+ * Refused while focus is active (own guard, checked before unit
+ * resolution so focus is the first thing reported) — exit focus first,
+ * like every other actuation path.
  *
  * @returns A human-readable result or error message.
  */
 export function soloUnit(pi: ExtensionAPI, input: string): string {
-	const resolved = resolveFocusUnit(input);
-	if (!resolved.ok) return resolved.error;
-
 	const guard = checkFocusGuard(true, "solo");
 	if (guard !== null) return guard;
+
+	const resolved = resolveFocusUnit(input);
+	if (!resolved.ok) return resolved.error;
 
 	// toggleAll carries the same guard — double-guarded is harmless.
 	toggleAll(pi, false);
