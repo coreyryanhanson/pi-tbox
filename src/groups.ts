@@ -196,7 +196,7 @@ export function toggleToolsetUnit(
 
 /** All configured group names (for status listing). */
 export function getGroupNames(): string[] {
-	return Object.keys(readGroups());
+	return Object.keys(readGroups()).sort((a, b) => a.localeCompare(b));
 }
 
 /**

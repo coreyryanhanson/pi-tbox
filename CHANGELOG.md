@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `/tbox status` now lists user groups alphabetically, matching
+  `/tbox group list` (previously file order from `groups.json`).
+
 ### Fixed
 
 - **`/tbox solo` during focus now reports the focus refusal instead of a
