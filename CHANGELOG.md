@@ -7,6 +7,20 @@
 - `/tbox status` now lists user groups alphabetically, matching
   `/tbox group list` (previously file order from `groups.json`).
 
+- **The groups file now honors `PI_CODING_AGENT_DIR`.** `groups.json` was
+  hardcoded to `~/.pi/agent/pi-tbox/groups.json`, while settings-tier
+  defaults (`/tbox defaults save`) resolve their base dir from
+  `PI_CODING_AGENT_DIR ?? ~/.pi/agent` — so a user with a relocated agent
+  dir got their groups and their defaults pins written into two different
+  trees, and `/tbox status`'s "User Groups" wouldn't match the settings
+  tbox had just written. The path is now
+  `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`, matching
+  the library. Default installs resolve to the identical path — no action
+  needed. If you set `PI_CODING_AGENT_DIR` and already have groups, move
+  the old `groups.json` into the new location once.
+
+- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0.
+
 ### Fixed
 
 - **`/tbox solo` during focus now reports the focus refusal instead of a
@@ -49,24 +63,6 @@
   save and `/tbox group <name> remove` surface it at the `"error"` level
   instead of proceeding. Writes are also atomic now (`.tmp` + `renameSync`),
   so a mid-write crash can't truncate the file in the first place.
-
-### Changed
-
-- **The groups file now honors `PI_CODING_AGENT_DIR`.** `groups.json` was
-  hardcoded to `~/.pi/agent/pi-tbox/groups.json`, while settings-tier
-  defaults (`/tbox defaults save`) resolve their base dir from
-  `PI_CODING_AGENT_DIR ?? ~/.pi/agent` — so a user with a relocated agent
-  dir got their groups and their defaults pins written into two different
-  trees, and `/tbox status`'s "User Groups" wouldn't match the settings
-  tbox had just written. The path is now
-  `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`, matching
-  the library. Default installs resolve to the identical path — no action
-  needed. If you set `PI_CODING_AGENT_DIR` and already have groups, move
-  the old `groups.json` into the new location once.
-
-- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the
-  new `MockPI` API (`pinSettingsDefaultsForTests` replaces
-  `setSettingsOverrideForTests`); release script simplified.
 
 ## [0.2.2] - 2026-08-29
 
