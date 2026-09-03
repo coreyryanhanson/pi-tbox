@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **A `requires` cycle no longer crashes the TUI when hit from the
+  group-edit picker.** `forwardClosure`/`reverseClosure` deliberately throw
+  on cyclic toolset specs, but nothing in the picker caught that throw —
+  pi's TUI dispatch calls `handleInput` bare, so pressing Enter (or
+  Ctrl+A/Ctrl+X as the first interaction) on a cyclic registry bubbled an
+  uncaught exception out of the key handler and killed the whole pi session
+  (`process.exit(1)`). `GroupEditorComponent.handleInput` now catches, logs,
+  and surfaces the cycle path in the picker footer cue instead. The throw
+  contract itself is unchanged; the `/tbox` command paths were already safe
+  (pi's host catches command-handler rejections).
+
 - **A corrupt `groups.json` is no longer silently overwritten.** Parse errors in
   `readGroupsFile` previously degraded to an empty table, so the next group
   save/remove wrote that empty table over the file — one malformed write
@@ -17,29 +28,57 @@
 
 ### Changed
 
-- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the new `MockPI` API (`pinSettingsDefaultsForTests` replaces `setSettingsOverrideForTests`); release script simplified.
+- Bumped `pi-tool-masking` from 1.2.3 to 1.3.0. Test fixtures updated for the
+  new `MockPI` API (`pinSettingsDefaultsForTests` replaces
+  `setSettingsOverrideForTests`); release script simplified.
 
 ## [0.2.2] - 2026-08-29
 
 ### Added
 
-- **`/tbox solo <group>` / `solo +<toolset>`** — lockless single-unit mode: equivalent to `all off` followed by enabling the unit (its `requires` deps come along via the library's forward cascade). Persists as ordinary per-toolset entries — no allowlist mode, no lock, no exit command; `/tbox all on` or `/tbox defaults restore` undoes it, and `/reload` replays it. Refused while focus is active, like every other actuation path. `solo` joins the reserved-word list.
+- **`/tbox solo <group>` / `solo +<toolset>`** — lockless single-unit mode:
+  equivalent to `all off` followed by enabling the unit (its `requires` deps
+  come along via the library's forward cascade). Persists as ordinary
+  per-toolset entries — no allowlist mode, no lock, no exit command;
+  `/tbox all on` or `/tbox defaults restore` undoes it, and `/reload` replays
+  it. Refused while focus is active, like every other actuation path. `solo`
+  joins the reserved-word list.
 
 ## [0.2.1] - 2026-08-04
 
 ### Changed
 
-- Bumped `pi-tool-masking` from 1.2.2 to 1.2.3, extending the turn-boundary leak re-assert to exclusion and inclusion modes (not just allowlist) so a disabled toolset can no longer leak back into the turn via another extension's `pi.setActiveTools` reconciler.
+- Bumped `pi-tool-masking` from 1.2.2 to 1.2.3, extending the turn-boundary
+  leak re-assert to exclusion and inclusion modes (not just allowlist) so a
+  disabled toolset can no longer leak back into the turn via another
+  extension's `pi.setActiveTools` reconciler.
 
 ## [0.2.0] - 2026-08-03
 
 ### Fixed
 
-- **Status slot now re-renders on `before_agent_start` to reflect the live active-tool count.** The slot previously only refreshed on `session_start` / `session_tree` and on `TOOLSET_EVENTS` fanout, so a third-party reconciler (or any plugin) calling `pi.setActiveTools` directly — without emitting `TOOLSET_EVENTS` — left the slot showing a pre-leak snapshot until the next toolset event. The rerender is registered from `session_start` (after all factories load) so it runs *after* factory-registered `before_agent_start` reconcilers and shows the true post-reconciler state. Complements `pi-tool-masking@1.2.1`'s allowlist re-assertion (Option A): when A wins the race the count stays correct, and when A loses the slot now shows the real leaked count instead of lying.
+- **Status slot now re-renders on `before_agent_start` to reflect the live
+  active-tool count.** The slot previously only refreshed on `session_start`
+  / `session_tree` and on `TOOLSET_EVENTS` fanout, so a third-party
+  reconciler (or any plugin) calling `pi.setActiveTools` directly — without
+  emitting `TOOLSET_EVENTS` — left the slot showing a pre-leak snapshot until
+  the next toolset event. The rerender is registered from `session_start`
+  (after all factories load) so it runs *after* factory-registered
+  `before_agent_start` reconcilers and shows the true post-reconciler state.
+  Complements `pi-tool-masking@1.2.1`'s allowlist re-assertion (Option A):
+  when A wins the race the count stays correct, and when A loses the slot now
+  shows the real leaked count instead of lying.
 
-- **`/tbox group <reserved> edit` now refuses before opening the picker.** The reserved-word guard previously fired only inside `writeGroup`'s save callback, so editing a reserved name (e.g. `list`, `status`) or a `+`-prefixed name opened the picker and then threw inside the save callback. `editGroup` now rejects reserved / `+`-containing names up front.
+- **`/tbox group <reserved> edit` now refuses before opening the picker.**
+  The reserved-word guard previously fired only inside `writeGroup`'s save
+  callback, so editing a reserved name (e.g. `list`, `status`) or a
+  `+`-prefixed name opened the picker and then threw inside the save
+  callback. `editGroup` now rejects reserved / `+`-containing names up front.
 
-- **Picker `Ctrl+X` (clear all) now reverse-cascades.** Bulk deselect unchecks hidden dependents via `reverseClosure`, matching single-item uncheck, so a saved group never retains a check on a toolset whose required dependency is unchecked.
+- **Picker `Ctrl+X` (clear all) now reverse-cascades.** Bulk deselect
+  unchecks hidden dependents via `reverseClosure`, matching single-item
+  uncheck, so a saved group never retains a check on a toolset whose required
+  dependency is unchecked.
 
 ### Added
 
