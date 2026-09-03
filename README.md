@@ -62,8 +62,7 @@ have the one before it:
 6. **Glance at the cost.** A status-bar slot shows masking and focus state
    at a glance; `/tbox status` reports a serialized character count split
    into a `core` floor (builtins — immutable overhead) and an `extension`
-   budget (what you can actually move with `/tbox`), so the number becomes
-   a decision tool rather than a trivia fact.
+   budget (what you can actually move with `/tbox`).
 
 ## Quick start
 
@@ -80,8 +79,8 @@ Then in any Pi session:
 ```
 
 The status slot appears in your bar automatically and updates live as you
-toggle. Its four states (unchanged by `defaults`, which writes to settings,
-not chat state):
+toggle. It reflects chat state only: `defaults` writes to settings, so it
+doesn't move the slot. Four states:
 
 | Glyph | State | Meaning |
 |---|---|---|
@@ -134,8 +133,8 @@ group even if they share a name. Reserved words (`status`, `focus`, `solo`,
 
 The default grouped view resolves overlapping toolsets by
 smallest-toolset-wins: each tool appears once under its most specific
-containing toolset, no duplication. `--active` / `--inactive` let you
-focus on only the enabled or disabled tools.
+containing toolset, no duplication. `--active` / `--inactive` narrow the
+list to only the enabled or disabled tools.
 
 ### `/tbox defaults` — settings-tier pins
 
@@ -179,7 +178,7 @@ No flags. Each line reports the toolset's active/inactive split and its
 **Toolsets** are the unit extensions declare (or that tbox auto-registers
 for plugins that only register tools). A toolset is the addressability
 boundary — tbox toggles whole toolsets, not individual members, because
-that's the granularity state persists at. Toolsets from any installed
+that's the granularity at which state persists. Toolsets from any installed
 extension are visible to tbox automatically.
 
 **Groups** are *your* named collections of toolsets, stored in tbox's own
@@ -190,29 +189,34 @@ both directions, so a group is always a closed set under the dependency
 graph. Groups are global/user-scoped — defined once, usable from any
 directory.
 
-**Focus** is a stronger constraint than toggling: it flips the underlying
-library into **allowlist mode** so that only the focused unit's allowlist
-(plus Pi's builtins) is active, and *unknown toolsets default off* — the
-allowlist is a finite, branch-persisted array, so a toolset registered
-*after* focus was entered stays off by construction. That means a focus
-snapshot survives new-extension installs without re-applying. While focus
-is active, the actuation commands (`all on|off`, `<group> on|off`,
-`+<toolset> on|off`) are refused — the slot advertises a known working set,
-and toggling underneath it would make that promise a lie. Use `focus off`
-(restore effective defaults) or `focus release` (keep the live selection)
-first.
-
 **Drift, honestly.** `/tbox <group> on|off` writes per-toolset state at the
-moment it runs, so editing a group later doesn't retroactively change past
-sessions — only the resulting per-toolset state was stored, and you
-re-adjust with `/tbox` commands. **Focus is the exception:** allowlist mode
-makes it drift-free by design. `focus off` also tombstones stale
-per-toolset branch entries from before the focus, so a `/reload` after
-`off` falls through to settings → exclusion floor → `defaultEnabled`
-matching the live state `off` just produced — no pre-focus toggle can
-resurface. If you want a choice that holds, use focus; if you want a
-one-off toggle, use `on`/`off`; if you want a baseline that holds across
-machines/checkouts, pin it with `/tbox defaults save`.
+moment it runs, so editing a group later doesn't retroactively change
+stored state — only the resulting per-toolset state was stored, and you
+re-adjust with `/tbox` commands.
+
+**Focus** is the exception to that, and a stronger constraint than
+toggling: it flips the underlying library into **allowlist mode** so that
+only the focused unit's allowlist (plus Pi's builtins) is active, and
+*unknown toolsets default off* — the allowlist is a finite,
+branch-persisted array, so a toolset registered *after* focus was entered
+stays off by construction, and a focus snapshot survives
+new-extension installs without re-applying. While focus is active, the
+actuation commands (`all on|off`, `<group> on|off`, `+<toolset> on|off`)
+are refused — the slot advertises a known working set, and toggling
+underneath it would make that promise a lie. Use `focus off` (restore
+effective defaults) or `focus release` (keep the live selection) first.
+`focus off` also tombstones stale per-toolset branch entries from before
+the focus, so a `/reload` after `off` falls through to settings →
+exclusion floor → `defaultEnabled` matching the live state `off` just
+produced — no pre-focus toggle can resurface.
+
+**Choosing between them.** For a one-off toggle, use `on`/`off`. For
+focus's shape — one unit on, everything else off — as ordinary
+per-toolset state with no lock and no allowlist (new toolsets installed
+later come back at their packaged default), use `solo`. For a choice that
+holds — drift-free, survives new installs — use `focus`. For a baseline
+that holds across machines and checkouts, pin it with
+`/tbox defaults save`.
 
 **What tbox won't touch.** Pi's builtin tools are always-on and outside
 tbox's scope — they're never registered into a toolset, so no group, focus,
@@ -282,4 +286,4 @@ Details and caveats are in the
 
 ## License
 
-AGPL-3.0-or-later.
+AGPL-3.0-or-later — see [LICENSE](LICENSE).
