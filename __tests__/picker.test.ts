@@ -191,7 +191,7 @@ function createComp(
 			groupName: "test",
 			initial: { toolsets: [] },
 			units: buildPickerUnits(),
-			onSave: () => {},
+			onSave: () => true,
 			onCancel: () => {},
 			...overrides,
 		},
@@ -298,6 +298,7 @@ describe("picker — forward closure in normal mode", () => {
 			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
+				return true;
 			},
 		});
 
@@ -340,6 +341,7 @@ describe("picker — reverse closure in normal mode", () => {
 			initial: { toolsets: ["portal.learn", "portal.web"] },
 			onSave: (spec) => {
 				savedSpec = spec;
+				return true;
 			},
 		});
 
@@ -381,6 +383,7 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
+				return true;
 			},
 		});
 
@@ -402,6 +405,7 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 			initial: { toolsets: [] },
 			onSave: (spec) => {
 				savedSpec = spec;
+				return true;
 			},
 		});
 
@@ -437,6 +441,7 @@ describe("picker — confirm writes config; re-open reflects saved state", () =>
 			initial: { toolsets: [] },
 			onSave: () => {
 				saved = true;
+				return true;
 			},
 			onCancel: () => {
 				cancelled = true;
@@ -633,9 +638,46 @@ describe("picker — windowing", () => {
 	});
 });
 
-describe("picker — requires cycle surfaces as cue instead of crashing", () => {
+describe("picker — failed save keeps selection and dirty state", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setupRichRegistry(mock, pi);
+		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
+	});
+
+	afterEach(() => setGroupsOverrideForTests(null));
+
+	it("onSave returning false keeps isDirty and allows retry", () => {
+		let attempts = 0;
+		const comp = createComp({
+			initial: { toolsets: [] },
+			onSave: () => ++attempts > 1, // first save fails, retry succeeds
+		});
+
+		comp.selectedIndex = comp.filteredItems.findIndex((u) => u.id === "host.api");
+		comp.handleInput(KEY.enter);
+		comp.handleInput(KEY.save);
+
+		expect(attempts).toBe(1);
+		expect(comp.isDirty).toBe(true);
+		// Header still shows the unsaved marker
+		expect(comp.render(120).some((l) => l.includes("(unsaved)"))).toBe(true);
+
+		// Retry succeeds: dirty flag clears, unsaved marker disappears
+		comp.handleInput(KEY.save);
+		expect(attempts).toBe(2);
+		expect(comp.isDirty).toBe(false);
+		expect(comp.render(120).some((l) => l.includes("(unsaved)"))).toBe(false);
+	});
+});
+
+describe("picker — requires cycle surfaces as cue instead of crashing", () => {
+	let mock: MockPI;
 
 	/** registry: cyc.a requires cyc.b, cyc.b requires cyc.a */
 	function setupCyclicRegistry(): void {
@@ -656,7 +698,6 @@ describe("picker — requires cycle surfaces as cue instead of crashing", () => 
 	beforeEach(async () => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
-		pi = mock as unknown as ExtensionAPI;
 		setGroupsOverrideForTests({ mygroup: { toolsets: [] } });
 	});
 

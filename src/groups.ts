@@ -129,16 +129,19 @@ export async function editGroup(
 						try {
 							writeGroup(name, spec);
 							done({ saved: true });
+							return true;
 						} catch (err) {
 							// Corrupt groups file: refuse loudly instead of
-							// silently overwriting user data.
+							// silently overwriting user data. Keep the picker
+							// open so the curated selection isn't lost; Esc is
+							// the user's explicit exit.
 							ctx.ui.notify(
 								err instanceof GroupsFileCorruptError
 									? err.message
 									: `Failed to save group "${name}": ${String(err)}`,
 								"error",
 							);
-							done({ saved: false });
+							return false;
 						}
 					},
 					onCancel: () => done({ saved: false }),

@@ -28,7 +28,8 @@ import { forwardClosure, reverseClosure } from "./requires-graph.js";
 export interface GroupEditorConfig {
 	groupName: string;
 	initial: { toolsets: string[] };
-	onSave: (spec: { toolsets: string[] }) => void;
+	/** Return true when saved; false keeps the picker open (isDirty stays set). */
+	onSave: (spec: { toolsets: string[] }) => boolean;
 	onCancel: () => void;
 	/** Inject units for demo/testing (default: buildPickerUnits()). */
 	units?: PickerUnit[];
@@ -154,10 +155,13 @@ export class GroupEditorComponent {
 
 		// Ctrl+S — save
 		if (matchesKey(data, "ctrl+s")) {
-			this.config.onSave({
-				toolsets: [...this.checkedToolsets],
-			});
-			this.isDirty = false;
+			if (
+				this.config.onSave({
+					toolsets: [...this.checkedToolsets],
+				})
+			) {
+				this.isDirty = false;
+			}
 			return;
 		}
 
