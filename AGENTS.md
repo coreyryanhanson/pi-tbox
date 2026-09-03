@@ -10,6 +10,9 @@ extensions.
 npm test            # vitest run (all tests)
 npm run typecheck   # tsc --noEmit
 npm run test:watch  # vitest watch
+npm run release:patch|minor|major  # scripts/release.mjs: bumps, promotes
+                   # CHANGELOG [Unreleased], publishes, pushes main + tag.
+                   # Draft the [Unreleased] entries first.
 ```
 
 Run a single test file: `npx vitest run __tests__/groups.test.ts`
@@ -51,9 +54,10 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
   char-counting), `requires-graph` (dependency closure), `reserved`
   (reserved-word guard).
 - **`config/settings-reader.ts`** — **the group store**, despite the name.
-  Reads/writes `~/.pi/agent/pi-tbox/groups.json` (a bare `{ toolsets: string[] }`
-  table, no wrapper key). It is *not* pi-core `settings.json` — see the file's
-  header comment. Groups are user/global-scoped: defined once, usable from any
+  Reads/writes `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`
+  (a map of group name → `{ toolsets: string[] }`, no wrapper key — see the
+  file's header comment for the shape). It is *not* pi-core `settings.json`.
+  Groups are user/global-scoped: defined once, usable from any
   directory. Writes are atomic (`.tmp` + `renameSync`) and *loud*: they throw
   `GroupsFileCorruptError` on an unparseable file rather than overwriting user
   data, while read paths degrade to an empty table (zero-byte file = absent).
