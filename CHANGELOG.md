@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Orphan toolsets from version-pinned npm plugins no longer carry the
+  version in their name.** When a plugin is pinned by version in settings
+  (e.g. `npm:pi-foo@1.2.3`), the raw source string previously became the
+  orphan toolset id, so it surfaced as `tbox.tool@npm:pi-foo@1.2.3` in
+  `/tbox list`, the picker, and groups — and worse, bumping the pin created
+  a *new* toolset identity and orphaned the old on/off state. The version
+  suffix is now stripped (mirroring pi's own `parseNpmSpec`, including
+  scoped names, dist-tags like `@next`, and whitespace after the `npm:`
+  prefix), so the toolset is `tbox.tool@npm:pi-foo` — matching pi's own
+  package identity, and re-pinning now keeps toggle state.
+
+  **One-line remediation: re-toggle the toolset under its new name, and
+  update any `/tbox group` entries that reference the old `@version` name
+  (dangling members are inert but should be re-added).** Notes:
+
+  - Per-toolset toggle state and settings pins written under the old
+    versioned id are not migrated and are never cleaned by tbox; old
+    settings pins linger as zombie rows in `/tbox defaults show` until the
+    next `/tbox defaults save` overwrites that scope.
+  - A focus allowlist captured before the upgrade contains the versioned
+    id, so on replay the renamed toolset is not in the allowlist and gets
+    focused-off; this self-heals on the next `focus off` /
+    `defaults restore`.
+
 ## [0.2.3] - 2026-09-03
 
 ### Changed

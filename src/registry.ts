@@ -38,6 +38,20 @@ export const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Strip the version suffix from an npm source string, keeping scoped names
+ * intact. Mirrors pi's parseNpmSpec: /^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/
+ * (incl. its .trim() of the spec after the `npm:` prefix).
+ */
+export function stripSourceVersion(source: string): string {
+	if (!source.startsWith("npm:")) return source;
+	const m = source
+		.slice(4)
+		.trim()
+		.match(/^(@?[^@]+(?:\/[^@]+)?)(?:@(.+))?$/);
+	return m ? `npm:${m[1]}` : source; // unparseable → leave untouched
+}
+
 /** Build a toolset id for a given orphan source. */
 export function orphanToolsetId(source: string): string {
 	return `${ORPHAN_TOOLSET_PREFIX}${source}`;
@@ -89,10 +103,12 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 		(t) => !claimedByToolset.has(t.name),
 	);
 
-	// --- Group orphan tools by sourceInfo.source ---
+	// --- Group orphan tools by version-stripped source ---
+	// Two raw sources that strip to the same id must merge into one toolset
+	// (same id ⇒ must be one spec, else the library warns-and-replaces).
 	const toolsBySource = new Map<string, typeof orphanTools>();
 	for (const tool of orphanTools) {
-		const source = tool.sourceInfo.source;
+		const source = stripSourceVersion(tool.sourceInfo.source);
 		if (!toolsBySource.has(source)) toolsBySource.set(source, []);
 		toolsBySource.get(source)!.push(tool);
 	}

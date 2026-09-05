@@ -18,9 +18,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
 	orphanToolsetId,
+	stripSourceVersion,
 } from "../src/registry.js";
-import { getRegisteredToolsets } from "pi-tool-masking";
-import { setDefaultResolutionMode } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	setDefaultResolutionMode,
+} from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
 // Multi-source population
@@ -195,6 +198,137 @@ describe("per-source orphan registration", () => {
 		// No toolsets at all since only an SDK tool was registered
 		const toolsets = getRegisteredToolsets();
 		expect(toolsets).toHaveLength(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// stripSourceVersion
+// ---------------------------------------------------------------------------
+
+describe("stripSourceVersion", () => {
+	it("keeps versionless npm sources unchanged", () => {
+		expect(stripSourceVersion("npm:pi-foo")).toBe("npm:pi-foo");
+	});
+
+	it("keeps scoped names unchanged", () => {
+		expect(stripSourceVersion("npm:@scope/pkg")).toBe("npm:@scope/pkg");
+	});
+
+	it("strips version suffix from scoped names", () => {
+		expect(stripSourceVersion("npm:@scope/pkg@1.2.3")).toBe("npm:@scope/pkg");
+	});
+
+	it("strips version suffix from plain names", () => {
+		expect(stripSourceVersion("npm:pi-foo@1.2.3")).toBe("npm:pi-foo");
+	});
+
+	it("strips dist-tags", () => {
+		expect(stripSourceVersion("npm:pi-foo@next")).toBe("npm:pi-foo");
+	});
+
+	it("leaves trailing @ as raw fallback (matches pi parseNpmSpec)", () => {
+		expect(stripSourceVersion("npm:pi-foo@")).toBe("npm:pi-foo@");
+	});
+
+	it("strips alias target, keeping alias name (matches pi identity)", () => {
+		expect(stripSourceVersion("npm:my-alias@npm:real-pkg@^1.0.0")).toBe(
+			"npm:my-alias",
+		);
+	});
+
+	it("trims whitespace after the npm: prefix", () => {
+		expect(stripSourceVersion("npm: pi-foo@1.2.3")).toBe("npm:pi-foo");
+	});
+
+	it("leaves non-npm sources untouched", () => {
+		expect(stripSourceVersion("/local/path/to/plugin.ts")).toBe(
+			"/local/path/to/plugin.ts",
+		);
+		expect(stripSourceVersion("git:https://example.com/repo@v1.0.0")).toBe(
+			"git:https://example.com/repo@v1.0.0",
+		);
+		expect(stripSourceVersion("cli")).toBe("cli");
+	});
+
+	it("falls back to raw for unparseable specs", () => {
+		expect(stripSourceVersion("npm:")).toBe("npm:");
+		expect(stripSourceVersion("npm:   ")).toBe("npm:   ");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Version-stripped grouping in autoRegisterBuiltinAndOrphans
+// ---------------------------------------------------------------------------
+
+describe("orphan registration with versioned npm sources", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(() => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+	});
+
+	it("registers stripped id/label for a version-pinned npm source", () => {
+		mock.registerTool({
+			name: "foo-tool",
+			description: "From pinned plugin",
+			sourceInfo: {
+				path: "pi-foo.ts",
+				source: "npm:pi-foo@1.2.3",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		autoRegisterBuiltinAndOrphans(pi);
+
+		const entry = getRegisteredToolsets().find(
+			(e) => e.spec.id === orphanToolsetId("npm:pi-foo"),
+		);
+		expect(entry).toBeDefined();
+		expect(entry!.spec.label).toBe("npm:pi-foo");
+		expect(entry!.spec.persistKey).toBe(
+			`toolset-state:${orphanToolsetId("npm:pi-foo")}`,
+		);
+
+		// No versioned-id toolset registered
+		expect(
+			getRegisteredToolsets().find(
+				(e) => e.spec.id === orphanToolsetId("npm:pi-foo@1.2.3"),
+			),
+		).toBeUndefined();
+	});
+
+	it("merges raw sources that strip to the same id into one toolset", () => {
+		for (const source of ["npm:pi-foo", "npm:pi-foo@1.2.3", "npm:pi-foo@2.0.0"]) {
+			mock.registerTool({
+				name: `tool-from-${source}`,
+				description: "x",
+				sourceInfo: {
+					path: "pi-foo.ts",
+					source,
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+		}
+
+		autoRegisterBuiltinAndOrphans(pi);
+
+		const entries = getRegisteredToolsets();
+		const merged = entries.filter((e) =>
+			e.spec.id.startsWith("tbox.tool@npm:pi-foo"),
+		);
+		expect(entries).toHaveLength(1);
+		expect(merged[0]!.spec.names).toEqual(
+			new Set([
+				"tool-from-npm:pi-foo",
+				"tool-from-npm:pi-foo@1.2.3",
+				"tool-from-npm:pi-foo@2.0.0",
+			]),
+		);
 	});
 });
 
