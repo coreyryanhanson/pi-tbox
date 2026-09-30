@@ -56,8 +56,9 @@ An MCP toolset's members are the server's tools whose `exposure` is declarable
 
 Why this is the right default rather than a boolean over the whole server:
 
-- `direct` MCP tools are activated by pi at registration (`defaultActive` is unset,
-  so `_isActivatedOnRegistration` is true). The set is therefore **homogeneous**
+- `direct` MCP tools are activated by pi at registration (declarable exposure
+  and no `defaultActive`, so `_isActivatedOnRegistration` is true,
+  `agent-session.ts:3511-3518`). The set is therefore **homogeneous**
   and `defaultEnabled: true` unions already-active members — a no-op. Nothing can
   be force-declared, so no library default change is needed.
 - The alternative — one toolset over the whole server — cannot express the mixed
@@ -119,19 +120,30 @@ MCP servers connect **asynchronously after `session_start`** — the mcp
 extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(createConnection)`
 — so the scan in `captureAndRender` runs before their tools exist. Wiring:
 
-- **Primary hook:** `pi.on("mcp_servers_change", ...)` → re-scan, then re-render
-  the status slot. Registered once, from `session_start` (like the existing
-  `before_agent_start` re-render), so it runs after extensions are bound.
-- **Defensive hook:** the existing `before_agent_start` re-render already fires
-  every turn; make it call the (cheap, idempotent) re-scan too. It cannot catch
-  turn-1 tools: builtin extensions load after user extensions
-  (`package-manager.ts` appends `builtin:*` last), so within a turn's
-  `before_agent_start` dispatch this handler runs *before* the mcp extension's
-  handler — the one that awaits startup connections (bounded by
-  `startupWaitMs`, default 10 s). That is fine: the primary
-  `mcp_servers_change` hook fires as each startup connection completes, and
-  `direct` MCP tools are activated by pi on registration regardless, so at
-  worst the status listing lags one turn.
+- **Primary hook — the per-turn re-scan.** The existing `before_agent_start`
+  re-render already fires every turn; make it call the (cheap, idempotent)
+  re-scan too. This is the only mechanism that can observe mid-session
+  membership changes: MCP tool-list changes arrive as the
+  `notifications/tools/list_changed` notification
+  (`extensions/mcp/runtime.ts:375-376`), which pi handles by re-registering
+  tools internally — no extension event fires, so there is nothing else to
+  subscribe to. It cannot catch turn-1 tools: builtin extensions load after
+  user extensions (`package-manager.ts` appends `builtin:*` last), so within
+  a turn's `before_agent_start` dispatch this handler runs *before* the mcp
+  extension's handler — the one that awaits startup connections (bounded by
+  `startupWaitMs`, default 10 s). That is fine: the model never misses tools
+  (the first prompt waits on startup connections, and `direct` tools are
+  activated by pi on registration regardless); only the status listing can
+  lag one turn.
+- **Optional prompt — `pi.on("mcp_servers_change", ...)`.** This event fires
+  only when an extension calls `registerMcpServer`/`unregisterMcpServer`
+  (`extensions/runner.ts:457-459`); it never fires for mcp.json servers,
+  whose config the builtin extension loads directly
+  (`extensions/mcp/index.ts:791-802`). It is therefore useless for the
+  motivating mcp.json case; add it only if prompt re-renders for
+  extension-registered servers are wanted. Default: skip it (registering it
+  on older pi is harmless — the event never fires — but it adds a handler
+  for no observed benefit).
 - **New server** → `defineToolset` + `actuateNewToolsets`.
 - **Existing server whose declarable set changed** → `toolset.setMembers(pi, next)`.
   Delta-gate on set inequality so an unchanged scan does nothing.
@@ -223,8 +235,12 @@ connect or the real provider-side declaration effect.
 
 ## Risks and edge cases
 
-- **Async connect ordering** — the primary risk. Mitigated by re-scanning on
-  `mcp_servers_change` plus the per-turn defensive scan; verify with live QA.
+- **Async connect ordering** — the primary risk. Tool-list changes are
+  unobservable by extension event (`mcp_servers_change` covers only
+  `registerMcpServer`/`unregisterMcpServer`, and mcp.json servers never go
+  through it), so the per-turn `before_agent_start` re-scan is the sole
+  catch-up: at most one turn of display lag, and no missed tools. Verify
+  with live QA.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
   excluded as non-declarable and the server gets no toolset (or loses members).
 - **Mid-session membership changes** — handled by `setMembers`; verify no warning
