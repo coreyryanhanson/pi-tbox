@@ -233,6 +233,20 @@ connect or the real provider-side declaration effect.
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
   next `focus off` / `defaults restore`, matching the documented pattern for
   toolsets added later.
+- **Intent vs observation must be decided before this plan is executed — and
+  will be settled in this release.** Masking 1.4.0's inert-toolset contract
+  splits "the toolset is on" into persisted *intent* (branch entry,
+  `effectiveEnabled`) and *observation* (`isEnabled()`); the two diverge for
+  inert toolsets (members `hidden`, or the MCP server not yet connected — the
+  exact case this release introduces). Each tbox use site must pick the right
+  one — display and toggle-gating want intent (an observation-gated guard
+  refuses "off" on an intent-on inert toolset; `src/groups.ts` does this
+  today), "is anything declared" (char count) wants observation, and
+  `defaults capture` (`src/defaults.ts`) must capture intent, never a
+  mid-session snapshot. The per-site breakdown and those fixes are in scope
+  for this release; the decision must land before execution so the MCP
+  toolset work doesn't ship with observation-gated guards that misbehave on
+  inert toolsets.
 - **Name overlap** — the masking guard means each tool can belong to one toolset;
   MCP tools are claimed only by their per-server toolset.
 - **Codemode stays untested live** — codemode is not enabled in this environment;
