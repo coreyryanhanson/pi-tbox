@@ -3,8 +3,9 @@
 Make MCP tools visible and togglable, stop miscounting them as non-togglable
 "core", and make the char count honest about codemode.
 
-**Depends on `pi-tool-masking@^1.4.0`** (`Toolset.setMembers`, `hidden`-exposure
-fix). That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
+**Depends on `pi-tool-masking@^1.4.0`** (the runtime-membership raw-mutation
+contract on live registry entries, the allowlist-aware `effectiveEnabled`
+export, and the `hidden`-exposure fix). That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
 which is the source of truth for the API contract. MCP support cannot land before
 it, because tbox's CI clones only this repo and would otherwise resolve the old
 published library.
@@ -145,8 +146,13 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   on older pi is harmless — the event never fires — but it adds a handler
   for no observed benefit).
 - **New server** → `defineToolset` + `actuateNewToolsets`.
-- **Existing server whose declarable set changed** → `toolset.setMembers(pi, next)`.
-  Delta-gate on set inequality so an unchanged scan does nothing.
+- **Existing server whose declarable set changed** → raw mutation of the live
+  registry entry: `entry.spec.names = new Set(next)` (masking 1.4.0's documented
+  membership-change contract — no `setMembers` method exists; mutating the
+  registered spec in place avoids the `defineToolset` warn-and-replace, so no
+  handle goes stale and no actuate/persist/emit fires, which is fine here
+  because our members are all pi-activated-on-registration `direct`/`model-only`
+  tools). Delta-gate on set inequality so an unchanged scan does nothing.
 - Look handles up via `getRegisteredToolsets()` by id rather than caching them,
   so nothing goes stale across `/reload`.
 - Registering the event handler on older pi is harmless: the event never fires.
@@ -216,7 +222,7 @@ Both are bounded but not computable without reproducing codemode's rendering
 
 Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
-`codemode`-only server producing no toolset; `setMembers` on a changed server;
+`codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
 the re-scan being idempotent; the `core`/`extension` split with MCP tools; the
 `≥ N` label and note; graceful degradation when `exposure`/`namespace` are absent.
 
@@ -243,8 +249,10 @@ connect or the real provider-side declaration effect.
   with live QA.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
   excluded as non-declarable and the server gets no toolset (or loses members).
-- **Mid-session membership changes** — handled by `setMembers`; verify no warning
-  and no stale handle.
+- **Mid-session membership changes** — handled by raw `entry.spec.names`
+  mutation; verify the delta gate keeps an unchanged scan from writing, and that
+  `defineToolset`'s warn-and-replace never fires (it would only fire if the
+  re-scan re-`defineToolset`s an existing id, which it must not).
 - **Focus/allowlist captured before MCP toolsets existed** — the new toolset ids
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
   next `focus off` / `defaults restore`, matching the documented pattern for
