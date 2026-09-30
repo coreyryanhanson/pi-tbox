@@ -123,9 +123,15 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   the status slot. Registered once, from `session_start` (like the existing
   `before_agent_start` re-render), so it runs after extensions are bound.
 - **Defensive hook:** the existing `before_agent_start` re-render already fires
-  every turn; make it call the (cheap, idempotent) re-scan too. By the first
-  prompt the mcp extension's `before_agent_start` has awaited startup
-  connections, so tools are registered.
+  every turn; make it call the (cheap, idempotent) re-scan too. It cannot catch
+  turn-1 tools: builtin extensions load after user extensions
+  (`package-manager.ts` appends `builtin:*` last), so within a turn's
+  `before_agent_start` dispatch this handler runs *before* the mcp extension's
+  handler — the one that awaits startup connections (bounded by
+  `startupWaitMs`, default 10 s). That is fine: the primary
+  `mcp_servers_change` hook fires as each startup connection completes, and
+  `direct` MCP tools are activated by pi on registration regardless, so at
+  worst the status listing lags one turn.
 - **New server** → `defineToolset` + `actuateNewToolsets`.
 - **Existing server whose declarable set changed** → `toolset.setMembers(pi, next)`.
   Delta-gate on set inequality so an unchanged scan does nothing.
