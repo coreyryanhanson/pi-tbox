@@ -613,10 +613,11 @@ active `direct` declarations are hidden. So:
   in the core count — visible, not togglable; persistent control is the
   server's `toolExposure` config. Their reachability is managed by pi's
   `/mcp` surface.
-- A server that is still connecting at the first prompt has its `direct`
-  tools declared for that one prompt despite intent-off (see Risks); the
-  create-path reconcile removes them from the next prompt on. State the
-  residual; do not paper over it.
+- A declarable MCP tool registered while a dispatch is in flight — a server
+  still connecting at the first prompt, a lazy `tool_call`-triggered connect,
+  an OAuth reconnect at `turn_start` — is declared despite intent-off until
+  the next prompt boundary (see Risks); the create-path reconcile removes it
+  from the next prompt on. State the residual; do not paper over it.
 - `focus off` and `defaults restore` turn MCP toolsets ON at the packaged
   `defaultEnabled: true` default when no branch entry or settings pin exists —
   the same behavior as any other toolset added after those were captured.
@@ -782,16 +783,28 @@ connect or the real provider-side declaration effect.
   one prompt of display lag on the status bar, no lag for command surfaces,
   and no missed tools. Verify
   with live QA.
-- **Still-connecting servers at the first prompt** — a bounded residual the
+- **Declarable tools registered mid-dispatch** — a bounded residual the
   reconcile cannot close: tbox's `before_agent_start` handler runs before the
-  mcp extension's, so at first-prompt dispatch a not-yet-connected server has
-  no toolset yet; the mcp handler then awaits the connection, pi activates
-  the `direct` tools on registration, and `selectedTools` is snapshotted
-  after the dispatch (`agent-session.ts:1989-2000`) — so the first prompt
-  declares the tools despite intent-off. The create-path reconcile removes
-  them from the next prompt on. A `turn_start` hook is not a fix (it fires
-  after the loadout snapshot); the residual is one prompt, first connect
-  only, and cosmetic.
+  mcp extension's, so pi (re-)activates a newly-registering `direct` tool
+  *after* both masking's re-assert and tbox's reconcile have run that
+  dispatch, and `selectedTools` is snapshotted after the dispatch
+  (`agent-session.ts:1989-2000`). This is not limited to the first prompt:
+  `pi.registerTool` can fire while a dispatch is in flight or mid-loop, via
+  the mcp handler awaiting `waitForDirectServers` at first-prompt dispatch
+  (`extensions/mcp/index.ts:1011`), the `tool_call` hook's lazy connect
+  (`:1025-1042`), an OAuth reconnect at `turn_start` (`:1043-1045`), or a
+  mid-loop `list_changed` adding a new tool. In all these cases the tool is
+  declared from registration until the **next prompt boundary**, which may be
+  the remainder of the current agent loop — not just prompt one. The
+  create-path reconcile removes it from the next prompt on. A plain
+  reconnect of a dropped server is *not* in scope: its tools stay in the
+  registry, so they land in `previousActivatedOnRegistration` and are not
+  re-activated. A `turn_start` hook is not a fix (it fires after the loadout
+  snapshot); no tbox-side event exists for mid-loop registration, and the
+  real fix (per-tool deactivate) belongs in the masking library — the same
+  upgrade path as the exposure-change residual below. Cosmetic: the tools
+  are declared but unused unless the model calls them, and they vanish at
+  the next prompt.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
   excluded as non-declarable: the server gets no toolset (or loses members),
   and — because step 4's togglable predicate is the same declarable predicate —
@@ -812,7 +825,9 @@ connect or the real provider-side declaration effect.
   and masking's re-assert runs before tbox's mutation in the same prompt
   dispatch), so a newcomer to an intent-off toolset is declared for one prompt
   — the
-  post-mutation `applyToolsetEnabled` reconcile (step 3) closes it.
+  post-mutation `applyToolsetEnabled` reconcile (step 3) closes it. (This
+  closes the between-prompts case only; registrations that land mid-dispatch
+  are the separate residual above.)
   A second leak the mutation cannot close: when a tool's exposure changes
   **in place** `direct` → `codemode`/`deferred` (a config edit + reconnect
   that bypasses `hideTools`, which is pi's normal path for downgraded tools),
