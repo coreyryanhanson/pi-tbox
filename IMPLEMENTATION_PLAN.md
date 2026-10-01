@@ -206,21 +206,35 @@ MCP servers connect **asynchronously after `session_start`** — the mcp
 extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(createConnection)`
 — so the scan in `captureAndRender` runs before their tools exist. Wiring:
 
-- **Primary hook — the per-turn re-scan.** The existing `before_agent_start`
-  re-render already fires every turn; make it call the (cheap, idempotent)
-  re-scan too. This is the only mechanism that can observe mid-session
-  membership changes: MCP tool-list changes arrive as the
+- **Hook 1 — the per-prompt re-scan.** The existing `before_agent_start`
+  re-render already fires on every prompt submission (once per prompt, not
+  per turn — a `list_changed` arriving mid-agent-loop is picked up at the
+  next prompt); make it call the (cheap, idempotent) re-scan too. Mid-session
+  membership changes are observable only through re-scanning: MCP tool-list
+  changes arrive as the
   `notifications/tools/list_changed` notification
   (`extensions/mcp/runtime.ts:384-386`), which pi handles by re-registering
   tools internally — no extension event fires, so there is nothing else to
-  subscribe to. It cannot catch turn-1 tools: builtin extensions load after
+  subscribe to. The handler currently drops its arguments
+  (`pi.on("before_agent_start", () => rerenderSlot(pi))`, `index.ts:229`) and
+  must take `(event, ctx)` — step 5 needs the branch there anyway. It cannot
+  catch turn-1 tools: builtin extensions load after
   user extensions (`package-manager.ts` appends `builtin:*` last), so within
   a turn's `before_agent_start` dispatch this handler runs *before* the mcp
   extension's handler — the one that awaits startup connections (bounded by
   `startupWaitMs`, default 10 s). That is fine: the model never misses tools
   (the first prompt waits on startup connections, and `direct` tools are
   activated by pi on registration regardless); only the status listing can
-  lag one turn.
+  lag one prompt.
+- **Hook 2 — the `/tbox` command path.** Command invocations never pass
+  through `before_agent_start`, and the command handler (`index.ts:57-205`)
+  never re-scans — so a user who starts a session, waits for the server to
+  connect, and runs `/tbox list` sees the pre-MCP world, and
+  `/tbox +mcp__siyuan off` answers `No toolset "mcp__siyuan"` until they
+  submit a prompt. Call the same idempotent re-scan (register + reconcile)
+  at the top of the command dispatch, where `pi` and `ctx` are both in
+  scope. This makes every command surface — and the live-QA steps below —
+  deterministic instead of prompt-timing dependent.
 - **Optional prompt — `pi.on("mcp_servers_change", ...)`.** This event fires
   only when an extension calls `registerMcpServer`/`unregisterMcpServer`
   (`core/extensions/runner.ts:455-460`); it never fires for mcp.json servers,
@@ -464,7 +478,15 @@ active `direct` declarations are hidden. So:
   current pinned `^0.84.4` types have no `exposure`/`namespace`, so the code
   would not typecheck). `peerDependencies` stay `"*"` — pi requires the `"*"`
   convention and disables peer resolution for managed installs, so a stricter
-  range would be non-conventional and unenforced.
+  range would be non-conventional and unenforced. The bump also breaks
+  `npm run typecheck` in `__tests__/mock-pi.ts`, which the touch list must
+  include: `ToolInfo.exposure` is required in 0.99.x types
+  (`core/extensions/types.ts:2068`) and the mock's `ToolInfo` literal
+  (`mock-pi.ts:152-165`) omits it, while `registerTool`'s parameter type
+  cannot carry `exposure`/`namespace` — extend the mock to default
+  `exposure: info.exposure ?? "direct"`, spread a conditional `namespace`,
+  and widen the helper's parameter, so the Validation section's MCP-shaped
+  `ToolInfo` fixtures typecheck.
 - During development, point `dependencies["pi-tool-masking"]` at
   `file:../pi-tool-masking` so tests run against the local library (npm symlinks;
   the library ships TS source, so no build step). This spec (and its
@@ -474,9 +496,16 @@ active `direct` declarations are hidden. So:
 - **Add a release guard:** `scripts/release.mjs` (and `prepublishOnly`) must fail
   loudly when `dependencies["pi-tool-masking"]` is not a semver range. Publishing
   a `file:` spec would break every consumer.
-- Before releasing, restore the spec to `^2.0.0` and revert the
-  `package-lock.json` entry that recorded the file path, then **commit** —
-  `release.mjs` aborts on a dirty tree.
+- Before releasing, restore the spec to `^2.0.0` and **regenerate**
+  `package-lock.json` (`npm install --package-lock-only`, or
+  `npm i pi-tool-masking@^2.0.0`) once masking 2.0.0 is published — do not
+  hand-revert the lock entry: the committed lock records `1.3.0` resolved
+  from the registry, and `npm ci` (which CI runs before tests) fails its
+  sync check when `package.json` says `^2.0.0` but the lock still points at
+  the old version. Commit `package.json` and both lock locations (the root
+  `dependencies` entry and the `node_modules/pi-tool-masking` entry), verify
+  with a local `npm ci`, then **commit** — `release.mjs` aborts on a dirty
+  tree.
 - CHANGELOG: draft the `[Unreleased]` entries only — `release.mjs` promotes
   that heading to the version itself, so do not pre-rename it. Then
   `npm run release:minor`.
@@ -491,6 +520,10 @@ from the active set in the same turn, not the next);
 a server draining to zero declarable members (empty-set write keeps the
 toolset, registry entry stays live; a toggle while empty is a no-op and prior
 intent survives);
+the re-scan being idempotent from both hook sites (per-prompt, and the
+`/tbox` command path — a `/tbox list` issued after the server connects, with
+no intervening prompt, shows the per-server toolset and toggle commands
+resolve it);
 `isTogglableTool` gating on declarable exposure (a `codemode`-exposure server
 and a disabled server's `hidden`-re-registered tools are counted neither as
 togglable nor as `core` — they inflate no `n masked`, no char-count bucket,
@@ -521,7 +554,9 @@ snapshot).
 
 Live QA against the real `siyuan` server:
 
-1. `/tbox list` shows a `mcp__siyuan` toolset with ~29 members.
+1. Run `/tbox list` immediately after session start, before submitting any
+   prompt: it shows a `mcp__siyuan` toolset with ~29 members (this confirms
+   the command-path re-scan, not just the per-prompt one).
 2. Toggling it off removes those tools from the active/declared set and drops the
    extension count; toggling it back on restores them.
 3. The char count no longer counts them as `core`, and `/tbox chars` shows a
@@ -543,8 +578,10 @@ connect or the real provider-side declaration effect.
 - **Async connect ordering** — the primary risk. Tool-list changes are
   unobservable by extension event (`mcp_servers_change` covers only
   `registerMcpServer`/`unregisterMcpServer`, and mcp.json servers never go
-  through it), so the per-turn `before_agent_start` re-scan is the sole
-  catch-up: at most one turn of display lag, and no missed tools. Verify
+  through it), so the per-prompt `before_agent_start` re-scan plus the
+  `/tbox` command-path re-scan (step 3, hooks 1–2) are the catch-up: at most
+  one prompt of display lag on the status bar, no lag for command surfaces,
+  and no missed tools. Verify
   with live QA.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
   excluded as non-declarable: the server gets no toolset (or loses members),
