@@ -3,9 +3,11 @@
 Make MCP tools visible and togglable, stop miscounting them as non-togglable
 "core", and make the char count honest about codemode.
 
-**Depends on `pi-tool-masking@^1.4.0`** (the runtime-membership raw-mutation
+**Depends on `pi-tool-masking@^2.0.0`** (the runtime-membership raw-mutation
 contract on live registry entries, the allowlist-aware `effectiveEnabled`
-export, and the `hidden`-exposure fix). That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
+export, and the `hidden`-exposure fix; the 2.0.0 `inclusion`-mode removal
+is a no-op here — tbox only ever sets `"exclusion"`/`"allowlist"`,
+`src/focus.ts`). That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
 which is the source of truth for the API contract. MCP support cannot land before
 it, because tbox's CI clones only this repo and would otherwise resolve the old
 published library.
@@ -155,7 +157,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   for no observed benefit).
 - **New server** → `defineToolset` + `actuateNewToolsets`.
 - **Existing server whose declarable set changed** → raw mutation of the live
-  registry entry: `entry.spec.names = new Set(next)` (masking 1.4.0's documented
+  registry entry: `entry.spec.names = new Set(next)` (masking 2.0.0's documented
   membership-change contract — no `setMembers` method exists; mutating the
   registered spec in place avoids the `defineToolset` warn-and-replace, so no
   handle goes stale and no actuate/persist/emit fires, which is fine here
@@ -266,7 +268,7 @@ active `direct` declarations are hidden. So:
 - **Add a release guard:** `scripts/release.mjs` (and `prepublishOnly`) must fail
   loudly when `dependencies["pi-tool-masking"]` is not a semver range. Publishing
   a `file:` spec would break every consumer.
-- In the release commit, restore the spec to `^1.4.0` and revert the
+- In the release commit, restore the spec to `^2.0.0` and revert the
   `package-lock.json` entry that recorded the file path.
 - CHANGELOG `[Unreleased]` → `0.3.0`; `npm run release:minor`.
 
@@ -324,7 +326,7 @@ connect or the real provider-side declaration effect.
   next `focus off` / `defaults restore`, matching the documented pattern for
   toolsets added later.
 - **Intent vs observation must be decided before this plan is executed — and
-  will be settled in this release.** Masking 1.4.0's inert-toolset contract
+  will be settled in this release.** Masking 2.0.0's inert-toolset contract
   splits "the toolset is on" into persisted *intent* (branch entry,
   `effectiveEnabled`) and *observation* (`isEnabled()`); the two diverge for
   inert toolsets (members `hidden`, or the MCP server not yet connected — the
