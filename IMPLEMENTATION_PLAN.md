@@ -5,12 +5,7 @@ Make MCP tools visible and togglable, stop miscounting them as non-togglable
 
 **Depends on `pi-tool-masking@^2.0.0`** (the runtime-membership raw-mutation
 contract on live registry entries, the allowlist-aware `effectiveEnabled`
-export, and the `hidden`-exposure fix; the 2.0.0 `inclusion`-mode removal
-is a no-op here — tbox source and tests only ever set
-`"exclusion"`/`"allowlist"` (`src/focus.ts`); nothing in tbox source or tests
-ever sets `"inclusion"`, so there is nothing to delete — the library keeps
-exporting `getDefaultResolutionMode()` and existing tests compile unchanged.
-That release ships first (its changes sit on the library's
+export, and the `hidden`-exposure fix). That release ships first (its changes sit on the library's
 `CHANGELOG.md` `[Unreleased]`, which — together with the JSDoc on
 `getRegisteredToolsets`/`applyToolsetEnabled` in `pi-tool-masking/index.ts` —
 is the source of truth for the API contract). MCP support cannot land before
@@ -25,11 +20,13 @@ extension, so `sourceInfo.source === "builtin"` — and `isExtensionTool`
 
 - MCP tools are never registered as toolsets: they cannot be listed, grouped,
   focused, or toggled, even though they are ordinary togglable tools.
-- Four surfaces classify togglability via `isExtensionTool`, which is false for
-  MCP tools: `computeCharCount` and `extensionToolCounts` (`src/chars.ts`) count
-  them as `core` (the latter feeding the status bar's masked/focus counts),
-  `activeExtensionChars` (`src/list.ts`) drops them from char totals, and
-  `formatStatus`'s `pi.builtin` row lists and counts them as builtin.
+- Four surfaces classify togglability by the same builtin/extension split
+  (`isExtensionTool`, or `formatStatus`'s `source === "builtin"` filter), and
+  all four are false for MCP tools: `computeCharCount` and
+  `extensionToolCounts` (`src/chars.ts`) count them as `core` (the latter
+  feeding the status bar's masked/focus counts), `activeExtensionChars`
+  (`src/list.ts`) drops them from char totals, and `formatStatus`'s
+  `pi.builtin` row lists and counts them as builtin.
 
 This is live in the current environment: `/root/.pi/agent/mcp.json` defines
 `siyuan` with `exposure: "direct"`, so ~29 `mcp__siyuan__*` tools are declared to
