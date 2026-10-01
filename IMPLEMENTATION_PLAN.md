@@ -218,7 +218,7 @@ tools into their per-server toolset before rendering, so they never reach the
 non-toolset group.
 
 ### 5. Intent vs observation per use site (`src/groups.ts`, `src/list.ts`,
-`src/defaults.ts`)
+`src/defaults.ts`, `src/status-slot.ts`)
 
 Masking 2.0.0's inert-toolset contract splits "the toolset is on" into
 persisted *intent* (branch entry, `effectiveEnabled`) and *observation*
@@ -249,7 +249,18 @@ picks the right read:
   already does, and the per-tool glyph (`src/list.ts:405`) stays
   observational: both are declaration-sensitive surfaces, not toolset state —
   switching them to intent would invert the rule the same way reading
-  observation for toggle-gating does today.
+  observation for toggle-gating does today. The status-bar slot
+  (`src/status-slot.ts`) is in the same bucket and needs no change:
+  `computeSlotState` reads `extensionToolCounts` (the active set directly;
+  "n masked" is `total − active`), so it is declaration-sensitive by
+  construction. Two observation-produced edges, cosmetic and
+  self-correcting: an intent-on inert toolset inflates `● tbox n masked`
+  ("masked" is observationally true though the user enabled them and no mask
+  is suppressing them), and a non-empty but inert allowlist renders
+  `focus:∅` because `active === 0` though the allowlist itself is not empty —
+  both resolve when members become actuatable, and intent-based counts would
+  make the slot lie in the other direction (active counts must describe the
+  declared set).
 - **`defaults capture` (`src/defaults.ts:127`) captures intent, never a
   mid-session `isEnabled()` snapshot** — see the sixth site above.
 
