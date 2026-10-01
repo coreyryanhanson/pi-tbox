@@ -456,7 +456,12 @@ qualifier on the count is sound in all modes either: `≥ N` holds only under
 footprint can be far **below** N, since the catalog is budget-capped while the
 active `direct` declarations are hidden. So:
 
-- Exclude the `codemode` tool itself from the count.
+- Count the `codemode` tool itself like any other builtin — no exclusion. An
+  exclusion would have to be applied in both accumulators (`computeCharCount`
+  and `formatGroupedList`'s builtin branch) or the two surfaces' `core:` counts
+  diverge; and under codemode "on" *every* declared callable's description is
+  rewritten anyway, so excluding one tool buys no accuracy. The static note
+  carries the honesty instead.
 - Always render N plainly — no `≥`/`≤` qualifier, no mode branching, no
   `pi.getSettings().codemode?.mode` read.
 - When `getActiveTools()` includes `codemode`, append one static note: codemode
@@ -471,9 +476,10 @@ active `direct` declarations are hidden. So:
 
 - "off" means not declared and not counted; codemode/deferred-exposure tools stay
   script-callable while off, so tbox is context hygiene, not a security boundary.
-- The char count reports tool definitions and excludes the codemode
-  description; when codemode is active, a static note states the overhead
-  (budgeted catalog + per-tool signature lines) instead of a computed estimate.
+- The char count reports tool definitions and does not measure codemode's
+  request-time overhead; when codemode is active, a static note states the
+  overhead (budgeted catalog + per-tool signature lines) instead of a computed
+  estimate.
 - MCP: one toolset per server, covering the server's declarable (`direct`)
   tools only. `codemode`/`deferred` MCP tools are managed by pi and
   `/mcp`, and are not listed or toggled here. The three shared resource tools
@@ -558,7 +564,9 @@ MCP tools in the char total (a fully-active MCP toolset survives
 `mcp__*` tools; `extensionToolCounts` including MCP tools (an all-MCP toolset
 toggled off raises the slot's `n masked`); the
 static codemode note (present when codemode is active, absent otherwise);
-graceful degradation when `exposure`/`namespace` are absent; the step-5 intent
+the `codemode` tool itself counted as a plain builtin — `core:` agrees between
+`/tbox status` (`computeCharCount`) and `/tbox list`'s footer, with no exclusion
+divergence; graceful degradation when `exposure`/`namespace` are absent; the step-5 intent
 fixes (the toggle guard honors "off" on an intent-on inert toolset;
 `defaults capture` persists intent, never a mid-session `isEnabled()`
 snapshot).
