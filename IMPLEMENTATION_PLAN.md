@@ -92,8 +92,9 @@ export function isMcpTool(tool: ToolInfo): boolean {
 ```
 
 Fallback when `namespace` is absent: `sourceInfo.path === "builtin:mcp"` and the
-name starts with `mcp__`. Read `namespace`/`exposure` defensively so the code
-compiles against the current `^0.84.4` types:
+name starts with `mcp__`. Read `namespace`/`exposure` defensively so the code also
+runs on pre-0.99 pi, where the fields don't exist (step 8 removes the
+`^0.84.4` types pin):
 
 ```ts
 const exposure = (tool as { exposure?: ToolExposure }).exposure;
@@ -175,13 +176,14 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   `hidden` (pi does this for dropped/disabled MCP tools,
   `extensions/mcp/index.ts:272-285`), write the empty set and keep the toolset.
   No special-casing — the `tbox.mcp@<server> (0 members)` row is a useful
-  connectivity/toggle-state diagnostic, a toggle on it persists intent that
-  correctly reapplies if the tools return, and masking has nothing to mask
-  with zero members. The empty-set write must not throw or corrupt the live
+  connectivity/toggle-state diagnostic, prior toggle intent survives the
+  emptying (resolution reads `spec.id`, not members) and reapplies if the
+  tools return — new toggles while empty are no-ops, since masking's witness
+  gate is vacuously satisfied at zero members — and masking has nothing to
+  mask with zero members. The empty-set write must not throw or corrupt the live
   registry entry.
 - Look handles up via `getRegisteredToolsets()` by id rather than caching them,
   so nothing goes stale across `/reload`.
-- Registering the event handler on older pi is harmless: the event never fires.
 
 ### 4. Togglable classification (`src/chars.ts`, `src/list.ts`)
 
@@ -211,7 +213,26 @@ in `formatByGroups` (`src/list.ts:230`) needs no change: steps 1–2 claim MCP
 tools into their per-server toolset before rendering, so they never reach the
 non-toolset group.
 
-### 5. Char count: plain N + static codemode note (`src/chars.ts`)
+### 5. Intent vs observation per use site (`src/groups.ts`, `src/defaults.ts`)
+
+Masking 2.0.0's inert-toolset contract splits "the toolset is on" into
+persisted *intent* (branch entry, `effectiveEnabled`) and *observation*
+(`isEnabled()`); the two diverge for inert toolsets — members `hidden`, or the
+MCP server not yet connected, the exact case steps 2–3 introduce. Each site
+picks the right read:
+
+- **Display and toggle-gating read intent** —
+  `effectiveEnabled(spec, branch, readMergedToolsetDefaults())`, with `branch`
+  from `ctx.sessionManager.getBranch()` inside the handler. The toggle guard
+  (`src/groups.ts:307`) currently gates on observation and refuses "off" on an
+  intent-on inert toolset; switch it to intent.
+- **"Is anything actually declared right now?" reads observation** —
+  `isEnabled()`. The char count (step 6) already does.
+- **`defaults capture` (`src/defaults.ts:127`) captures intent, never a
+  mid-session `isEnabled()` snapshot** — capturing while a toolset is inert
+  would pin a temporary divergence as a permanent misconfiguration.
+
+### 6. Char count: plain N + static codemode note (`src/chars.ts`)
 
 The count is the serialized definitions of the tools in the active set. It is
 **not** a total context meter under codemode, because `prepareLoadout` rewrites
@@ -244,7 +265,7 @@ active `direct` declarations are hidden. So:
   rendering, so a printed range would rot silently on a pi update. Citing the
   budget names the bound instead of guessing it.
 
-### 6. README
+### 7. README
 
 - "off" means not declared and not counted; codemode/deferred-exposure tools stay
   script-callable while off, so tbox is context hygiene, not a security boundary.
@@ -255,9 +276,9 @@ active `direct` declarations are hidden. So:
   `model-only`) tools only. `codemode`/`deferred` MCP tools are managed by pi and
   `/mcp`, and are not listed or toggled here.
 
-### 7. Dependency and release guarding
+### 8. Dependency and release guarding
 
-- Bump `devDependencies["@earendil-works/pi-coding-agent"]` to `^0.99.0` (the
+- Bump `devDependencies["@earendil-works/pi-coding-agent"]` to `^0.99.1` (the
   current pinned `^0.84.4` types have no `exposure`/`namespace`, so the code
   would not typecheck). `peerDependencies` stay `"*"` — pi requires the `"*"`
   convention and disables peer resolution for managed installs, so a stricter
@@ -278,16 +299,21 @@ Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
 a server draining to zero declarable members (empty-set write keeps the
-toolset, registry entry stays live and toggles persist intent);
-the re-scan being idempotent; a foreign declared toolset (id with no `tbox.`
-prefix) registered before the re-scan having its `spec.names` byte-identical
+toolset, registry entry stays live; a toggle while empty is a no-op and prior
+intent survives);
+the re-scan being idempotent; a foreign declared toolset (any id that is not
+`tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
+the re-scan having its `spec.names` byte-identical
 afterward (the managed-prefix tripwire guards the one mutation site);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
 `mcp__*` tools; the
 static codemode note (present when codemode is active, absent otherwise);
-graceful degradation when `exposure`/`namespace` are absent.
+graceful degradation when `exposure`/`namespace` are absent; the step-5 intent
+fixes (the toggle guard honors "off" on an intent-on inert toolset;
+`defaults capture` persists intent, never a mid-session `isEnabled()`
+snapshot).
 
 `npm test` and `npm run typecheck` (typecheck runs in CI before tests).
 
@@ -325,20 +351,13 @@ connect or the real provider-side declaration effect.
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
   next `focus off` / `defaults restore`, matching the documented pattern for
   toolsets added later.
-- **Intent vs observation must be decided before this plan is executed — and
-  will be settled in this release.** Masking 2.0.0's inert-toolset contract
-  splits "the toolset is on" into persisted *intent* (branch entry,
-  `effectiveEnabled`) and *observation* (`isEnabled()`); the two diverge for
-  inert toolsets (members `hidden`, or the MCP server not yet connected — the
-  exact case this release introduces). Each tbox use site must pick the right
-  one — display and toggle-gating want intent (an observation-gated guard
-  refuses "off" on an intent-on inert toolset; `src/groups.ts` does this
-  today), "is anything declared" (char count) wants observation, and
-  `defaults capture` (`src/defaults.ts`) must capture intent, never a
-  mid-session snapshot. The per-site breakdown and those fixes are in scope
-  for this release; the decision must land before execution so the MCP
-  toolset work doesn't ship with observation-gated guards that misbehave on
-  inert toolsets.
+- **Intent vs observation** — masking 2.0.0's inert-toolset contract splits
+  "the toolset is on" into persisted *intent* (`effectiveEnabled`) and
+  *observation* (`isEnabled()`); the two diverge for inert toolsets (members
+  `hidden`, or the MCP server not yet connected — the exact case this release
+  introduces). Step 5 assigns the right read per site; the failure it prevents
+  is an observation-gated toggle guard refusing "off" on an intent-on inert
+  toolset (`src/groups.ts` does this today).
 - **Name overlap** — the masking guard means each tool can belong to one toolset;
   MCP tools are claimed only by their per-server toolset.
 - **Codemode stays untested live** — codemode is not enabled in this environment;
