@@ -152,12 +152,16 @@ export class MockPI implements Partial<ExtensionAPI> {
 	registerTool(
 		info: Pick<ToolInfo, "name" | "description"> & {
 			sourceInfo?: ToolInfo["sourceInfo"];
+			exposure?: ToolInfo["exposure"];
+			namespace?: ToolInfo["namespace"];
 		},
 	): void {
 		const tool: ToolInfo = {
 			name: info.name,
 			description: info.description ?? "",
 			parameters: undefined as any,
+			exposure: info.exposure ?? "direct",
+			...(info.namespace ? { namespace: info.namespace } : {}),
 			sourceInfo: info.sourceInfo ?? {
 				path: "mock.ts",
 				source: "extension",
@@ -250,12 +254,18 @@ export class MockPI implements Partial<ExtensionAPI> {
 
 	// --- Events ---
 
-	on(event: any, handler: any): void {
+	on(event: any, handler: any): () => void {
 		const key = String(event);
 		if (!this._handlers.has(key)) {
 			this._handlers.set(key, []);
 		}
 		this._handlers.get(key)!.push(handler);
+		return () => {
+			const handlers = this._handlers.get(key);
+			if (!handlers) return;
+			const i = handlers.indexOf(handler);
+			if (i !== -1) handlers.splice(i, 1);
+		};
 	}
 
 	get events(): EventBus {
