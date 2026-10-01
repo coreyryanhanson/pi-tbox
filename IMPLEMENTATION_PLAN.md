@@ -78,7 +78,10 @@ Out (decided non-goals):
 ## Design: declared-only scoping
 
 An MCP toolset's members are the server's tools whose `exposure` is declarable
-(`direct` or `model-only`). Everything else is excluded.
+(`direct`). Everything else is excluded. `McpExposure` is fixed upstream at
+`codemode | deferred | direct | hidden` (`core/mcp-servers.ts:17`) and
+`toToolExposure` maps `codemode` → `deferred`, so `direct` is the only
+declarable exposure an MCP tool can arrive with.
 
 Why this is the right default rather than a boolean over the whole server:
 
@@ -130,7 +133,7 @@ step 4) goes through it:
 export function isDeclarableMcpTool(tool: ToolInfo): boolean {
 	if (!isMcpTool(tool)) return false;
 	const exposure = (tool as { exposure?: string }).exposure ?? "direct";
-	return exposure === "direct" || exposure === "model-only";
+	return exposure === "direct";
 }
 ```
 
@@ -154,8 +157,8 @@ Add `registerMcpToolsets(pi): string[]`, called from the same place orphans are
 registered:
 
 - Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`).
-- Members = tools passing `isDeclarableMcpTool` (exposure `direct` or
-  `model-only`, `exposure ?? "direct"`). Skip the server when this is empty.
+- Members = tools passing `isDeclarableMcpTool` (exposure `direct`,
+  `exposure ?? "direct"`). Skip the server when this is empty.
   The same predicate must be used for membership everywhere — never a bare
   `isMcpTool` — so classification and membership can never drift apart.
 - Toolset id `tbox.mcp@<server>` (namespace name minus the `mcp__` prefix),
@@ -398,8 +401,8 @@ active `direct` declarations are hidden. So:
 - The char count reports tool definitions and excludes the codemode
   description; when codemode is active, a static note states the overhead
   (budgeted catalog + per-tool signature lines) instead of a computed estimate.
-- MCP: one toolset per server, covering the server's declarable (`direct`/
-  `model-only`) tools only. `codemode`/`deferred` MCP tools are managed by pi and
+- MCP: one toolset per server, covering the server's declarable (`direct`)
+  tools only. `codemode`/`deferred` MCP tools are managed by pi and
   `/mcp`, and are not listed or toggled here. The three shared resource tools
   (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) have
   no namespace and no per-server owner, so they are not detected and remain in
