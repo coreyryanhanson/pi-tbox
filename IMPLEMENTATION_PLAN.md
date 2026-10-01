@@ -502,6 +502,11 @@ active `direct` declarations are hidden. So:
 
 - "off" means not declared and not counted; codemode/deferred-exposure tools stay
   script-callable while off, so tbox is context hygiene, not a security boundary.
+  Known edge: a tool whose exposure changes in place `direct` →
+  `codemode`/`deferred` (config edit + reconnect that skips pi's `hideTools`
+  downgrade path) is dropped from its toolset but not deactivated — it stays
+  declared while tbox no longer lists or counts it, until the session reloads
+  (see Risks).
 - The char count reports tool definitions and does not measure codemode's
   request-time overhead; when codemode is active, a static note states the
   overhead (budgeted catalog + per-tool signature lines) instead of a computed
@@ -686,6 +691,19 @@ connect or the real provider-side declaration effect.
   dispatch), so a newcomer to an intent-off toolset is declared for one prompt
   — the
   post-mutation `applyToolsetEnabled` reconcile (step 3) closes it.
+  A second leak the mutation cannot close: when a tool's exposure changes
+  **in place** `direct` → `codemode`/`deferred` (a config edit + reconnect
+  that bypasses `hideTools`, which is pi's normal path for downgraded tools),
+  the scan drops it from `spec.names` — but masking's contract is that
+  removing a name does not deactivate it, the reconcile only covers the
+  intent-off direction, and every classification site now treats the tool as
+  non-declarable. It stays declared to the model while appearing in no
+  toolset row, no `n masked` count, and no char bucket — visible to tbox as
+  absent yet still in context. Accepted residual: narrow trigger, no clean
+  fix from tbox (the reconcile helpers act on whole toolsets, not orphaned
+  tools), and it self-corrects on session reload; document it in the README
+  (step 7), and if it ever matters in practice the fix belongs in the masking
+  library as a per-tool deactivate, not here.
 - **Focus/allowlist captured before MCP toolsets existed** — the new toolset ids
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
   next `focus off` / `defaults restore`, matching the documented pattern for
