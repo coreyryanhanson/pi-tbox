@@ -173,8 +173,12 @@ registered:
   accident.
 - Members = tools passing `isDeclarableMcpTool` (`exposure ?? "direct"`), minus
   the names already claimed by other registered toolsets (collected from
-  `getRegisteredToolsets()`; masking's name-overlap guard *throws* at
-  registration and MCP toolsets register after other toolsets — see step 3).
+  `getRegisteredToolsets()` **excluding the toolset under scan**; masking's
+  name-overlap guard *throws* at registration and MCP toolsets register after
+  other toolsets — see step 3). The self-exclusion is load-bearing:
+  `getRegisteredToolsets()` returns every entry, so a re-scan that subtracts
+  self-inclusively always produces an empty `next` — the delta gate never
+  fires again and membership freezes in whatever state it first drained to.
   Skip the server when this is empty.
   The same predicate must be used for membership everywhere — never a bare
   `isMcpTool` — so classification and membership can never drift apart.
@@ -220,8 +224,9 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   dispatch switch at `:88`, `default:` at `:207`)
   never re-scans — so a user who starts a session, waits for the server to
   connect, and runs `/tbox list` sees the pre-MCP world, and
-  `/tbox +mcp__siyuan off` answers `No toolset "mcp__siyuan"` until they
-  submit a prompt. Call the same idempotent re-scan (register + reconcile)
+  `/tbox +tbox.mcp@siyuan off` answers `No toolset "tbox.mcp@siyuan"` until
+  they submit a prompt. (Toolsets address by id — `tbox.mcp@<server>` —
+  not the `mcp__<server>` label, which only the picker shows; see step 2.) Call the same idempotent re-scan (register + reconcile)
   at the top of the command dispatch, where `pi` and `ctx` are both in
   scope. This makes every command surface — and the live-QA steps below —
   deterministic instead of prompt-timing dependent.
@@ -445,8 +450,11 @@ picks the right read:
   exported and branch-free, but it skips the chat-branch tier, so it is not a
   substitute at these sites) — so `branch` must reach
   functions that today take only `pi`: `describeToolset`, `toggleAll`,
-  `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`), and
-  `handleDefaults` (`src/defaults.ts`). Threading `toggleAll` forces the same
+  `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`, same),
+  and `defaultsSave` (`src/defaults.ts:122`) — `handleDefaults` already
+  receives `ctx` with `sessionManager.getBranch()` (`defaults.ts:230`), so
+  only `defaultsSave` needs the parameter threaded down to its `:127` read.
+  Threading `toggleAll` forces the same
   change on `soloUnit` (`src/focus.ts:180` calls `toggleAll(pi, false)`) and
   its `case "solo"` call site in `index.ts` — add both to the diff.
   `formatGroupedList` needs no `branch`: none of the six sites is inside it
@@ -496,8 +504,10 @@ descriptions at request time:
   the codemode description (the catalog, budgeted by `codemode.inlineBudget`,
   default 3000 est. tokens) is in context and equally unmeasurable.
 
-Both directions exist and neither is computable without reproducing codemode's
-rendering (`@earendil-works/pi-codemode`, not a host-provided package). No
+Both directions exist and neither is computable from tbox: measuring it would
+mean coupling tbox to `@earendil-works/pi-codemode` (a direct dependency of
+`@earendil-works/pi-coding-agent`, but still transitive from tbox) and
+re-implementing its request-time rendering. No
 qualifier on the count is sound in all modes either: `≥ N` holds only under
 `"on"` (declarations stay, the catalog is added), but under `"only"` the true
 footprint can be far **below** N, since the catalog is budget-capped while the
@@ -518,6 +528,10 @@ active `direct` declarations are hidden. So:
   appended to `formatStatus`'s char line, and as a footer line in
   `formatByChars` (the `/tbox chars` view — the surface a user opens with
   exactly this question; it has no free-form footer today, so one is added).
+  The footer must also cover `formatByChars`'s empty-budget early return
+  (`src/list.ts:333`), which returns before any footer would otherwise
+  render — otherwise the one surface opened with exactly this question shows
+  no note precisely when no toolset is consuming budget.
 - Do **not** print a hardcoded numeric range: the bounds track pi's codemode
   rendering, so a printed range would rot silently on a pi update. Citing the
   budget names the bound instead of guessing it.
@@ -569,28 +583,31 @@ active `direct` declarations are hidden. So:
 
 ### 8. Dependency and release guarding
 
-- Bump `devDependencies["@earendil-works/pi-coding-agent"]` to `^0.99.1` (the
-  current pinned `^0.84.4` types have no `exposure`/`namespace`, so the code
-  would not typecheck). `peerDependencies` stay `"*"` — pi requires the `"*"`
+- Bump `devDependencies["@earendil-works/pi-coding-agent"]` to `^0.99.2`
+  (matching `pi-tool-masking`'s devDependency pin and the installed upstream;
+  the current pinned `^0.84.4` types have no `exposure`/`namespace`, so the
+  code would not typecheck). `peerDependencies` stay `"*"` — pi requires the `"*"`
   convention and disables peer resolution for managed installs, so a stricter
-  range would be non-conventional and unenforced. The bump also breaks
-  `npm run typecheck` in `__tests__/mock-pi.ts`, which the touch list must
-  include: `ToolInfo.exposure` is required in 0.99.x types
-  (`core/extensions/types.ts:2068`) and the mock's `ToolInfo` literal
-  (`mock-pi.ts:152-165`) omits it, while `registerTool`'s parameter type
-  cannot carry `exposure`/`namespace` — extend the mock to default
-  `exposure: info.exposure ?? "direct"`, spread a conditional `namespace`,
-  and widen the helper's parameter, so the Validation section's MCP-shaped
-  `ToolInfo` fixtures typecheck.
+  range would be non-conventional and unenforced. The bump breaks
+  `npm run typecheck`; re-run it and fix all fallout, not just known sites.
+  The one known site is `__tests__/mock-pi.ts`: `ToolInfo.exposure` is
+  required in 0.99.x types (`core/extensions/types.ts:2068`) and the mock's
+  `ToolInfo` literal (`mock-pi.ts:152-165`) omits it, while `registerTool`'s
+  parameter type cannot carry `exposure`/`namespace` — extend the mock to
+  default `exposure: info.exposure ?? "direct"`, spread a conditional
+  `namespace`, and widen the helper's parameter, so the Validation section's
+  MCP-shaped `ToolInfo` fixtures typecheck.
 - During development, point `dependencies["pi-tool-masking"]` at
   `file:../pi-tool-masking` so tests run against the local library (npm symlinks;
   the library ships TS source, so no build step). This spec (and its
   `package-lock.json` entry) must **stay uncommitted**: CI runs `npm ci` on a
   clone of this repo alone (`.github/workflows/tests.yml`), so a committed
   `file:` path with no sibling checkout breaks the build.
-- **Add a release guard:** `scripts/release.mjs` (and `prepublishOnly`) must fail
-  loudly when `dependencies["pi-tool-masking"]` is not a semver range. Publishing
-  a `file:` spec would break every consumer.
+- **Add a release guard:** `prepublishOnly` must fail loudly when
+  `dependencies["pi-tool-masking"]` is not a semver range. Publishing
+  a `file:` spec would break every consumer. One check, one file:
+  `release.mjs` needs no copy, because its `npm publish` already triggers
+  `prepublishOnly`.
 - Before releasing, restore the spec to `^2.0.0` and **regenerate**
   `package-lock.json` (`npm install --package-lock-only`, or
   `npm i pi-tool-masking@^2.0.0`) once masking 2.0.0 is published — do not
@@ -620,6 +637,9 @@ the re-scan being idempotent from both hook sites (per-prompt, and the
 `/tbox` command path — a `/tbox list` issued after the server connects, with
 no intervening prompt, shows the per-server toolset and toggle commands
 resolve it);
+the membership subtraction excluding self (a re-scan of an existing toolset
+keeps exactly its declarable members — a self-inclusive subtraction empties
+`next`, the delta gate never fires, and membership freezes);
 `isTogglableTool` gating on declarable exposure (a `codemode`-exposure server
 and a disabled server's `hidden`-re-registered tools are counted neither as
 togglable nor as `core` — they inflate no `n masked`, no char-count bucket,
@@ -670,16 +690,18 @@ toolset; `defaults save` persists intent, never a mid-session
 Live QA against the real `siyuan` server:
 
 1. Run `/tbox list` immediately after session start, before submitting any
-   prompt: it shows a `mcp__siyuan` toolset with ~29 members (this confirms
+   prompt: it shows a `tbox.mcp@siyuan` toolset (id, addressed as
+   `+tbox.mcp@siyuan`; the picker label is `mcp__siyuan`) with ~29 members
+   (this confirms
    the command-path re-scan, not just the per-prompt one).
 2. Toggling it off removes those tools from the active/declared set and drops the
    extension count; toggling it back on restores them.
 3. The char count no longer counts them as `core`, and `/tbox chars` shows a
-   non-zero char total for the `mcp__siyuan` toolset (not dropped by the
+   non-zero char total for the `tbox.mcp@siyuan` toolset (not dropped by the
    zero-char skip).
 4. With `"defaultTools": ["+codemode"]`, the count is followed by the static
    codemode note, with no `≥` qualifier.
-5. `/tbox status` lists the MCP tools under `mcp__siyuan`, not in the
+5. `/tbox status` lists the MCP tools under `tbox.mcp@siyuan`, not in the
    `pi.builtin` row.
 6. The three resource tools appear under `pi.builtin` in both `/tbox list` and
    `/tbox status` (siyuan is direct-exposure and serves resources), in no
