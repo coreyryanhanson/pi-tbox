@@ -70,9 +70,7 @@ Out (decided non-goals):
   none has resources), so there is no per-server owner to attach them to and
   no name-based detection hook worth coupling to. They are therefore
   classified as **builtins, not toolset members** — the same read-only bucket
-  as builtin/`sdk` tools: detection is structural, no names hardcoded (step 1); everything else — whether they show
-  in the builtin row or nowhere — is observed dynamically from the live tool
-  list at render time (step 4). They are never togglable, never join a
+  as builtin/`sdk` tools. They are never togglable, never join a
   toolset, and their reachability is managed by pi's `/mcp` surface. Upgrade
   path: if upstream ever namespaces these tools, they fall into the existing
   per-server machinery for free.
@@ -137,32 +135,12 @@ export function isDeclarableMcpTool(tool: ToolInfo): boolean {
 }
 ```
 
-The three shared resource tools (`resources.ts:34-35`, `tools.ts:50`) are
-identified structurally, not by name: inside the builtin mcp extension they
-are the only namespace-less tools (per-server tools always carry a namespace,
-`extensions/mcp/index.ts:353-357`), so the path gate plus namespace-lessness
-matches exactly that set with no name coupling — a rename upstream cannot
-break detection:
-
-```ts
-export function isMcpResourceTool(tool: ToolInfo): boolean {
-	return (
-		tool.sourceInfo?.path === "builtin:mcp" &&
-		tool.namespace === undefined
-	);
-}
-```
-
-Note `isMcpResourceTool` deliberately does **not** go through `isMcpTool`:
-these tools carry no `namespace`, so `isMcpTool` is false for them — which is
-exactly what makes them classify as builtins for free (`isDeclarableMcpTool`
-returns false, so the togglable predicate of step 4 never picks them up).
-The `builtin:mcp` path gate keeps a namespace-less tool from any other
-extension out of the resource-tool classification; only tools registered by
-the extension that owns them match.
-Their state is never cached — every surface
-observes `exposure` and the active set live at render time (step 4). They are
-never togglable and never join a toolset.
+Display needs no resource-tool helper: the shared resource tools carry no
+`namespace`, so `isMcpTool` is false for them and every surface classifies
+them as builtins for free (`isDeclarableMcpTool` returns false, so the
+togglable predicate of step 4 never picks them up). Whether an undeclared
+MCP tool is *shown* is a render-time question answered by the active set
+alone (step 4) — no exposure read exists in any display path.
 
 `isDeclarableMcpTool` — not bare `isMcpTool` — is also what classification must
 use (step 4): `getAllTools()` includes `hidden` and `deferred` tools that pi
@@ -172,9 +150,9 @@ a `/mcp`-disabled server (whose tools are re-registered `hidden`), or any
 explicit `toolExposure: "codemode"|"deferred"` override contributes tools that
 no toolset covers and the user cannot affect. Classifying those as togglable
 would permanently inflate `● tbox n masked` and the char-count buckets with
-tools tbox did not mask. The resource tools are the one deliberate exception
-to this MCP-only rule: they sit in the builtin bucket (with an exposure gate,
-step 4) instead of any toolset.
+tools tbox did not mask. The shared resource tools fall out of this rule for
+free: they carry no `namespace`, so `isMcpTool` never matches them and they
+sit in the builtin bucket instead of any toolset.
 
 `isExtensionTool` **stays as it is.** It is also used by
 `autoRegisterBuiltinAndOrphans`, and widening it would group MCP tools into a
@@ -388,25 +366,51 @@ there by design; the togglable predicate wants only the declarable subset.)
   `charCount === 0` skip (`src/list.ts:324`) drops it entirely, leaving the
   context cost this release exists to expose invisible.
 - `formatStatus` (`src/list.ts:546`): the `pi.builtin` row filters
-  `source === "builtin"`, which now includes every `mcp__*` tool. Exclude
-  per-server MCP tools (`!isMcpTool(t)`) so they appear only under their own
-  toolset row — but keep the resource tools: they are builtins by
-  classification and render here. Gate them on reachability — include a
-  resource tool only while `exposure === "direct"` (`exposure ?? "direct"`) —
-  so a deferred/hidden phase (all resource-bearing servers non-direct, or
-  none connected) does not list unreachable tools in the row. The row's counts
-  derive from the active set, so a gated-out tool contributes no chars and no
-  active count either; nothing is hardcoded anywhere (detection is structural,
-  step 1).
+  `source === "builtin"`, which now includes every `mcp__*` tool. Apply one
+  presentation-only predicate to its rows:
+  `!isMcpTool(t) || activeSet.has(t.name)`.
+  Per-server MCP tools appear only while they are in the active set (an
+  unloaded `deferred`/`hidden` tool costs no context and shows nowhere); a
+  resource tool whose exposure drops to `deferred`/`hidden` leaves the active
+  set and renders as `name (inactive)` with zero chars — honest state, no
+  fabricated gate. No exposure read here: "reachable" and "active" coincide,
+  and the active set is the same signal `computeCharCount` uses, so the two
+  surfaces agree by construction.
 
 Keep `isExtensionTool` unchanged for callers that need the old meaning
 (`autoRegisterBuiltinAndOrphans`, the registry scan). The builtin-group branch
-in `formatGroupedList` (`src/list.ts:230`) gets the same one gate as
-`formatStatus`: per-server MCP tools never reach it (steps 1–2 claim them into
-their per-server toolset before rendering), and the resource tools are
-intentionally shown there — under the same `exposure === "direct"` gate. This
-makes the two views agree by construction and closes the status-vs-list
-discrepancy for non-declarable MCP tools.
+in `formatGroupedList` (`src/list.ts:230`) applies the same predicate —
+`!isMcpTool(t) || activeSet.has(t.name)`. The "per-server MCP tools never
+reach it" assumption is false as stated: the group key falls back to
+`t.sourceInfo.source` (`list.ts:210`), so an undeclared `mcp__*` tool lands
+in the `builtin` group — which is exactly why the `!isMcpTool` half is
+required there.
+
+**The `pi-managed` render group (presentation only — no new ledger bucket).**
+An active per-server MCP tool that no toolset declares (a `deferred`/`codemode`
+tool loaded mid-session by `tool_search`'s `setActiveTools`,
+`extensions/tool-search/tool.ts:206-208`) is real, declared context: it is
+not an extension tool, so `computeCharCount` books its chars to `core` — and
+no tbox command can remove it, which is precisely what `core` means
+("non-togglable floor"). Both views route these tools to a `pi-managed`
+group instead of letting them leak into `pi.builtin`:
+
+- `formatGroupedList`: group id `pi-managed` for filtered tools where
+  `isMcpTool(t) && activeSet.has(t.name)` and no registry entry claims them;
+  header `pi-managed (N active, +X chars, core)`.
+- `formatStatus`: a matching `pi-managed` row beside `pi.builtin`, same
+  counts, same source (the active set).
+- The chars stay in `core`; `CharCountSplit`, `formatCharSplit`, and the
+  core/extension split are untouched. Footer totals are unchanged, so the
+  status-vs-list `core:` agreement invariant holds with the same one
+  predicate at every site.
+- They are **visible, not togglable**: no toolset address exists, so no
+  toggle path can actuate them — the same standing contract as `tool_search`
+  itself. The `pi-managed` label answers "why can't I toggle this" before it
+  is asked. Persistent control is the server's `toolExposure` config (the
+  declarability of step 2), not a runtime toggle. The group is usually empty
+  and ephemeral; if it ever warrants a counted third bucket, the
+  `pi-managed` gid is already the seam marker.
 
 ### 5. Intent vs observation per use site (`src/groups.ts`, `src/list.ts`,
 `src/defaults.ts`)
@@ -446,8 +450,8 @@ picks the right read:
   change on `soloUnit` (`src/focus.ts:180` calls `toggleAll(pi, false)`) and
   its `case "solo"` call site in `index.ts` — add both to the diff.
   `formatGroupedList` needs no `branch`: none of the six sites is inside it
-  (`list.ts:538` is inside `formatStatus`), and its step-4 gate is an
-  observational exposure check, not an intent read. The pattern
+  (`list.ts:538` is inside `formatStatus`), and its step-4 display predicate
+  is an observational active-set check, not an intent read. The pattern
   already exists (`focusOff(pi, ctx.sessionManager.getBranch())` in
   `index.ts`) and `MockPI` exposes `getBranch`, so it is mechanical — but it
   touches every call site and several tests. All six sites consume `.enabled`
@@ -537,9 +541,12 @@ active `direct` declarations are hidden. So:
   (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) have
   no namespace and no per-server owner, so they join no toolset and are never
   togglable — tbox accounts for them as builtins: visible under `pi.builtin` in
-  `/tbox list` and `/tbox status` while their exposure is `direct` (i.e. while
-  pi declares them), omitted once it drops to `deferred`/`hidden`. Their
-  reachability is managed by pi's `/mcp` surface.
+  `/tbox list` and `/tbox status` (an inactive one renders as
+  `name (inactive)`, costing no chars). `codemode`/`deferred` MCP tools that
+  `tool_search` loads mid-session appear under `pi-managed` with their chars
+  in the core count — visible, not togglable; persistent control is the
+  server's `toolExposure` config. Their reachability is managed by pi's
+  `/mcp` surface.
 - A server that is still connecting at the first prompt has its `direct`
   tools declared for that one prompt despite intent-off (see Risks); the
   create-path reconcile removes them from the next prompt on. State the
@@ -618,10 +625,15 @@ and a disabled server's `hidden`-re-registered tools are counted neither as
 togglable nor as `core` — they inflate no `n masked`, no char-count bucket,
 and stay out of `activeExtensionChars`);
 the resource tools classifying as builtins (present in the `core` bucket and
-the `pi.builtin` rows of both views only while `exposure === "direct"`, absent
-from both once it drops to `deferred`/`hidden`, never in any toolset row and
-never in `n masked`); the same exposure gate in `formatGroupedList`'s
-builtin branch, so the two views agree by construction;
+the `pi.builtin` rows of both views; an inactive one renders as
+`name (inactive)` with no chars and no active count; never in any toolset row
+and never in `n masked` — no exposure read anywhere in the display path);
+unloaded non-declarable per-server MCP tools (`codemode`/`deferred`/`hidden`
+exposure, not in the active set) appear in no row of either view and inflate
+no count; the `tool_search` load case — activate a `deferred` `mcp__*` tool
+via `setActiveTools` — makes it render under `pi-managed` in both views with
+its chars in `core`, and `core:` still agrees between `/tbox status`
+(`computeCharCount`) and `/tbox list`'s footer;
 the create-path reconcile (a toolset created mid-session for an intent-off
 server is applied off in the same prompt, not the next; an intent-on server's
 toolset still actuates normally);
@@ -641,8 +653,9 @@ holding only MCP toolsets the re-assert can run after tbox's scan — verify
 the reconcile outcome is identical either way, as step 3 reasons);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
-`formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
-`mcp__*` tools; `extensionToolCounts` including MCP tools (an all-MCP toolset
+`formatByChars`' zero-char skip); `formatStatus`'s builtin row showing per-server MCP tools only while active
+(the `!isMcpTool(t) || activeSet.has(t.name)` predicate, same in
+`formatGroupedList`'s builtin branch); `extensionToolCounts` including MCP tools (an all-MCP toolset
 toggled off raises the slot's `n masked`); the
 static codemode note (present when codemode is active, absent otherwise);
 the `codemode` tool itself counted as a plain builtin — `core:` agrees between
@@ -669,8 +682,9 @@ Live QA against the real `siyuan` server:
 5. `/tbox status` lists the MCP tools under `mcp__siyuan`, not in the
    `pi.builtin` row.
 6. The three resource tools appear under `pi.builtin` in both `/tbox list` and
-   `/tbox status` (siyuan is direct-exposure and serves resources), in neither
-   view once their exposure drops, and in no toolset row ever.
+   `/tbox status` (siyuan is direct-exposure and serves resources), in no
+   toolset row ever, and as `name (inactive)` rows with unchanged char counts
+   if their exposure ever drops.
 
 The live server is the end-to-end criterion; the mock cannot exercise the async
 connect or the real provider-side declaration effect.
@@ -747,11 +761,12 @@ connect or the real provider-side declaration effect.
   but still classified and counted (step 4).
 - **Codemode stays untested live** — codemode is not enabled in this environment;
   its paths are unit-tested only unless a QA pass enables it.
-- **Resource-tool detection is upstream-coupled, but structurally** —
-  detection is `path === "builtin:mcp" && namespace === undefined` (step 1),
-  not names. If upstream ever namespaces the resource tools, they fall into
-  the per-server machinery for free (the stated upgrade path). The residual
-  coupling runs the other way: if upstream ever adds another namespace-less
-  tool to the mcp extension, it would join the builtin-row classification
-  (cosmetic; toolsets, toggling, and counts are unaffected, since it never
-  matched the MCP predicate in the first place).
+- **`tool_search`-loaded deferred tools are visible but not togglable** —
+  pi's `searchAndLoad` flips them into the active set mid-session
+  (`extensions/tool-search/tool.ts:206-208`); their `exposure` field never
+  changes, so no toolset ever claims them and tbox has no actuation address.
+  The display treats the seam honestly: they render under `pi-managed`,
+  counted in `core`, and the label signals that control lives with pi
+  (persistently, in the server's `toolExposure` config). If upstream ever
+  namespaces the resource tools, they fall into the per-server machinery for
+  free (the stated upgrade path).
