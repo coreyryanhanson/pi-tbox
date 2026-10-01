@@ -35,7 +35,7 @@ In:
 
 - One toolset per MCP server, containing only its **declarable** tools.
 - Re-scan when MCP membership changes.
-- Char-count bucket classification and the codemode lower-bound label.
+- Char-count bucket classification and the static codemode overhead note.
 - README caveats.
 - Dependency bump and release guarding.
 
@@ -167,7 +167,7 @@ MCP tools are togglable, so they must not be counted as `core`.
 
 Keep `isExtensionTool` unchanged for callers that need the old meaning.
 
-### 5. Char count: lower bound + note (`src/chars.ts`)
+### 5. Char count: plain N + static codemode note (`src/chars.ts`)
 
 The count is the serialized definitions of the tools in the active set. It is
 **not** a total context meter under codemode, because `prepareLoadout` rewrites
@@ -182,21 +182,31 @@ descriptions at request time:
   the codemode description (the catalog, budgeted by `codemode.inlineBudget`,
   default 3000 est. tokens) is in context and equally unmeasurable.
 
-Both are bounded but not computable without reproducing codemode's rendering
-(`@earendil-works/pi-codemode`, not a host-provided package). So:
+Both directions exist and neither is computable without reproducing codemode's
+rendering (`@earendil-works/pi-codemode`, not a host-provided package). No
+qualifier on the count is sound in all modes either: `≥ N` holds only under
+`"on"` (declarations stay, the catalog is added), but under `"only"` the true
+footprint can be far **below** N, since the catalog is budget-capped while the
+active `direct` declarations are hidden. So:
 
 - Exclude the `codemode` tool itself from the count.
-- When `getActiveTools()` includes `codemode`, render the total as `≥ N` and add
-  a one-line note; read `pi.getSettings().codemode?.mode` to tailor it.
-- Do **not** attempt a max/range: the per-tool cap is `DEFAULT_INPUT_SCHEMA_MAX_CHARS = 16_000`,
-  so a loose upper bound would be useless.
+- Always render N plainly — no `≥`/`≤` qualifier, no mode branching, no
+  `pi.getSettings().codemode?.mode` read.
+- When `getActiveTools()` includes `codemode`, append one static note: codemode
+  rewrites declarations at request time; the catalog is budgeted by
+  `codemode.inlineBudget` (default 3000 est. tokens) and every declared
+  callable gains a signature line.
+- Do **not** print a hardcoded numeric range: the bounds track pi's codemode
+  rendering, so a printed range would rot silently on a pi update. Citing the
+  budget names the bound instead of guessing it.
 
 ### 6. README
 
 - "off" means not declared and not counted; codemode/deferred-exposure tools stay
   script-callable while off, so tbox is context hygiene, not a security boundary.
-- The char count reports tool definitions and is a **lower bound** when codemode
-  is active; it excludes the codemode description.
+- The char count reports tool definitions and excludes the codemode
+  description; when codemode is active, a static note states the overhead
+  (budgeted catalog + per-tool signature lines) instead of a computed estimate.
 - MCP: one toolset per server, covering the server's declarable (`direct`/
   `model-only`) tools only. `codemode`/`deferred` MCP tools are managed by pi and
   `/mcp`, and are not listed or toggled here.
@@ -224,7 +234,8 @@ Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
 the re-scan being idempotent; the `core`/`extension` split with MCP tools; the
-`≥ N` label and note; graceful degradation when `exposure`/`namespace` are absent.
+static codemode note (present when codemode is active, absent otherwise);
+graceful degradation when `exposure`/`namespace` are absent.
 
 `npm test` and `npm run typecheck` (typecheck runs in CI before tests).
 
@@ -234,7 +245,8 @@ Live QA against the real `siyuan` server:
 2. Toggling it off removes those tools from the active/declared set and drops the
    extension count; toggling it back on restores them.
 3. The char count no longer counts them as `core`.
-4. With `"defaultTools": ["+codemode"]`, the count renders as `≥ N` with the note.
+4. With `"defaultTools": ["+codemode"]`, the count is followed by the static
+   codemode note, with no `≥` qualifier.
 
 The live server is the end-to-end criterion; the mock cannot exercise the async
 connect or the real provider-side declaration effect.
