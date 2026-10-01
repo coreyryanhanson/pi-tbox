@@ -7,8 +7,17 @@
  * @module
  */
 
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import type {
+	ExtensionAPI,
+	SessionEntry,
+	ToolInfo,
+} from "@earendil-works/pi-coding-agent";
+import {
+	effectiveEnabled,
+	getRegisteredToolsets,
+	readMergedToolsetDefaults,
+	type RegistryEntry,
+} from "pi-tool-masking";
 import { getFocusUnit } from "./status-slot.js";
 import {
 	computeCharCount,
@@ -567,11 +576,22 @@ export function formatList(pi: ExtensionAPI, args: string): string {
  * members cell (`N (M active)`) since they are non-togglable. Trailing
  * User Groups / Focus / Char-count lines are unaffected.
  *
+ * The toolset glyph reads persisted **intent** (`effectiveEnabled`), not
+ * `isEnabled()`: an inert toolset (members hidden or an MCP server not
+ * yet connected) shows the state the user toggled, not the empty
+ * observation. Hoists the defaults snapshot — one settings read per
+ * command, not per toolset.
+ *
  * @param pi - The extension API
+ * @param branch - Chat branch, for the intent read
  */
-export function formatStatus(pi: ExtensionAPI): string {
+export function formatStatus(
+	pi: ExtensionAPI,
+	branch: readonly SessionEntry[],
+): string {
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
+	const defaultsSnapshot = readMergedToolsetDefaults();
 
 	const cols: ColSpec[] = [
 		{ label: "toolset" },
@@ -583,7 +603,7 @@ export function formatStatus(pi: ExtensionAPI): string {
 
 	for (const entry of toolsets) {
 		const { spec } = entry;
-		const isEnabled = [...spec.names].some((n) => activeSet.has(n));
+		const isEnabled = effectiveEnabled(spec, branch, defaultsSnapshot).enabled;
 		const glyph = isEnabled ? ENABLED_GLYPH : DISABLED_GLYPH;
 		tableRows.push([spec.id, glyph, String(spec.names.size)]);
 	}

@@ -38,6 +38,12 @@ import {
 	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
+
+/** Snapshot of the mock's session branch (for intent reads). */
+function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -362,7 +368,7 @@ describe("integration — multi-extension registry", () => {
 		writeGroup("my-group", { toolsets: ["portal.web"] });
 
 		// First make sure all is on
-		toggleAll(pi, true);
+		toggleAll(pi, true, branchOf(mock));
 		mock.setActiveTools([
 			"read",
 			"bash",
@@ -391,7 +397,7 @@ describe("integration — multi-extension registry", () => {
 		writeGroup("my-group", { toolsets: ["portal.learn"] });
 
 		// First disable all to create a clean slate
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 		mock.setActiveTools(["read", "bash", "edit"]);
 
 		const msg = actuateGroup(pi, "my-group", true);
@@ -414,16 +420,16 @@ describe("integration — multi-extension registry", () => {
 	// -----------------------------------------------------------------------
 
 	it("+<non-existent> returns error", () => {
-		const msg = actuateToolset(pi, "nonexistent.toolset", true);
+		const msg = actuateToolset(pi, "nonexistent.toolset", true, branchOf(mock));
 		expect(msg).toContain('No toolset "nonexistent.toolset"');
 	});
 
 	it("+<toolset> on enables just that toolset", () => {
 		// Disable all first
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 		mock.setActiveTools(["read", "bash", "edit"]);
 
-		const msg = actuateToolset(pi, "host.api", true);
+		const msg = actuateToolset(pi, "host.api", true, branchOf(mock));
 		expect(msg).toContain("Enabled");
 
 		const active = mock.getActiveTools();
@@ -432,7 +438,7 @@ describe("integration — multi-extension registry", () => {
 	});
 
 	it("+<toolset> off disables just that toolset", () => {
-		const msg = actuateToolset(pi, "host.api", false);
+		const msg = actuateToolset(pi, "host.api", false, branchOf(mock));
 		expect(msg).toContain("Disabled");
 
 		const active = mock.getActiveTools();
@@ -446,10 +452,10 @@ describe("integration — multi-extension registry", () => {
 
 	it("all on enables every registered toolset", () => {
 		// Disable all first
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 		mock.setActiveTools(["read", "bash", "edit"]);
 
-		const msg = toggleAll(pi, true);
+		const msg = toggleAll(pi, true, branchOf(mock));
 		expect(msg).toContain("Enabled");
 
 		const active = mock.getActiveTools();
@@ -465,7 +471,7 @@ describe("integration — multi-extension registry", () => {
 	});
 
 	it("all off disables every non-builtin toolset; builtins and sdk untouched", () => {
-		const msg = toggleAll(pi, false);
+		const msg = toggleAll(pi, false, branchOf(mock));
 		expect(msg).toContain("Disabled");
 
 		const active = mock.getActiveTools();
@@ -555,10 +561,10 @@ describe("integration — multi-extension registry", () => {
 	it("actuation is refused while in focus mode", () => {
 		focusUnit(pi, "+host.api");
 
-		const toggleMsg = actuateToolset(pi, "portal.web", true);
+		const toggleMsg = actuateToolset(pi, "portal.web", true, branchOf(mock));
 		expect(toggleMsg).toContain("focus mode");
 
-		const allMsg = toggleAll(pi, true);
+		const allMsg = toggleAll(pi, true, branchOf(mock));
 		expect(allMsg).toContain("focus mode");
 
 		const groupMsg = actuateGroup(pi, "my-group", true);
@@ -680,7 +686,7 @@ describe("integration — multi-extension registry", () => {
 	// -----------------------------------------------------------------------
 
 	it("formatStatus includes all sections", () => {
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		expect(output).toContain("Toolset Status");
 		expect(output).toContain("portal.web");
 		expect(output).toContain("portal.learn");

@@ -169,7 +169,11 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
  *
  * @returns A human-readable result or error message.
  */
-export function soloUnit(pi: ExtensionAPI, input: string): string {
+export function soloUnit(
+	pi: ExtensionAPI,
+	input: string,
+	branch: readonly SessionEntry[],
+): string {
 	const guard = checkFocusGuard(true, "solo");
 	if (guard !== null) return guard;
 
@@ -177,7 +181,7 @@ export function soloUnit(pi: ExtensionAPI, input: string): string {
 	if (!resolved.ok) return resolved.error;
 
 	// toggleAll carries the same guard — double-guarded is harmless.
-	toggleAll(pi, false);
+	toggleAll(pi, false, branch);
 
 	const registry = getRegisteredToolsets();
 	const byId = new Map(registry.map((e) => [e.spec.id, e]));

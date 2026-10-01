@@ -5,6 +5,12 @@ import { toggleAll } from "../src/groups.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
+
+/** Snapshot of the mock's session branch (for intent reads). */
+function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -122,10 +128,10 @@ describe("toggleAll", () => {
 		setupRichMock(mock, pi);
 
 		// Disable everything first
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 
 		// Now enable all
-		const msg = toggleAll(pi, true);
+		const msg = toggleAll(pi, true, branchOf(mock));
 		expect(msg).toContain("Enabled");
 
 		// Extension tools are active
@@ -141,7 +147,7 @@ describe("toggleAll", () => {
 	it("all off disables every non-builtin toolset", () => {
 		setupRichMock(mock, pi);
 
-		const msg = toggleAll(pi, false);
+		const msg = toggleAll(pi, false, branchOf(mock));
 		expect(msg).toContain("Disabled");
 
 		// Builtins remain active (platform-managed, not in tbox)
@@ -163,7 +169,7 @@ describe("toggleAll", () => {
 		const before = mock.getActiveTools();
 		expect(before).not.toContain("custom-x");
 
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 
 		const after = mock.getActiveTools();
 		expect(after).not.toContain("custom-x");
@@ -172,7 +178,7 @@ describe("toggleAll", () => {
 	it("all off leaves builtins untouched (not in registry)", () => {
 		setupRichMock(mock, pi);
 
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 
 		// Builtins are platform-managed — not in tbox's registry.
 		// toggleAll can only affect registered toolsets.
@@ -208,7 +214,7 @@ describe("all via dispatchCommand", () => {
 
 	it("dispatches all on and enables all", async () => {
 		// Disable all first
-		toggleAll(pi, false);
+		toggleAll(pi, false, branchOf(mock));
 		mock.clearUiRecords();
 
 		await mock.dispatchCommand("all on");

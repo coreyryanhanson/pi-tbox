@@ -14,6 +14,12 @@ import { setFocusUnit } from "../src/status-slot.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
+
+/** Snapshot of the mock's session branch (for intent reads). */
+function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -630,7 +636,7 @@ describe("formatStatus", () => {
 	it("prints a line per subsystem", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 
 		expect(output).toContain("portal.web");
 		expect(output).toContain("portal.learn");
@@ -646,7 +652,7 @@ describe("formatStatus", () => {
 	it("shows toolset state via ✓/✗ glyphs", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		// Tabular header and ✓ glyph for enabled toolsets (all enabled here)
 		expect(output).toMatch(/toolset\s+enabled\s+members/);
 		expect(output).toContain("\u2713");
@@ -663,14 +669,14 @@ describe("formatStatus", () => {
 		)!;
 		learnEntry.toolset.disable(pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		expect(output).toContain("\u2717");
 	});
 
 	it("does not expose builtins as a toggleable toolset", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		expect(output).not.toContain("protected");
 	});
 });

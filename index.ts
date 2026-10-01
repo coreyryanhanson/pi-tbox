@@ -78,6 +78,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			// waits for servers to connect, and runs /tbox would otherwise see
 			// the pre-MCP world until they submit a prompt. Idempotent.
 			syncMcpToolsets(pi, ctx.sessionManager.getBranch());
+			const branch = ctx.sessionManager.getBranch();
 
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -99,16 +100,16 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "status": {
-					const output = formatStatus(pi);
+					const output = formatStatus(pi, branch);
 					ctx.ui.notify(output, "info");
 					break;
 				}
 				case "all": {
 					const sub = rest[1];
 					if (sub === "on") {
-						ctx.ui.notify(toggleAll(pi, true), "info");
+						ctx.ui.notify(toggleAll(pi, true, branch), "info");
 					} else if (sub === "off") {
-						ctx.ui.notify(toggleAll(pi, false), "info");
+						ctx.ui.notify(toggleAll(pi, false, branch), "info");
 					} else {
 						ctx.ui.notify(
 							"Usage: /tbox all on | /tbox all off — enable or disable all toolsets.",
@@ -183,7 +184,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						);
 						break;
 					}
-					ctx.ui.notify(soloUnit(pi, target), "info");
+					ctx.ui.notify(soloUnit(pi, target, branch), "info");
 					break;
 				}
 				case "chars": {
@@ -217,11 +218,17 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						const toolsetId = command.slice(1);
 						const sub = rest[1];
 						if (sub === "on") {
-							ctx.ui.notify(actuateToolset(pi, toolsetId, true), "info");
+							ctx.ui.notify(
+								actuateToolset(pi, toolsetId, true, branch),
+								"info",
+							);
 						} else if (sub === "off") {
-							ctx.ui.notify(actuateToolset(pi, toolsetId, false), "info");
+							ctx.ui.notify(
+								actuateToolset(pi, toolsetId, false, branch),
+								"info",
+							);
 						} else {
-							ctx.ui.notify(describeToolset(pi, toolsetId), "info");
+							ctx.ui.notify(describeToolset(toolsetId, branch), "info");
 						}
 						break;
 					}

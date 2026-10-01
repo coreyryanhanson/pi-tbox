@@ -326,6 +326,7 @@ describe("syncMcpToolsets — idempotency", () => {
 			asPi(mock),
 			"tbox.mcp@siyuan",
 			false,
+			mock.createCommandContext().sessionManager.getBranch(),
 		);
 		expect(output).toContain("tbox.mcp@siyuan");
 	});

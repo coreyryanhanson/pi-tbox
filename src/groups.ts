@@ -19,8 +19,13 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets } from "pi-tool-masking";
+import {
+	effectiveEnabled,
+	getRegisteredToolsets,
+	readMergedToolsetDefaults,
+} from "pi-tool-masking";
 import {
 	readGroups,
 	writeGroup,
@@ -231,12 +236,23 @@ export function describeGroup(name: string): string {
 /**
  * Describe a toolset by id (for `/tbox +<toolset>` with no action).
  * Returns an error line if the toolset is not registered.
+ *
+ * State is the persisted **intent** (`effectiveEnabled`), not the live
+ * `isEnabled()` observation — an inert toolset (members hidden or an MCP
+ * server not yet connected) shows its persisted state, which is what the
+ * user toggled. Intent reads never touch the live toolset, so no `pi`.
  */
-export function describeToolset(pi: ExtensionAPI, id: string): string {
+export function describeToolset(
+	id: string,
+	branch: readonly SessionEntry[],
+): string {
 	const registry = getRegisteredToolsets();
 	const entry = registry.find((e) => e.spec.id === id);
 	if (!entry) return `No toolset "${id}".`;
-	const state = entry.toolset.isEnabled(pi) ? "enabled" : "disabled";
+	const state =
+		effectiveEnabled(entry.spec, branch, readMergedToolsetDefaults()).enabled
+			? "enabled"
+			: "disabled";
 	const toolList = [...entry.spec.names].join(", ");
 	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size === 1 ? "" : "s"} (${toolList}). State: ${state}.`;
 }
@@ -255,20 +271,66 @@ export function checkFocusGuard(enable: boolean, noun: string): string | null {
  *
  * @returns A summary message.
  */
-export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
+export function toggleAll(
+	pi: ExtensionAPI,
+	enable: boolean,
+	branch: readonly SessionEntry[],
+): string {
 	const guard = checkFocusGuard(enable, "all toolsets");
 	if (guard !== null) return guard;
 
+	// One snapshot per command — each intent read must not re-read the
+	// settings files, and the actuatable scan must not re-run, per toolset.
+	const snapshot = readMergedToolsetDefaults();
 	const toolsets = getRegisteredToolsets();
+	// Actuatable = registered and not hidden-exposure (mirrors the library's
+	// internal scan: pi's setActiveTools silently drops hidden names, so a
+	// toolset whose members are all hidden is inert — enable() over it only
+	// re-appends a duplicate branch entry).
+	const actuatable = new Set<string>();
+	for (const tool of pi.getAllTools()) {
+		if ((tool as { exposure?: string }).exposure === "hidden") continue;
+		actuatable.add(tool.name);
+	}
+	const activeSet = new Set(pi.getActiveTools());
 	let changed = 0;
 
 	for (const entry of toolsets) {
-		const wasEnabled = entry.toolset.isEnabled(pi);
+		const names = [...entry.spec.names];
+		// Persist-direction correctness comes from intent; whether a library
+		// call can change anything comes from observation. Both are needed:
+		// the library's witness gates make enable()/disable() silent no-ops
+		// at the extremes, so gating on either read alone strands state
+		// (intent-only skips the repair of a clobbered active set;
+		// observation-only drops the off on an intent-on inert toolset).
+		const intent = effectiveEnabled(entry.spec, branch, snapshot).enabled;
+		const anyActive = names.some((n) => activeSet.has(n));
 
-		if (enable && !wasEnabled) {
+		if (enable) {
+			// Skip exactly what enable() cannot improve: its only real write
+			// is adding members ∩ actuatable ∩ ¬active. When every name is
+			// already active or not actuatable (hidden, or absent because the
+			// MCP server is disconnected), that set is empty and enable()
+			// could only re-append a duplicate same-value branch entry —
+			// which is why the skip requires intent-on. Covers fully-active,
+			// fully-inert, and mixed (one member active, one hidden)
+			// toolsets; a clobbered toolset still has an actuatable inactive
+			// member and is repaired.
+			const nothingToAdd = names.every(
+				(n) => activeSet.has(n) || !actuatable.has(n),
+			);
+			if (intent && nothingToAdd) continue;
 			entry.toolset.enable(pi);
 			changed++;
-		} else if (!enable && wasEnabled) {
+		} else {
+			// Intent-on always gets the off (persisting it, even when inert —
+			// the witnessed-off gate would drop it if we skipped on observation
+			// alone). Keep an observation arm for residue: an intent-off
+			// toolset with a still-active member (mid-dispatch re-activation,
+			// another extension's setActiveTools) must still get its member
+			// removed. Skip only when intent and observation agree nothing is
+			// on.
+			if (!intent && !anyActive) continue;
 			entry.toolset.disable(pi);
 			changed++;
 		}
@@ -289,6 +351,7 @@ export function actuateToolset(
 	pi: ExtensionAPI,
 	id: string,
 	enable: boolean,
+	branch: readonly SessionEntry[],
 ): string {
 	const guard = checkFocusGuard(enable, "a toolset");
 	if (guard !== null) return guard;
@@ -297,14 +360,22 @@ export function actuateToolset(
 	const entry = registry.find((e) => e.spec.id === id);
 	if (!entry) return `No toolset "${id}".`;
 
+	// Toggle gating reads persisted intent: an intent-on inert toolset
+	// (members hidden / MCP server disconnected) must still accept "off".
+	const enabled = effectiveEnabled(
+		entry.spec,
+		branch,
+		readMergedToolsetDefaults(),
+	).enabled;
+
 	if (enable) {
-		if (entry.toolset.isEnabled(pi)) {
+		if (enabled) {
 			return `Toolset "${id}" is already enabled.`;
 		}
 		entry.toolset.enable(pi);
 		return `Enabled toolset "${id}".`;
 	}
-	if (!entry.toolset.isEnabled(pi)) {
+	if (!enabled) {
 		return `Toolset "${id}" is already disabled.`;
 	}
 	entry.toolset.disable(pi);

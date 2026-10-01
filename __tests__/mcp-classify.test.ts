@@ -28,6 +28,12 @@ import {
 	formatStatus,
 } from "../src/list.js";
 
+
+/** Snapshot of the mock's session branch (for intent reads). */
+function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -271,7 +277,7 @@ describe("formatGroupedList with MCP tools", () => {
 		syncMcpToolsets(asPi(mock), []);
 
 		expect(listCore(formatGroupedList(asPi(mock)))).toBe(
-			statusCore(formatStatus(asPi(mock))),
+			statusCore(formatStatus(asPi(mock), branchOf(mock))),
 		);
 	});
 
@@ -338,7 +344,7 @@ describe("formatGroupedList with MCP tools", () => {
 		expect(out).toContain("pi-managed (1 active");
 		expect(out).toContain("mcp__srv__deferred_tool\n");
 		expect(listCore(out)).toBe(
-			statusCore(formatStatus(asPi(mock))),
+			statusCore(formatStatus(asPi(mock), branchOf(mock))),
 		);
 	});
 });
@@ -376,7 +382,7 @@ describe("formatStatus with MCP tools", () => {
 		activateAll(mock);
 		syncMcpToolsets(asPi(mock), []);
 
-		const out = formatStatus(asPi(mock));
+		const out = formatStatus(asPi(mock), branchOf(mock));
 		// Each resource tool appears exactly once across /tbox list (names
 		// rendered); /tbox status shows counts, so assert the row math.
 		const listOut = formatGroupedList(asPi(mock));
@@ -397,7 +403,7 @@ describe("formatStatus with MCP tools", () => {
 		registerBuiltinTool(mock, "read");
 		activateAll(mock);
 
-		const out = formatStatus(asPi(mock));
+		const out = formatStatus(asPi(mock), branchOf(mock));
 		expect(out).not.toContain("pi-managed");
 	});
 

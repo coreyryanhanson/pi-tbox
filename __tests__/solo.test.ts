@@ -64,6 +64,12 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 	mock.clearUiRecords();
 }
 
+
+/** Snapshot of the mock's session branch (for intent reads). */
+function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
 describe("/tbox solo", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
@@ -87,7 +93,7 @@ describe("/tbox solo", () => {
 	it("toolset: enables target + deps, disables everything else", () => {
 		setup(pi, mock);
 
-		const result = soloUnit(pi, "+portal.web");
+		const result = soloUnit(pi, "+portal.web", branchOf(mock));
 
 		expect(result).toContain('Solo on "portal.web"');
 		const active = new Set(pi.getActiveTools());
@@ -102,7 +108,7 @@ describe("/tbox solo", () => {
 	it("stays in exclusion mode — no allowlist, no lock", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		soloUnit(pi, "+portal.web", branchOf(mock));
 
 		expect(getDefaultResolutionMode()).toBe("exclusion");
 		expect(getActiveAllowlist()).toBeUndefined();
@@ -112,7 +118,7 @@ describe("/tbox solo", () => {
 		setup(pi, mock);
 		writeGroup("web", { toolsets: ["portal.web"] }); // goes to the override, not disk
 
-		const result = soloUnit(pi, "web");
+		const result = soloUnit(pi, "web", branchOf(mock));
 
 		expect(result).toContain("group:web");
 		const active = new Set(pi.getActiveTools());
@@ -124,7 +130,7 @@ describe("/tbox solo", () => {
 	it("persists per-toolset entries so /reload replays the solo state", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		soloUnit(pi, "+portal.web", branchOf(mock));
 
 		const lastFor = (key: string) => {
 			const entries = mock.getEntries().filter((e) => e.customType === key);
@@ -143,7 +149,7 @@ describe("/tbox solo", () => {
 		setup(pi, mock);
 		focusUnit(pi, "+portal.web");
 
-		const result = soloUnit(pi, "+portal.web");
+		const result = soloUnit(pi, "+portal.web", branchOf(mock));
 
 		expect(result).toContain("focus mode");
 		// focus untouched
@@ -152,14 +158,14 @@ describe("/tbox solo", () => {
 
 	it("errors on unknown input and rejects pi.builtin", () => {
 		setup(pi, mock);
-		expect(soloUnit(pi, "nope")).toContain("No group matching");
-		expect(soloUnit(pi, "pi.builtin")).toContain("out of tbox's scope");
+		expect(soloUnit(pi, "nope", branchOf(mock))).toContain("No group matching");
+		expect(soloUnit(pi, "pi.builtin", branchOf(mock))).toContain("out of tbox's scope");
 	});
 
 	it("sets no focus glyph in the status slot", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		soloUnit(pi, "+portal.web", branchOf(mock));
 
 		const state = computeSlotState(pi);
 		// no focus glyph — solo sets no focus unit, slot shows the plain count

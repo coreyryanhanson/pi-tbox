@@ -366,7 +366,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msg = actuateToolset(pi, "portal.web", true);
+			const msg = actuateToolset(pi, "portal.web", true, branchOf(mock));
 			expect(msg).toContain("Cannot enable a toolset while in focus mode");
 			expect(msg).toContain("/tbox focus off");
 		});
@@ -375,11 +375,11 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msgOn = toggleAll(pi, true);
+			const msgOn = toggleAll(pi, true, branchOf(mock));
 			expect(msgOn).toContain("Cannot enable all toolsets while in focus mode");
 			expect(msgOn).toContain("/tbox focus off");
 
-			const msgOff = toggleAll(pi, false);
+			const msgOff = toggleAll(pi, false, branchOf(mock));
 			expect(msgOff).toContain("Cannot disable all toolsets while in focus mode");
 			expect(msgOff).toContain("/tbox focus off");
 		});
@@ -402,7 +402,7 @@ describe("/tbox focus", () => {
 			focusOff(pi, branchOf(mock));
 
 			// direct toolset actuation should now work
-			const msg = actuateToolset(pi, "portal.learn", false);
+			const msg = actuateToolset(pi, "portal.learn", false, branchOf(mock));
 			expect(msg).toContain('Disabled toolset "portal.learn"');
 		});
 	});
@@ -709,7 +709,7 @@ describe("/tbox focus", () => {
 
 			focusUnit(pi, "+portal.web");
 
-			const output = formatStatus(pi);
+			const output = formatStatus(pi, branchOf(mock));
 			expect(output).toContain("Focus: on");
 			expect(output).toContain("portal.web");
 		});
@@ -717,7 +717,7 @@ describe("/tbox focus", () => {
 		it("/tbox status shows focus off when not focused", () => {
 			setup(pi, mock);
 
-			const output = formatStatus(pi);
+			const output = formatStatus(pi, branchOf(mock));
 			expect(output).toContain("Focus: off");
 		});
 	});
