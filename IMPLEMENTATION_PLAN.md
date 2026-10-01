@@ -217,7 +217,8 @@ in `formatByGroups` (`src/list.ts:230`) needs no change: steps 1–2 claim MCP
 tools into their per-server toolset before rendering, so they never reach the
 non-toolset group.
 
-### 5. Intent vs observation per use site (`src/groups.ts`, `src/defaults.ts`)
+### 5. Intent vs observation per use site (`src/groups.ts`, `src/list.ts`,
+`src/defaults.ts`)
 
 Masking 2.0.0's inert-toolset contract splits "the toolset is on" into
 persisted *intent* (branch entry, `effectiveEnabled`) and *observation*
@@ -227,14 +228,30 @@ picks the right read:
 
 - **Display and toggle-gating read intent** —
   `effectiveEnabled(spec, branch, readMergedToolsetDefaults())`, with `branch`
-  from `ctx.sessionManager.getBranch()` inside the handler. The toggle guard
-  (`src/groups.ts:307`) currently gates on observation and refuses "off" on an
-  intent-on inert toolset; switch it to intent.
+  from `ctx.sessionManager.getBranch()` inside the handler. Six observation
+  reads of the toolset-state class switch to intent (line numbers verified in
+  current source):
+  - `src/groups.ts:301` — the "already enabled" toggle guard;
+  - `src/groups.ts:307` — the "already disabled" toggle guard, which refuses
+    "off" on an intent-on inert toolset (the motivating case);
+  - `src/groups.ts:266` — `toggleAll`'s `wasEnabled` gate: `/tbox all off` on
+    an intent-on inert toolset currently drops the off entirely (neither
+    applied nor persisted) and under-counts the summary; reading intent also
+    lets `/tbox all on` skip an already-intent-on inert toolset instead of
+    re-appending a duplicate entry;
+  - `src/groups.ts:239` — `describeToolset`'s state line;
+  - `src/list.ts:538` — the toolset glyph in `/tbox list`;
+  - `src/defaults.ts:127` — `defaults capture`, which must capture intent,
+    never a mid-session `isEnabled()` snapshot — capturing while a toolset is
+    inert would pin a temporary divergence as a permanent misconfiguration.
 - **"Is anything actually declared right now?" reads observation** —
-  `isEnabled()`. The char count (step 6) already does.
+  `isEnabled()` (and the active set directly). The char count (step 6)
+  already does, and the per-tool glyph (`src/list.ts:405`) stays
+  observational: both are declaration-sensitive surfaces, not toolset state —
+  switching them to intent would invert the rule the same way reading
+  observation for toggle-gating does today.
 - **`defaults capture` (`src/defaults.ts:127`) captures intent, never a
-  mid-session `isEnabled()` snapshot** — capturing while a toolset is inert
-  would pin a temporary divergence as a permanent misconfiguration.
+  mid-session `isEnabled()` snapshot** — see the sixth site above.
 
 ### 6. Char count: plain N + static codemode note (`src/chars.ts`)
 
