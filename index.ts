@@ -14,6 +14,7 @@ import type {
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
+	syncMcpToolsets,
 } from "./src/registry.js";
 import {
 	wireSlot,
@@ -72,6 +73,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.registerCommand("tbox", {
 		description: "Cross-extension tool manager. Usage: " + USAGE,
 		handler: async (args, ctx) => {
+			// Hook 2 — the command-path MCP re-scan. Command invocations never
+			// pass through before_agent_start, so a user who starts a session,
+			// waits for servers to connect, and runs /tbox would otherwise see
+			// the pre-MCP world until they submit a prompt. Idempotent.
+			syncMcpToolsets(pi, ctx.sessionManager.getBranch());
+
 			const trimmed = args.trim();
 			if (!trimmed) {
 				ctx.ui.notify(formatBareHelp(), "info");
@@ -247,6 +254,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	const captureAndRender = (ctx: ExtensionContext) => {
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds);
+		// MCP re-scan — idempotent. At session_start servers haven't connected
+		// yet, so this is usually a no-op; on session_tree (branch switch) and
+		// after /reload, connected servers' toolsets are synced here, and the
+		// unconditional defineToolset inside reinstalls masking's restore/re-
+		// assert handlers on a fresh pi for a registry holding only MCP toolsets.
+		syncMcpToolsets(pi, ctx.sessionManager.getBranch());
 		// SAFETY: SlotCtx is a structural subset of ExtensionContext (ui + sessionManager);
 		// every field SlotCtx reads exists on the real context.
 		lastCtx = ctx as unknown as SlotCtx;
@@ -261,7 +274,16 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		// ponytail: a pi-core TOOLSET_EVENTS emit on every setActiveTools call
 		// would make this redundant; drop this handler if that ever ships.
 		if (!rerenderWired) {
-			pi.on("before_agent_start", () => rerenderSlot(pi));
+			// Hook 1 — the per-prompt MCP re-scan + slot re-render. Fires once per
+			// prompt submission; mid-session MCP tool-list changes (list_changed
+			// notifications) fire no extension event, so this re-scan is the only
+			// observation point. Runs after masking's re-assert in the dispatch
+			// order (orphan defineToolsets above register first), so the scan's
+			// intent reconcile closes the one-prompt leak the re-assert misses.
+			pi.on("before_agent_start", (_event, ctx) => {
+				syncMcpToolsets(pi, ctx.sessionManager.getBranch());
+				rerenderSlot(pi);
+			});
 			rerenderWired = true;
 		}
 	};
