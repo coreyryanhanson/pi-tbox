@@ -7,12 +7,13 @@ Make MCP tools visible and togglable, stop miscounting them as non-togglable
 contract on live registry entries, the allowlist-aware `effectiveEnabled`
 export, and the `hidden`-exposure fix; the 2.0.0 `inclusion`-mode removal
 is a no-op here — tbox source and tests only ever set
-`"exclusion"`/`"allowlist"` (`src/focus.ts`). The one vestigial
-`setDefaultResolutionMode(pi, "inclusion")` call in
-`__tests__/registry-per-source.test.ts` is deleted: it drove nothing (the
-test's enable/disable loop acts regardless of mode) and the test passes
-unchanged without it. That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
-which is the source of truth for the API contract. MCP support cannot land before
+`"exclusion"`/`"allowlist"` (`src/focus.ts`); nothing in tbox source or tests
+ever sets `"inclusion"`, so there is nothing to delete — the library keeps
+exporting `getDefaultResolutionMode()` and existing tests compile unchanged.
+That release ships first (its changes sit on the library's
+`CHANGELOG.md` `[Unreleased]`, which — together with the JSDoc on
+`getRegisteredToolsets`/`applyToolsetEnabled` in `pi-tool-masking/index.ts` —
+is the source of truth for the API contract). MCP support cannot land before
 it, because tbox's CI clones only this repo and would otherwise resolve the old
 published library.
 
@@ -32,7 +33,8 @@ extension, so `sourceInfo.source === "builtin"` — and `isExtensionTool`
 
 This is live in the current environment: `/root/.pi/agent/mcp.json` defines
 `siyuan` with `exposure: "direct"`, so ~29 `mcp__siyuan__*` tools are declared to
-the model on every request. `/tbox list` shows none of them.
+the model on every request. `/tbox list` shows them only as generic rows under
+the `pi.builtin` group, with no way to toggle them.
 
 Codemode is *not* the trigger here — it is not enabled locally. But under
 codemode the char count would misreport in a second way, so this release fixes
@@ -66,7 +68,8 @@ Out (decided non-goals):
   `list_mcp_resource_templates`, and `read_mcp_resource` are registered by the
   builtin mcp extension with no `namespace` and an exposure derived from the
   widest resources-capable server (`syncResourceTools`,
-  `extensions/mcp/index.ts:437-455`), so there is no per-server owner to attach
+  `extensions/mcp/resources.ts:256-311`, exposure at
+  `extensions/mcp/index.ts:412-437`), so there is no per-server owner to attach
   them to and no stable detection hook short of hardcoding the names. They are
   not detected, not grouped, and stay in the `core` bucket — still counted
   accurately in the char total, and visible by name under `pi.builtin` in
@@ -83,8 +86,8 @@ An MCP toolset's members are the server's tools whose `exposure` is declarable
 Why this is the right default rather than a boolean over the whole server:
 
 - `direct` MCP tools are activated by pi at registration (declarable exposure
-  and no `defaultActive`, so `_isActivatedOnRegistration` is true,
-  `agent-session.ts:3511-3518`). The set is therefore **homogeneous**
+  and no `defaultActive`, so `_isActivatedOnRegistration` is true —
+  `packages/coding-agent/src/core/agent-session.ts:3522-3531`). The set is therefore **homogeneous**
   and `defaultEnabled: true` unions already-active members — a no-op. Nothing can
   be force-declared, so no library default change is needed.
 - The alternative — one toolset over the whole server — cannot express the mixed
@@ -154,7 +157,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   re-scan too. This is the only mechanism that can observe mid-session
   membership changes: MCP tool-list changes arrive as the
   `notifications/tools/list_changed` notification
-  (`extensions/mcp/runtime.ts:375-376`), which pi handles by re-registering
+  (`extensions/mcp/runtime.ts:384-386`), which pi handles by re-registering
   tools internally — no extension event fires, so there is nothing else to
   subscribe to. It cannot catch turn-1 tools: builtin extensions load after
   user extensions (`package-manager.ts` appends `builtin:*` last), so within
@@ -166,9 +169,9 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   lag one turn.
 - **Optional prompt — `pi.on("mcp_servers_change", ...)`.** This event fires
   only when an extension calls `registerMcpServer`/`unregisterMcpServer`
-  (`extensions/runner.ts:457-459`); it never fires for mcp.json servers,
+  (`core/extensions/runner.ts:455-460`); it never fires for mcp.json servers,
   whose config the builtin extension loads directly
-  (`extensions/mcp/index.ts:791-802`). It is therefore useless for the
+  (`extensions/mcp/index.ts:951` and `:1173-1175`). It is therefore useless for the
   motivating mcp.json case; add it only if prompt re-renders for
   extension-registered servers are wanted. Default: skip it (registering it
   on older pi is harmless — the event never fires — but it adds a handler
@@ -205,7 +208,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   declared toolset's `spec.names` can be affected.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
-  `extensions/mcp/index.ts:272-285`), write the empty set and keep the toolset.
+  `extensions/mcp/index.ts:394-397`, `hideTools` at `:402-408`), write the empty set and keep the toolset.
   No special-casing — the `tbox.mcp@<server> (0 members)` row is a useful
   connectivity/toggle-state diagnostic, prior toggle intent survives the
   emptying (resolution reads `spec.id`, not members) and reapplies if the
@@ -219,7 +222,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
 ### 4. Togglable classification (`src/chars.ts`, `src/list.ts`)
 
 MCP tools are togglable, so every classification site must treat them as such.
-Introduce one shared predicate and use it at all three sites:
+Introduce one shared predicate and use it at all four classification sites:
 
 ```ts
 export function isTogglableTool(tool: ToolInfo): boolean {
@@ -244,7 +247,7 @@ export function isTogglableTool(tool: ToolInfo): boolean {
 
 Keep `isExtensionTool` unchanged for callers that need the old meaning
 (`autoRegisterBuiltinAndOrphans`, the registry scan). The builtin-group branch
-in `formatByGroups` (`src/list.ts:230`) needs no change: steps 1–2 claim MCP
+in `formatGroupedList` (`src/list.ts:230`) needs no change: steps 1–2 claim MCP
 tools into their per-server toolset before rendering, so they never reach the
 non-toolset group.
 
@@ -275,6 +278,16 @@ picks the right read:
   - `src/defaults.ts:127` — `defaults capture`, which must capture intent,
     never a mid-session `isEnabled()` snapshot — capturing while a toolset is
     inert would pin a temporary divergence as a permanent misconfiguration.
+
+  Plumbing: `effectiveEnabled` is the only intent read on the library's
+  exported surface — there is no branch-free variant — so `branch` must reach
+  functions that today take only `pi`: `describeToolset`, `toggleAll`,
+  `actuateToolset` (`src/groups.ts`), `formatStatus`/`formatGroupedList`
+  (`src/list.ts`), and `handleDefaults` (`src/defaults.ts`). The pattern
+  already exists (`focusOff(pi, ctx.sessionManager.getBranch())` in
+  `index.ts`) and `MockPI` exposes `getBranch`, so it is mechanical — but it
+  touches every call site and several tests. All six sites consume `.enabled`
+  off the `{enabled, persistedEntry}` return, not the object itself.
 - **"Is anything actually declared right now?" reads observation** —
   `isEnabled()` (and the active set directly). The char count (step 6)
   already does, and the per-tool glyph (`src/list.ts:405`) stays
