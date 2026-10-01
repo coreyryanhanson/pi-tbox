@@ -22,7 +22,6 @@ import {
 } from "../src/registry.js";
 import {
 	getRegisteredToolsets,
-	setDefaultResolutionMode,
 } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
@@ -385,8 +384,6 @@ describe("focus granularity with per-source toolsets", () => {
 
 		const allowlist = new Set([orphanToolsetId("pi-lens")]);
 
-		setDefaultResolutionMode(pi, "inclusion");
-
 		for (const entry of getRegisteredToolsets()) {
 			if (allowlist.has(entry.spec.id)) {
 				entry.toolset.enable(pi);
@@ -408,9 +405,6 @@ describe("focus granularity with per-source toolsets", () => {
 
 		// Builtins are platform-managed — outside tbox's registry.
 		// (In a real Pi session they remain active independently.)
-
-		// Cleanup
-		setDefaultResolutionMode(pi, "exclusion");
 	});
 });
 
