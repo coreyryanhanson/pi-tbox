@@ -161,6 +161,14 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   handle goes stale and no actuate/persist/emit fires, which is fine here
   because our members are all pi-activated-on-registration `direct`/`model-only`
   tools). Delta-gate on set inequality so an unchanged scan does nothing.
+  The mutation site asserts the entry is tbox-managed before writing —
+  `spec.id` starts with `tbox.mcp@` or `tbox.tool@` — so a future regression
+  that broadens the lookup into a registry-wide scan fails loudly instead of
+  silently mutating a foreign declared toolset. Beyond the tripwire, declared
+  toolsets are protected by construction: the re-scan looks entries up by ids
+  tbox itself generated (never reachable for a foreign id), and masking's
+  name-overlap guard keeps MCP tools out of any declared toolset, so no
+  declared toolset's `spec.names` can be affected.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
   `extensions/mcp/index.ts:272-285`), write the empty set and keep the toolset.
@@ -269,7 +277,10 @@ Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
 a server draining to zero declarable members (empty-set write keeps the
 toolset, registry entry stays live and toggles persist intent);
-the re-scan being idempotent; the `core`/`extension` split with MCP tools; `activeExtensionChars` including
+the re-scan being idempotent; a foreign declared toolset (id with no `tbox.`
+prefix) registered before the re-scan having its `spec.names` byte-identical
+afterward (the managed-prefix tripwire guards the one mutation site);
+the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
 `mcp__*` tools; the
