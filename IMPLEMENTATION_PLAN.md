@@ -287,7 +287,11 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   be deterministic (omit `description`, as the orphan-toolset builder already
   does) or deep-equality fails. Delta-gate the `spec.names` write on set
   inequality so an unchanged scan performs no mutation; the `defineToolset`
-  call itself is unconditional and cheap.
+  call itself is unconditional and cheap. The freshly built spec always
+  carries the entry's *post-gate* member set — the synced names when the
+  write fired, the existing names when it was skipped (unchanged scan or
+  drain-to-zero) — so in every skipped case the spec is still deep-equal and
+  the unconditional call still takes the idempotent branch.
   **Reconcile after the mutation.** The no-actuate trade is not free in one
   direction: pi computes `previousActivatedOnRegistration` from the pre-refresh
   `_toolDefinitions` (`agent-session.ts:3425-3427`, assigned at 3459), so a
@@ -736,8 +740,11 @@ connect or the real provider-side declaration effect.
   introduces). Step 5 assigns the right read per site; the failure it prevents
   is an observation-gated toggle guard refusing "off" on an intent-on inert
   toolset (`src/groups.ts` does this today).
-- **Name overlap** — the masking guard means each tool can belong to one toolset;
-  MCP tools are claimed only by their per-server toolset.
+- **Name overlap** — masking's guard means each tool can belong to one toolset;
+  MCP tools are claimed only by their per-server toolset, and a name
+  pre-claimed by a foreign toolset is subtracted from MCP membership (step
+  2) — the guard never fires at scan time, and the tool is left ungrouped
+  but still classified and counted (step 4).
 - **Codemode stays untested live** — codemode is not enabled in this environment;
   its paths are unit-tested only unless a QA pass enables it.
 - **Resource-tool detection is upstream-coupled, but structurally** —
