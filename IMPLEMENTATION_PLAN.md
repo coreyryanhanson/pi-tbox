@@ -6,8 +6,12 @@ Make MCP tools visible and togglable, stop miscounting them as non-togglable
 **Depends on `pi-tool-masking@^2.0.0`** (the runtime-membership raw-mutation
 contract on live registry entries, the allowlist-aware `effectiveEnabled`
 export, and the `hidden`-exposure fix; the 2.0.0 `inclusion`-mode removal
-is a no-op here — tbox only ever sets `"exclusion"`/`"allowlist"`,
-`src/focus.ts`). That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
+is a no-op here — tbox source and tests only ever set
+`"exclusion"`/`"allowlist"` (`src/focus.ts`). The one vestigial
+`setDefaultResolutionMode(pi, "inclusion")` call in
+`__tests__/registry-per-source.test.ts` is deleted: it drove nothing (the
+test's enable/disable loop acts regardless of mode) and the test passes
+unchanged without it. That release ships first — see `pi-tool-masking/IMPLEMENTATION_PLAN.md`,
 which is the source of truth for the API contract. MCP support cannot land before
 it, because tbox's CI clones only this repo and would otherwise resolve the old
 published library.
