@@ -75,7 +75,9 @@ Why this is the right default rather than a boolean over the whole server:
 - "off" for a `direct` tool is a real off: an inactive `direct` tool is neither
   declared nor callable.
 - A server with **no** declarable members (the `codemode` default) gets no
-  toolset at all — it has nothing tbox can meaningfully toggle.
+  toolset at all — it has nothing tbox can meaningfully toggle. This applies to
+  creation only: an **existing** toolset whose set drains to zero stays (see
+  step 3).
 
 ## Steps
 
@@ -159,6 +161,14 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   handle goes stale and no actuate/persist/emit fires, which is fine here
   because our members are all pi-activated-on-registration `direct`/`model-only`
   tools). Delta-gate on set inequality so an unchanged scan does nothing.
+  This includes the drain-to-zero case: when every member is re-registered
+  `hidden` (pi does this for dropped/disabled MCP tools,
+  `extensions/mcp/index.ts:272-285`), write the empty set and keep the toolset.
+  No special-casing — the `tbox.mcp@<server> (0 members)` row is a useful
+  connectivity/toggle-state diagnostic, a toggle on it persists intent that
+  correctly reapplies if the tools return, and masking has nothing to mask
+  with zero members. The empty-set write must not throw or corrupt the live
+  registry entry.
 - Look handles up via `getRegisteredToolsets()` by id rather than caching them,
   so nothing goes stale across `/reload`.
 - Registering the event handler on older pi is harmless: the event never fires.
@@ -257,6 +267,8 @@ active `direct` declarations are hidden. So:
 Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
+a server draining to zero declarable members (empty-set write keeps the
+toolset, registry entry stays live and toggles persist intent);
 the re-scan being idempotent; the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
