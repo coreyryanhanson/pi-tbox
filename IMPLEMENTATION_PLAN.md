@@ -115,20 +115,15 @@ export function isMcpTool(tool: ToolInfo): boolean {
 }
 ```
 
-Read `exposure` defensively so the code also runs on pre-0.99 pi, where the
-field doesn't exist (step 8 removes the `^0.84.4` types pin). No `namespace`
-fallback is needed: pi sets `namespace` on every MCP tool it registers
+Read `exposure` defensively — a plain `string` cast, not the 0.99-only
+`ToolExposure` type — so the code also runs on pre-0.99 pi, where the field
+doesn't exist (step 8 removes the `^0.84.4` types pin). No `namespace` fallback
+is needed: pi sets `namespace` on every MCP tool it registers
 (`extensions/mcp/index.ts:353-357` → `extensions/mcp/tools.ts:276`), so a
 `sourceInfo.path === "builtin:mcp"` fallback could only fire in a pre-0.99
-world where MCP does not exist — dead code, skipped.
-
-```ts
-const exposure = (tool as { exposure?: ToolExposure }).exposure;
-```
-
-Capability detection, not a version check: a missing `exposure` is treated as
-`direct` (pi's default), and a missing `namespace` means "not an MCP tool". This
-keeps pre-0.99 pi working, where MCP does not exist.
+world where MCP does not exist — dead code, skipped. Capability detection, not
+a version check: a missing `exposure` is treated as `direct` (pi's default),
+and a missing `namespace` means "not an MCP tool".
 
 Alongside it, one shared predicate for *declarable* MCP tools — the single
 source of truth for which MCP tools tbox can meaningfully manage. Every MCP
@@ -244,7 +239,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   at the top of the command dispatch, where `pi` and `ctx` are both in
   scope. This makes every command surface — and the live-QA steps below —
   deterministic instead of prompt-timing dependent.
-- **Optional prompt — `pi.on("mcp_servers_change", ...)`.** This event fires
+- **Optional hook — `pi.on("mcp_servers_change", ...)`.** This event fires
   only when an extension calls `registerMcpServer`/`unregisterMcpServer`
   (`core/extensions/runner.ts:455-460`); it never fires for mcp.json servers,
   whose config the builtin extension loads directly
@@ -553,8 +548,8 @@ active `direct` declarations are hidden. So:
   sync check when `package.json` says `^2.0.0` but the lock still points at
   the old version. Commit `package.json` and both lock locations (the root
   `dependencies` entry and the `node_modules/pi-tool-masking` entry), verify
-  with a local `npm ci`, then **commit** — `release.mjs` aborts on a dirty
-  tree.
+  with a local `npm ci`. Commit everything in one change — `release.mjs`
+  aborts on a dirty tree.
 - CHANGELOG: draft the `[Unreleased]` entries only — `release.mjs` promotes
   that heading to the version itself, so do not pre-rename it. Then
   `npm run release:minor`.
@@ -585,7 +580,7 @@ never in `n masked`);
 the create-path reconcile (a toolset created mid-session for an intent-off
 server is applied off in the same prompt, not the next; an intent-on server's
 toolset still actuates normally);
-the re-scan being idempotent; a foreign declared toolset (any id that is not
+a foreign declared toolset (any id that is not
 `tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
 the re-scan having its `spec.names` byte-identical
 afterward (the managed-prefix tripwire guards the one mutation site);
@@ -597,10 +592,10 @@ toggled off raises the slot's `n masked`); the
 static codemode note (present when codemode is active, absent otherwise);
 the `codemode` tool itself counted as a plain builtin — `core:` agrees between
 `/tbox status` (`computeCharCount`) and `/tbox list`'s footer, with no exclusion
-divergence; graceful degradation when `exposure`/`namespace` are absent; the step-5 intent
-fixes (the toggle guard honors "off" on an intent-on inert toolset;
-`defaults capture` persists intent, never a mid-session `isEnabled()`
-snapshot).
+divergence); graceful degradation when `exposure`/`namespace` are absent; the
+step-5 intent fixes (the toggle guard honors "off" on an intent-on inert
+toolset; `defaults capture` persists intent, never a mid-session
+`isEnabled()` snapshot).
 
 `npm test` and `npm run typecheck` (typecheck runs in CI before tests).
 
@@ -658,8 +653,9 @@ connect or the real provider-side declaration effect.
   re-scan re-`defineToolset`s an existing id, which it must not). One leak the
   mutation alone leaves: pi re-activates a reappearing declarable tool
   (`previousActivatedOnRegistration` is computed from pre-refresh definitions,
-  and masking's re-assert runs before tbox's mutation in the same turn), so a
-  newcomer to an intent-off toolset is declared for one prompt — the
+  and masking's re-assert runs before tbox's mutation in the same prompt
+  dispatch), so a newcomer to an intent-off toolset is declared for one prompt
+  — the
   post-mutation `applyToolsetEnabled` reconcile (step 3) closes it.
 - **Focus/allowlist captured before MCP toolsets existed** — the new toolset ids
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
