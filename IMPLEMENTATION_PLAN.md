@@ -203,8 +203,11 @@ registered:
 - Toolset id `tbox.mcp@<server>` (namespace name minus the `mcp__` prefix),
   label `mcp__<server>`, persistKey `toolset-state:tbox.mcp@<server>`,
   `defaultEnabled: true`.
-- Return newly-registered ids so the caller can actuate them via the existing
-  `actuateNewToolsets` helper.
+- Do **not** return newly-registered ids for actuation via `actuateNewToolsets`:
+  its resolution falls back to `getEffectiveDefault` (branch-unaware), which
+  is exactly why step 3 has the caller resolve intent itself through the
+  branch-aware `effectiveEnabled` + `applyToolsetEnabled` reconcile. The
+  helper keeps earning its keep only for non-MCP orphans.
 
 Also make the orphan scan skip MCP tools **explicitly** (they are currently
 excluded only as a side effect of the source check), so a future change to
@@ -491,7 +494,7 @@ picks the right read:
     lets `/tbox all on` skip an already-intent-on inert toolset instead of
     re-appending a duplicate entry;
   - `src/groups.ts:239` — `describeToolset`'s state line;
-  - `src/list.ts:538` — the toolset glyph in `/tbox list`;
+  - `src/list.ts:538` — the toolset glyph in `/tbox status`;
   - `src/defaults.ts:127` — `defaults save`, which must capture intent,
     never a mid-session `isEnabled()` snapshot — capturing while a toolset is
     inert would pin a temporary divergence as a permanent misconfiguration.
