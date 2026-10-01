@@ -68,10 +68,9 @@ Out (decided non-goals):
   (`syncResourceTools`, `extensions/mcp/index.ts:426-439`: `direct` when any
   such server is direct, else `codemode`, else `deferred`, and `hidden` when
   none has resources), so there is no per-server owner to attach them to and
-  no stable detection hook short of hardcoding the names. They are therefore
+  no name-based detection hook worth coupling to. They are therefore
   classified as **builtins, not toolset members** — the same read-only bucket
-  as builtin/`sdk` tools: the names are the only hardcoded part (a
-  `MCP_RESOURCE_TOOL_NAMES` set, step 1); everything else — whether they show
+  as builtin/`sdk` tools: detection is structural, no names hardcoded (step 1); everything else — whether they show
   in the builtin row or nowhere — is observed dynamically from the live tool
   list at render time (step 4). They are never togglable, never join a
   toolset, and their reachability is managed by pi's `/mcp` surface. Upgrade
@@ -82,7 +81,7 @@ Out (decided non-goals):
 
 An MCP toolset's members are the server's tools whose `exposure` is declarable
 (`direct`). Everything else is excluded. `McpExposure` is fixed upstream at
-`codemode | deferred | direct | hidden` (`core/mcp-servers.ts:16`) and
+`codemode | deferred | direct | hidden` (`core/mcp-servers.ts:17`) and
 `toToolExposure` maps `codemode` → `deferred`, so `direct` is the only
 declarable exposure an MCP tool can arrive with.
 
@@ -138,21 +137,18 @@ export function isDeclarableMcpTool(tool: ToolInfo): boolean {
 }
 ```
 
-The three shared resource tools get one hardcoded constant — their bare names,
-no `mcp__` prefix (`resources.ts:34-35`, `tools.ts:50`) — because they have no
-namespace and no per-server owner to derive grouping from:
+The three shared resource tools (`resources.ts:34-35`, `tools.ts:50`) are
+identified structurally, not by name: inside the builtin mcp extension they
+are the only namespace-less tools (per-server tools always carry a namespace,
+`extensions/mcp/index.ts:353-357`), so the path gate plus namespace-lessness
+matches exactly that set with no name coupling — a rename upstream cannot
+break detection:
 
 ```ts
-export const MCP_RESOURCE_TOOL_NAMES = new Set([
-	"list_mcp_resources",
-	"list_mcp_resource_templates",
-	"read_mcp_resource",
-]);
-
 export function isMcpResourceTool(tool: ToolInfo): boolean {
 	return (
 		tool.sourceInfo?.path === "builtin:mcp" &&
-		MCP_RESOURCE_TOOL_NAMES.has(tool.name)
+		tool.namespace === undefined
 	);
 }
 ```
@@ -161,10 +157,10 @@ Note `isMcpResourceTool` deliberately does **not** go through `isMcpTool`:
 these tools carry no `namespace`, so `isMcpTool` is false for them — which is
 exactly what makes them classify as builtins for free (`isDeclarableMcpTool`
 returns false, so the togglable predicate of step 4 never picks them up).
-The `builtin:mcp` path gate keeps a same-named tool registered by any other
-extension out of the resource-tool classification; only names registered by
+The `builtin:mcp` path gate keeps a namespace-less tool from any other
+extension out of the resource-tool classification; only tools registered by
 the extension that owns them match.
-Only the names are hardcoded; their state is never cached — every surface
+Their state is never cached — every surface
 observes `exposure` and the active set live at render time (step 4). They are
 never togglable and never join a toolset.
 
@@ -189,7 +185,14 @@ bogus `tbox.tool@builtin` orphan toolset.
 Add `registerMcpToolsets(pi): string[]`, called from the same place orphans are
 registered:
 
-- Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`).
+- Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`). Server names
+  differing only by `-` and `_` collapse into one namespace: upstream's
+  `mcpNamespace` maps `-` → `_` (`core/mcp-servers.ts:114-116`) while
+  `SERVER_NAME` allows both (`:111`), so `a-b` and `a_b` share the namespace
+  `mcp__a_b` and hence one toolset id `tbox.mcp@a_b` covering both servers —
+  a toggle hits both. Correct-by-construction (upstream already treats them
+  as one codemode namespace); stated here so it is a decision, not an
+  accident.
 - Members = tools passing `isDeclarableMcpTool` (`exposure ?? "direct"`), minus
   the names already claimed by other registered toolsets (collected from
   `getRegisteredToolsets()`; masking's name-overlap guard *throws* at
@@ -223,7 +226,8 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   (`extensions/mcp/runtime.ts:384-386`), which pi handles by re-registering
   tools internally — no extension event fires, so there is nothing else to
   subscribe to. The handler currently drops its arguments
-  (`pi.on("before_agent_start", () => rerenderSlot(pi))`, `index.ts:229`) and
+  (`pi.on("before_agent_start", () => rerenderSlot(pi))`, `index.ts:264`,
+  inside `captureAndRender` at `index.ts:247`) and
   must take `(event, ctx)` — step 5 needs the branch there anyway. It cannot
   catch first-prompt tools: builtin extensions load after
   user extensions (`package-manager.ts` appends `builtin:*` last), so within
@@ -234,7 +238,8 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   activated by pi on registration regardless); only the status listing can
   lag one prompt.
 - **Hook 2 — the `/tbox` command path.** Command invocations never pass
-  through `before_agent_start`, and the command handler (`index.ts:57-205`)
+  through `before_agent_start`, and the command handler (`index.ts:74-243`,
+  dispatch switch at `:88`, `default:` at `:207`)
   never re-scans — so a user who starts a session, waits for the server to
   connect, and runs `/tbox list` sees the pre-MCP world, and
   `/tbox +mcp__siyuan off` answers `No toolset "mcp__siyuan"` until they
@@ -244,7 +249,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   deterministic instead of prompt-timing dependent.
 - **Optional hook — `pi.on("mcp_servers_change", ...)`.** This event fires
   only when an extension calls `registerMcpServer`/`unregisterMcpServer`
-  (`core/extensions/runner.ts:455-460`); it never fires for mcp.json servers,
+  (`core/extensions/runner.ts:457-460`); it never fires for mcp.json servers,
   whose config the builtin extension loads directly
   (`extensions/mcp/index.ts:951` and `:1173-1175`). It is therefore useless for the
   motivating mcp.json case; add it only if prompt re-renders for
@@ -387,7 +392,8 @@ there by design; the togglable predicate wants only the declarable subset.)
   so a deferred/hidden phase (all resource-bearing servers non-direct, or
   none connected) does not list unreachable tools in the row. The row's counts
   derive from the active set, so a gated-out tool contributes no chars and no
-  active count either; nothing is hardcoded beyond the names.
+  active count either; nothing is hardcoded anywhere (detection is structural,
+  step 1).
 
 Keep `isExtensionTool` unchanged for callers that need the old meaning
 (`autoRegisterBuiltinAndOrphans`, the registry scan). The builtin-group branch
@@ -422,12 +428,14 @@ picks the right read:
     re-appending a duplicate entry;
   - `src/groups.ts:239` — `describeToolset`'s state line;
   - `src/list.ts:538` — the toolset glyph in `/tbox list`;
-  - `src/defaults.ts:127` — `defaults capture`, which must capture intent,
+  - `src/defaults.ts:127` — `defaults save`, which must capture intent,
     never a mid-session `isEnabled()` snapshot — capturing while a toolset is
     inert would pin a temporary divergence as a permanent misconfiguration.
 
-  Plumbing: `effectiveEnabled` is the only intent read on the library's
-  exported surface — there is no branch-free variant — so `branch` must reach
+  Plumbing: the only branch-aware intent read on the library's exported
+  surface is `effectiveEnabled` (`getEffectiveDefault(spec, snapshot)` is
+  exported and branch-free, but it skips the chat-branch tier, so it is not a
+  substitute at these sites) — so `branch` must reach
   functions that today take only `pi`: `describeToolset`, `toggleAll`,
   `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`), and
   `handleDefaults` (`src/defaults.ts`). Threading `toggleAll` forces the same
@@ -439,7 +447,12 @@ picks the right read:
   already exists (`focusOff(pi, ctx.sessionManager.getBranch())` in
   `index.ts`) and `MockPI` exposes `getBranch`, so it is mechanical — but it
   touches every call site and several tests. All six sites consume `.enabled`
-  off the `{enabled, persistedEntry}` return, not the object itself.
+  off the `{enabled, persistedEntry}` return, not the object itself. Hoist
+  the snapshot: sites that loop over the registry (`toggleAll`,
+  `formatStatus`) must read `readMergedToolsetDefaults()` (and the branch)
+  once per command, not once per toolset — otherwise each intent read costs
+  two file reads × N toolsets. The pattern exists
+  (`registry.ts:176-180`, `focus.ts:213`).
 - **"Is anything actually declared right now?" reads observation** —
   `isEnabled()` (and the active set directly). The char count (step 6)
   already does, and the per-tool glyph (`src/list.ts:405`) stays
@@ -493,7 +506,10 @@ active `direct` declarations are hidden. So:
 - When `getActiveTools()` includes `codemode`, append one static note: codemode
   rewrites declarations at request time; the catalog is budgeted by
   `codemode.inlineBudget` (default 3000 est. tokens) and every declared
-  callable gains a signature line.
+  callable gains a signature line. The note renders in both char surfaces:
+  appended to `formatStatus`'s char line, and as a footer line in
+  `formatByChars` (the `/tbox chars` view — the surface a user opens with
+  exactly this question; it has no free-form footer today, so one is added).
 - Do **not** print a hardcoded numeric range: the bounds track pi's codemode
   rendering, so a printed range would rot silently on a pi update. Citing the
   budget names the bound instead of guessing it.
@@ -600,7 +616,8 @@ and stay out of `activeExtensionChars`);
 the resource tools classifying as builtins (present in the `core` bucket and
 the `pi.builtin` rows of both views only while `exposure === "direct"`, absent
 from both once it drops to `deferred`/`hidden`, never in any toolset row and
-never in `n masked`);
+never in `n masked`); the same exposure gate in `formatGroupedList`'s
+builtin branch, so the two views agree by construction;
 the create-path reconcile (a toolset created mid-session for an intent-off
 server is applied off in the same prompt, not the next; an intent-on server's
 toolset still actuates normally);
@@ -614,6 +631,10 @@ MCP toolset is not re-declared on registration — exercised by running the
 scan again against a new MockPI); the overlap path (a foreign toolset
 pre-claiming an `mcp__*` name: that name is excluded from MCP membership,
 `defineToolset` does not throw, the re-scan and `rerenderSlot` still run);
+the zero-extension-toolset handler-order case (masking registers its
+`before_agent_start` handler only via `defineToolset`, so with a registry
+holding only MCP toolsets the re-assert can run after tbox's scan — verify
+the reconcile outcome is identical either way, as step 3 reasons);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
@@ -624,7 +645,7 @@ the `codemode` tool itself counted as a plain builtin — `core:` agrees between
 `/tbox status` (`computeCharCount`) and `/tbox list`'s footer, with no exclusion
 divergence); graceful degradation when `exposure`/`namespace` are absent; the
 step-5 intent fixes (the toggle guard honors "off" on an intent-on inert
-toolset; `defaults capture` persists intent, never a mid-session
+toolset; `defaults save` persists intent, never a mid-session
 `isEnabled()` snapshot).
 
 `npm test` and `npm run typecheck` (typecheck runs in CI before tests).
@@ -719,9 +740,11 @@ connect or the real provider-side declaration effect.
   MCP tools are claimed only by their per-server toolset.
 - **Codemode stays untested live** — codemode is not enabled in this environment;
   its paths are unit-tested only unless a QA pass enables it.
-- **Resource-tool names are upstream-coupled** — detection is by exact bare
-  name (`resources.ts:34-35`, `tools.ts:50`). A rename upstream would at worst
-  leave a deferred-phase resource tool listed in the builtin rows (the
-  exposure gate misses it; cosmetic, one row). Toolsets, toggling, and counts
-  are unaffected, since the tools never matched the MCP predicate in the first
-  place.
+- **Resource-tool detection is upstream-coupled, but structurally** —
+  detection is `path === "builtin:mcp" && namespace === undefined` (step 1),
+  not names. If upstream ever namespaces the resource tools, they fall into
+  the per-server machinery for free (the stated upgrade path). The residual
+  coupling runs the other way: if upstream ever adds another namespace-less
+  tool to the mcp extension, it would join the builtin-row classification
+  (cosmetic; toolsets, toggling, and counts are unaffected, since it never
+  matched the MCP predicate in the first place).
