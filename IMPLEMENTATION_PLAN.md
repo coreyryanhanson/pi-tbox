@@ -18,8 +18,11 @@ extension, so `sourceInfo.source === "builtin"` — and `isExtensionTool`
 
 - MCP tools are never registered as toolsets: they cannot be listed, grouped,
   focused, or toggled, even though they are ordinary togglable tools.
-- `computeCharCount` classifies them as `core` ("non-togglable floor"), so the
-  status line mislabels them.
+- Three surfaces classify togglability via `isExtensionTool`, which is false for
+  MCP tools: `computeCharCount` (`src/chars.ts`) counts them as `core`
+  ("non-togglable floor"), `activeExtensionChars` (`src/list.ts`) drops them
+  from char totals, and `formatStatus`'s `pi.builtin` row lists and counts them
+  as builtin.
 
 This is live in the current environment: `/root/.pi/agent/mcp.json` defines
 `siyuan` with `exposure: "direct"`, so ~29 `mcp__siyuan__*` tools are declared to
@@ -36,6 +39,9 @@ In:
 - One toolset per MCP server, containing only its **declarable** tools.
 - Re-scan when MCP membership changes.
 - Char-count bucket classification and the static codemode overhead note.
+- The shared togglable predicate applied at every classification site —
+  `computeCharCount` (`src/chars.ts`), `activeExtensionChars` and
+  `formatStatus`'s builtin row (`src/list.ts`) — not just the first.
 - README caveats.
 - Dependency bump and release guarding.
 
@@ -157,15 +163,33 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   so nothing goes stale across `/reload`.
 - Registering the event handler on older pi is harmless: the event never fires.
 
-### 4. Bucket fix (`src/chars.ts`)
+### 4. Togglable classification (`src/chars.ts`, `src/list.ts`)
 
-MCP tools are togglable, so they must not be counted as `core`.
+MCP tools are togglable, so every classification site must treat them as such.
+Introduce one shared predicate and use it at all three sites:
 
-- `core` = tools that are neither extension tools nor MCP tools
-  (`builtin`/`sdk` that are not MCP).
-- `extension` = `isExtensionTool(tool) || isMcpTool(tool)`.
+```ts
+export function isTogglableTool(tool: ToolInfo): boolean {
+	return isExtensionTool(tool) || isMcpTool(tool);
+}
+```
 
-Keep `isExtensionTool` unchanged for callers that need the old meaning.
+- `computeCharCount` (`src/chars.ts`): `core` = tools that are not togglable
+  (`builtin`/`sdk` that are not MCP); `extension` = `isTogglableTool`.
+- `activeExtensionChars` (`src/list.ts:77`): replace the
+  `if (!isExtensionTool(tool)) continue;` skip with `isTogglableTool` —
+  otherwise an all-MCP toolset renders `+0 chars` and `formatByChars`'s
+  `charCount === 0` skip (`src/list.ts:324`) drops it entirely, leaving the
+  context cost this release exists to expose invisible.
+- `formatStatus` (`src/list.ts:546`): the `pi.builtin` row filters
+  `source === "builtin"`, which now includes every `mcp__*` tool; exclude MCP
+  tools (`!isMcpTool(t)`) so they appear only under their own toolset row.
+
+Keep `isExtensionTool` unchanged for callers that need the old meaning
+(`autoRegisterBuiltinAndOrphans`, the registry scan). The builtin-group branch
+in `formatByGroups` (`src/list.ts:230`) needs no change: steps 1–2 claim MCP
+tools into their per-server toolset before rendering, so they never reach the
+non-toolset group.
 
 ### 5. Char count: plain N + static codemode note (`src/chars.ts`)
 
@@ -233,7 +257,10 @@ active `direct` declarations are hidden. So:
 Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
-the re-scan being idempotent; the `core`/`extension` split with MCP tools; the
+the re-scan being idempotent; the `core`/`extension` split with MCP tools; `activeExtensionChars` including
+MCP tools in the char total (a fully-active MCP toolset survives
+`formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
+`mcp__*` tools; the
 static codemode note (present when codemode is active, absent otherwise);
 graceful degradation when `exposure`/`namespace` are absent.
 
@@ -244,9 +271,13 @@ Live QA against the real `siyuan` server:
 1. `/tbox list` shows a `mcp__siyuan` toolset with ~29 members.
 2. Toggling it off removes those tools from the active/declared set and drops the
    extension count; toggling it back on restores them.
-3. The char count no longer counts them as `core`.
+3. The char count no longer counts them as `core`, and `/tbox chars` shows a
+   non-zero char total for the `mcp__siyuan` toolset (not dropped by the
+   zero-char skip).
 4. With `"defaultTools": ["+codemode"]`, the count is followed by the static
    codemode note, with no `≥` qualifier.
+5. `/tbox status` lists the MCP tools under `mcp__siyuan`, not in the
+   `pi.builtin` row.
 
 The live server is the end-to-end criterion; the mock cannot exercise the async
 connect or the real provider-side declaration effect.
