@@ -90,7 +90,7 @@ Why this is the right default rather than a boolean over the whole server:
 
 - `direct` MCP tools are activated by pi at registration (declarable exposure
   and no `defaultActive`, so `_isActivatedOnRegistration` is true —
-  `packages/coding-agent/src/core/agent-session.ts:3522-3531`). The set is therefore **homogeneous**
+  (`agent-session.ts:3522-3531`). The set is therefore **homogeneous**
   and `defaultEnabled: true` unions already-active members — a no-op. Nothing can
   be force-declared, so no library default change is needed.
 - The alternative — one toolset over the whole server — cannot express the mixed
@@ -186,8 +186,8 @@ Add `registerMcpToolsets(pi): string[]`, called from the same place orphans are
 registered:
 
 - Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`).
-- Members = tools passing `isDeclarableMcpTool` (exposure `direct`,
-  `exposure ?? "direct"`). Skip the server when this is empty.
+- Members = tools passing `isDeclarableMcpTool` (`exposure ?? "direct"`).
+  Skip the server when this is empty.
   The same predicate must be used for membership everywhere — never a bare
   `isMcpTool` — so classification and membership can never drift apart.
 - Toolset id `tbox.mcp@<server>` (namespace name minus the `mcp__` prefix),
@@ -347,7 +347,7 @@ makes the two views agree by construction and closes the status-vs-list
 discrepancy for non-declarable MCP tools.
 
 ### 5. Intent vs observation per use site (`src/groups.ts`, `src/list.ts`,
-`src/defaults.ts`, `src/status-slot.ts`)
+`src/defaults.ts`)
 
 Masking 2.0.0's inert-toolset contract splits "the toolset is on" into
 persisted *intent* (branch entry, `effectiveEnabled`) and *observation*
@@ -407,8 +407,6 @@ picks the right read:
   both resolve when members become actuatable, and intent-based counts would
   make the slot lie in the other direction (active counts must describe the
   declared set).
-- **`defaults capture` (`src/defaults.ts:127`) captures intent, never a
-  mid-session `isEnabled()` snapshot** — see the sixth site above.
 
 ### 6. Char count: plain N + static codemode note (`src/chars.ts`)
 
