@@ -190,7 +190,10 @@ Add `registerMcpToolsets(pi): string[]`, called from the same place orphans are
 registered:
 
 - Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`).
-- Members = tools passing `isDeclarableMcpTool` (`exposure ?? "direct"`).
+- Members = tools passing `isDeclarableMcpTool` (`exposure ?? "direct"`), minus
+  the names already claimed by other registered toolsets (collected from
+  `getRegisteredToolsets()`; masking's name-overlap guard *throws* at
+  registration and MCP toolsets register after other toolsets — see step 3).
   Skip the server when this is empty.
   The same predicate must be used for membership everywhere — never a bare
   `isMcpTool` — so classification and membership can never drift apart.
@@ -265,12 +268,21 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   `applyToolsetEnabled(pi, spec, false)` immediately instead of relying on the
   default resolution. Intent-on needs nothing extra: `actuateNewToolsets`'
   `defaultEnabled: true` union is a no-op over pi-activated `direct` tools.
-- **Existing server whose declarable set changed** → raw mutation of the live
-  registry entry: `entry.spec.names = new Set(next)` (masking 2.0.0's documented
-  membership-change contract — no `setMembers` method exists; mutating the
-  registered spec in place avoids the `defineToolset` warn-and-replace, so no
-  handle goes stale and no actuate/persist/emit fires). Delta-gate on set
-  inequality so an unchanged scan does nothing.
+- **Existing server whose declarable set changed** → sync the live registry
+  entry in place, `entry.spec.names = new Set(next)` (masking 2.0.0's documented
+  membership-change contract — no `setMembers` method exists), then **always**
+  call `defineToolset` with the freshly built spec. The sync makes the spec
+  deep-equal, so `defineToolset` takes its idempotent branch: no
+  warn-and-replace, no stale handle, no actuate/persist/emit — but it does run
+  `ensureRestoreHandler`, which is reachable *only* from `defineToolset`. The
+  unconditional call is what keeps masking's restore/re-assert installed after
+  `/reload`: in a registry holding only MCP toolsets no other call site fires,
+  and skipping it leaves an intent-off toolset re-declared by pi on
+  registration with nothing to suppress it. This requires the spec builder to
+  be deterministic (omit `description`, as the orphan-toolset builder already
+  does) or deep-equality fails. Delta-gate the `spec.names` write on set
+  inequality so an unchanged scan performs no mutation; the `defineToolset`
+  call itself is unconditional and cheap.
   **Reconcile after the mutation.** The no-actuate trade is not free in one
   direction: pi computes `previousActivatedOnRegistration` from the pre-refresh
   `_toolDefinitions` (`agent-session.ts:3425-3427`, assigned at 3459), so a
@@ -295,9 +307,16 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   that broadens the lookup into a registry-wide scan fails loudly instead of
   silently mutating a foreign declared toolset. Beyond the tripwire, declared
   toolsets are protected by construction: the re-scan looks entries up by ids
-  tbox itself generated (never reachable for a foreign id), and masking's
-  name-overlap guard keeps MCP tools out of any declared toolset, so no
-  declared toolset's `spec.names` can be affected.
+  tbox itself generated (never reachable for a foreign id), and overlap with
+  foreign toolsets is prevented rather than guarded — masking's name-overlap
+  guard is a throw at registration time, and MCP toolsets register *after*
+  other toolsets, so a guard hit would throw inside the `before_agent_start`
+  handler, be swallowed by the runner as an extension error, and kill the
+  re-scan including `rerenderSlot`. Membership therefore subtracts names
+  already claimed by other registered toolsets (step 2), so the guard can
+  never fire at scan time. A name dropped this way stays pi-declared — pi
+  resolves duplicate tool names first-wins across extensions and does not care
+  who owns the name — it is merely ungrouped.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
   `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-409`), the scan
@@ -584,6 +603,12 @@ a foreign declared toolset (any id that is not
 `tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
 the re-scan having its `spec.names` byte-identical
 afterward (the managed-prefix tripwire guards the one mutation site);
+the `/reload` handler path (a registry holding only MCP toolsets, re-scanned
+through a fresh pi: masking's restore/re-assert are installed — an intent-off
+MCP toolset is not re-declared on registration — exercised by running the
+scan again against a new MockPI); the overlap path (a foreign toolset
+pre-claiming an `mcp__*` name: that name is excluded from MCP membership,
+`defineToolset` does not throw, the re-scan and `rerenderSlot` still run);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
@@ -647,10 +672,14 @@ connect or the real provider-side declaration effect.
   and membership predicates must stay one and the same (`isDeclarableMcpTool`);
   if they ever drift, disabled/codemode-exposure servers inflate the counts
   again.
-- **Mid-session membership changes** — handled by raw `entry.spec.names`
-  mutation; verify the delta gate keeps an unchanged scan from writing, and that
-  `defineToolset`'s warn-and-replace never fires (it would only fire if the
-  re-scan re-`defineToolset`s an existing id, which it must not). One leak the
+- **Mid-session membership changes** — handled by in-place `entry.spec.names`
+  sync followed by an unconditional idempotent `defineToolset` (step 3): the
+  sync keeps the spec deep-equal so the warn-and-replace branch never fires,
+  and the unconditional call re-installs masking's restore/re-assert handlers
+  after `/reload` (`ensureRestoreHandler` runs only from `defineToolset`).
+  Verify the delta gate keeps an unchanged scan from writing, and that a
+  foreign toolset's claimed names are excluded from MCP membership so the
+  overlap guard can never throw at scan time. One leak the
   mutation alone leaves: pi re-activates a reappearing declarable tool
   (`previousActivatedOnRegistration` is computed from pre-refresh definitions,
   and masking's re-assert runs before tbox's mutation in the same prompt
