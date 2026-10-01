@@ -121,6 +121,29 @@ Capability detection, not a version check: a missing `exposure` is treated as
 `direct` (pi's default), and a missing `namespace` means "not an MCP tool". This
 keeps pre-0.99 pi working, where MCP does not exist.
 
+Alongside it, one shared predicate for *declarable* MCP tools — the single
+source of truth for which MCP tools tbox can meaningfully manage. Every MCP
+decision site (membership in step 2, re-scanning in step 3, classification in
+step 4) goes through it:
+
+```ts
+export function isDeclarableMcpTool(tool: ToolInfo): boolean {
+	if (!isMcpTool(tool)) return false;
+	const exposure = (tool as { exposure?: string }).exposure ?? "direct";
+	return exposure === "direct" || exposure === "model-only";
+}
+```
+
+`isDeclarableMcpTool` — not bare `isMcpTool` — is also what classification must
+use (step 4): `getAllTools()` includes `hidden` and `deferred` tools that pi
+never activates (`_isActivatedOnRegistration` is false for them,
+`agent-session.ts:3529-3531`), so a server with the default `codemode` exposure,
+a `/mcp`-disabled server (whose tools are re-registered `hidden`), or any
+explicit `toolExposure: "codemode"|"deferred"` override contributes tools that
+no toolset covers and the user cannot affect. Classifying those as togglable
+would permanently inflate `● tbox n masked` and the char-count buckets with
+tools tbox did not mask.
+
 `isExtensionTool` **stays as it is.** It is also used by
 `autoRegisterBuiltinAndOrphans`, and widening it would group MCP tools into a
 bogus `tbox.tool@builtin` orphan toolset.
@@ -131,8 +154,10 @@ Add `registerMcpToolsets(pi): string[]`, called from the same place orphans are
 registered:
 
 - Group MCP tools by `namespace.name` (e.g. `mcp__siyuan`).
-- Members = tools whose exposure is `direct` or `model-only`
-  (`exposure ?? "direct"`). Skip the server when this is empty.
+- Members = tools passing `isDeclarableMcpTool` (exposure `direct` or
+  `model-only`, `exposure ?? "direct"`). Skip the server when this is empty.
+  The same predicate must be used for membership everywhere — never a bare
+  `isMcpTool` — so classification and membership can never drift apart.
 - Toolset id `tbox.mcp@<server>` (namespace name minus the `mcp__` prefix),
   label `mcp__<server>`, persistKey `toolset-state:tbox.mcp@<server>`,
   `defaultEnabled: true`.
@@ -173,7 +198,23 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   extension-registered servers are wanted. Default: skip it (registering it
   on older pi is harmless — the event never fires — but it adds a handler
   for no observed benefit).
-- **New server** → `defineToolset` + `actuateNewToolsets`.
+- **New server** → `defineToolset` + a branch-aware actuate. `actuateNewToolsets`
+  is *not* sufficient here as-is: its resolution falls back to
+  `getEffectiveDefault` (settings-pin → `defaultEnabled ?? true`), which never
+  reads the branch (`pi-tool-masking/index.ts:1386-1395`). Because the server
+  connects after `session_start`, the restore never saw this toolset, so for a
+  server the user had toggled off in the branch, the new toolset resolves ON
+  and stays declared until masking's re-assert removes it at the **next** turn
+  boundary — the same one-turn leak the mutation-site reconcile below closes,
+  on the primary motivating path (resume with a previously-off server). It
+  would also make the intent reads of step 5 (`describeToolset`, the status
+  glyph) say "off" while the tools are declared. So after `defineToolset`, the
+  caller resolves intent directly —
+  `effectiveEnabled(spec, ctx.sessionManager.getBranch(), readMergedToolsetDefaults())`
+  (allowlist-aware for free) — and when the resolved intent is off, calls
+  `applyToolsetEnabled(pi, spec, false)` immediately instead of relying on the
+  default resolution. Intent-on needs nothing extra: `actuateNewToolsets`'
+  `defaultEnabled: true` union is a no-op over pi-activated `direct` tools.
 - **Existing server whose declarable set changed** → raw mutation of the live
   registry entry: `entry.spec.names = new Set(next)` (masking 2.0.0's documented
   membership-change contract — no `setMembers` method exists; mutating the
@@ -223,9 +264,19 @@ Introduce one shared predicate and use it at all four classification sites:
 
 ```ts
 export function isTogglableTool(tool: ToolInfo): boolean {
-	return isExtensionTool(tool) || isMcpTool(tool);
+	return isExtensionTool(tool) || isDeclarableMcpTool(tool);
 }
 ```
+
+The MCP arm must be `isDeclarableMcpTool`, not `isMcpTool`: the counts flow
+through `pi.getAllTools()`, which includes `hidden` and `deferred` tools that pi
+never activates. Bare `isMcpTool` would count the tools of a `codemode`-exposure
+server, a `/mcp`-disabled server, or any `codemode`/`deferred` override as
+"masked" forever — they are excluded from toolset membership by design, the user
+cannot toggle them, and the plan's own disabled-server risk note would be
+contradicted. (Note the asymmetry is deliberate: `isMcpTool` alone is correct
+for the `formatStatus` exclusion below, which wants *all* `mcp__*` tools out of
+the builtin row; the togglable predicate wants only the declarable subset.)
 
 - `computeCharCount` (`src/chars.ts`): `core` = tools that are not togglable
   (`builtin`/`sdk` that are not MCP); `extension` = `isTogglableTool`.
@@ -382,6 +433,13 @@ from the active set in the same turn, not the next);
 a server draining to zero declarable members (empty-set write keeps the
 toolset, registry entry stays live; a toggle while empty is a no-op and prior
 intent survives);
+`isTogglableTool` gating on declarable exposure (a `codemode`-exposure server
+and a disabled server's `hidden`-re-registered tools are counted neither as
+togglable nor as `core` — they inflate no `n masked`, no char-count bucket,
+and stay out of `activeExtensionChars`);
+the create-path reconcile (a toolset created mid-session for an intent-off
+server is applied off in the same turn, not the next; an intent-on server's
+toolset still actuates normally);
 the re-scan being idempotent; a foreign declared toolset (any id that is not
 `tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
 the re-scan having its `spec.names` byte-identical
@@ -424,7 +482,12 @@ connect or the real provider-side declaration effect.
   catch-up: at most one turn of display lag, and no missed tools. Verify
   with live QA.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
-  excluded as non-declarable and the server gets no toolset (or loses members).
+  excluded as non-declarable: the server gets no toolset (or loses members),
+  and — because step 4's togglable predicate is the same declarable predicate —
+  they contribute to no `n masked`/char-count totals either. The classification
+  and membership predicates must stay one and the same (`isDeclarableMcpTool`);
+  if they ever drift, disabled/codemode-exposure servers inflate the counts
+  again.
 - **Mid-session membership changes** — handled by raw `entry.spec.names`
   mutation; verify the delta gate keeps an unchanged scan from writing, and that
   `defineToolset`'s warn-and-replace never fires (it would only fire if the
