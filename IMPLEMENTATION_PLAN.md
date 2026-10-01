@@ -61,6 +61,18 @@ Out (decided non-goals):
 - **No exposure changes.** tbox toggles activation only.
 - No `preserve`/"no opinion" default in the library (avoided by declared-only
   scoping), and no upstream pi changes.
+- **No shared MCP resource tools.** `list_mcp_resources`,
+  `list_mcp_resource_templates`, and `read_mcp_resource` are registered by the
+  builtin mcp extension with no `namespace` and an exposure derived from the
+  widest resources-capable server (`syncResourceTools`,
+  `extensions/mcp/index.ts:437-455`), so there is no per-server owner to attach
+  them to and no stable detection hook short of hardcoding the names. They are
+  not detected, not grouped, and stay in the `core` bucket — still counted
+  accurately in the char total, and visible by name under `pi.builtin` in
+  `/tbox list` and the `pi.builtin` row in `/tbox status`. Their reachability is
+  managed by pi's `/mcp` surface, not tbox. Upgrade path: if upstream ever
+  namespaces these tools, they fall into the existing per-server machinery for
+  free.
 
 ## Design: declared-only scoping
 
@@ -306,7 +318,11 @@ active `direct` declarations are hidden. So:
   (budgeted catalog + per-tool signature lines) instead of a computed estimate.
 - MCP: one toolset per server, covering the server's declarable (`direct`/
   `model-only`) tools only. `codemode`/`deferred` MCP tools are managed by pi and
-  `/mcp`, and are not listed or toggled here.
+  `/mcp`, and are not listed or toggled here. The three shared resource tools
+  (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) have
+  no namespace and no per-server owner, so they are not detected and remain in
+  the `core` bucket (visible under `pi.builtin` in `/tbox list` and `/tbox status`);
+  their reachability is managed by pi's `/mcp` surface.
 
 ### 8. Dependency and release guarding
 
