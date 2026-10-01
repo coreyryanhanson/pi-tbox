@@ -375,9 +375,16 @@ server, a `/mcp`-disabled server, or any `codemode`/`deferred` override as
 cannot toggle them, and the plan's own disabled-server risk note would be
 contradicted. (Note the asymmetry is deliberate: `formatStatus`'s exclusion
 below uses `isMcpTool` because it wants every *per-server* `mcp__*` tool out
-of the builtin row — the resource tools, which `isMcpTool` never matches,
-also leave the builtin row and render under `pi-managed` by name; the
-togglable predicate wants only the declarable subset.)
+of the builtin row — the togglable predicate wants only the declarable
+subset. The resource tools need their own exclusion there: they carry no
+`namespace`, so `isMcpTool` never matches them, and a bare `!isMcpTool(t)`
+filter would leave them in `pi.builtin` *and* render them under `pi-managed`
+by name — double-listed in `/tbox status`, with `pi.builtin`'s count
+inflated. Hence the `!isMcpResourceTool(t)` arm in the builtin-row
+predicate below. In `formatGroupedList` the same trap does not fire: the
+`pi-managed` gid is assigned before the `t.sourceInfo.source` fallback
+(`list.ts:210`), so those tools never reach the builtin branch —
+`formatStatus` has no such interception and needs the explicit arm.)
 
 - `computeCharCount` (`src/chars.ts`): `core` = tools that are not togglable
   (`builtin`/`sdk` that are not MCP); `extension` = `isTogglableTool`.
@@ -392,31 +399,37 @@ togglable predicate wants only the declarable subset.)
   context cost this release exists to expose invisible.
 - `formatStatus` (`src/list.ts:546`): the `pi.builtin` row filters
   `source === "builtin"`, which now includes every `mcp__*` tool. Exclude
-  them wholesale: the predicate becomes `!isMcpTool(t)`. Per-server MCP
-  tools never appear in the builtin row — claimed ones render in their
-  toolset rows, unclaimed-but-active ones under `pi-managed`, and inactive
-  unclaimed ones nowhere (an unloaded `deferred`/`hidden` tool costs no
-  context and shows nowhere). No exposure read here: "reachable" and
-  "active" coincide, and the active set is the same signal
-  `computeCharCount` uses, so the two surfaces agree by construction.
+  them wholesale: the predicate becomes
+  `!isMcpTool(t) && !isMcpResourceTool(t)` — the `isMcpTool` arm alone is
+  NOT enough, because the resource tools have no `namespace` and would
+  remain in `pi.builtin` while also rendering under `pi-managed` (each
+  listed twice, `pi.builtin`'s count inflated). No MCP tool appears in the
+  builtin row: claimed per-server ones render in their toolset rows,
+  unclaimed-but-active ones under `pi-managed`, resource tools under
+  `pi-managed`, and inactive unclaimed ones nowhere (an unloaded
+  `deferred`/`hidden` tool costs no context and shows nowhere). No
+  exposure read here: "reachable" and "active" coincide, and the active set
+  is the same signal `computeCharCount` uses, so the two surfaces agree by
+  construction.
 
 Keep `isExtensionTool` unchanged for callers that need the old meaning
 (`autoRegisterBuiltinAndOrphans`, the registry scan). The builtin-group branch
 in `formatGroupedList` (`src/list.ts:230`) applies the same predicate —
-`!isMcpTool(t)`. The "per-server MCP tools never reach it" assumption is
-false as stated: the group key falls back to `t.sourceInfo.source`
-(`list.ts:210`), so an undeclared `mcp__*` tool lands in the `builtin`
-group — which is exactly why the `!isMcpTool` predicate is required there.
+`!isMcpTool(t) && !isMcpResourceTool(t)`. The group key falls back to
+`t.sourceInfo.source` (`list.ts:210`), so an undeclared `mcp__*` tool lands
+in the `builtin` group — which is exactly why the `!isMcpTool` arm is
+required there; the resource tools do not reach this branch (their
+`pi-managed` gid is assigned first), but the shared predicate keeps the two
+views identical by construction.
 
 **The `pi-managed` render group (presentation only — no new ledger bucket).**
-Home for MCP tools tbox cannot toggle. It has a permanent population and a
+Home for MCP tools tbox cannot toggle. It has a regular population and a
 transient one:
 
-- **Permanent — the three shared resource tools.** `isMcpResourceTool(t)`
+- **Regular — the three shared resource tools.** `isMcpResourceTool(t)`
   routes them here regardless of the active set: active with their chars,
   inactive as `name (inactive)` at zero chars. Their exposure is
-  runtime-computed and can flip mid-session, so they need a stable home; the
-  group is therefore never empty.
+  runtime-computed and can flip mid-session, so they need a stable home.
 - **Transient — active per-server MCP tools that no toolset declares** (a
   `deferred`/`codemode` tool loaded mid-session by `tool_search`'s
   `setActiveTools`, `extensions/tool-search/tool.ts:206-208`): real, declared
@@ -424,7 +437,13 @@ transient one:
   remove it, which is precisely what `core` means ("non-togglable floor").
 
 Both views route these tools to a `pi-managed` group instead of letting them
-leak into `pi.builtin`:
+leak into `pi.builtin`. The group is data-driven like every other group and
+renders only when it has members: before any resources-capable server
+connects, `syncResourceTools` early-returns and registers nothing
+(pi's `extensions/mcp/index.ts:426-430`), so the three resource tools do not
+exist in `getAllTools()` at all — no row, no header. Rendering a placeholder
+for tools that are absent (not hidden, absent) would be strictly worse than
+showing nothing.
 
 - `formatGroupedList`: group id `pi-managed` for filtered tools where
   `isMcpResourceTool(t)` or (`isMcpTool(t) && activeSet.has(t.name)` and no
@@ -441,8 +460,11 @@ leak into `pi.builtin`:
   toggle path can actuate them — the same standing contract as `tool_search`
   itself. The `pi-managed` label answers "why can't I toggle this" before it
   is asked. Persistent control is the server's `toolExposure` config (the
-  declarability of step 2), not a runtime toggle. The group is never empty
-  (the three resource tools always render there); the transient
+  declarability of step 2), not a runtime toggle. No "never empty" invariant:
+  both renderers handle emptiness for free (`formatGroupedList` only creates
+  groups tools actually land in; `formatStatus` gates each row on
+  `length > 0`), and the correct empty-state behavior is to render nothing —
+  which is what falls out without any special case. The transient
   `tool_search`-loaded members are ephemeral. If it ever warrants a counted
   third bucket, the `pi-managed` gid is already the seam marker.
 
@@ -677,7 +699,12 @@ and stay out of `activeExtensionChars`);
 the resource tools rendering under `pi-managed` in both views (their chars
 still booked to the `core` bucket; an inactive one renders as
 `name (inactive)` with no chars and no active count; never in any toolset row
-and never in `n masked` — no exposure read anywhere in the display path);
+and never in `n masked` — no exposure read anywhere in the display path; each
+resource-tool name appears **exactly once** across `/tbox status` — under
+`pi-managed`, and not in the `pi.builtin` row, whose predicate excludes them
+via `!isMcpResourceTool(t)`); an empty `pi-managed` (no resources-capable
+server connected, so the resource tools are absent from `getAllTools()`)
+renders no `pi-managed` row or header in either view;
 unloaded non-declarable per-server MCP tools (`codemode`/`deferred`/`hidden`
 exposure, not in the active set) appear in no row of either view and inflate
 no count; the `tool_search` load case — activate a `deferred` `mcp__*` tool
@@ -703,9 +730,12 @@ holding only MCP toolsets the re-assert can run after tbox's scan — verify
 the reconcile outcome is identical either way, as step 3 reasons);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
-`formatByChars`' zero-char skip); `formatStatus`'s builtin row showing per-server MCP tools only while active
-(the `!isMcpTool(t)` predicate, same in
-`formatGroupedList`'s builtin branch); `extensionToolCounts` including MCP tools (an all-MCP toolset
+`formatByChars`' zero-char skip); `formatStatus`'s builtin row containing no
+MCP tools at all — the `!isMcpTool(t) && !isMcpResourceTool(t)` predicate,
+same in `formatGroupedList`'s builtin branch: active claimed per-server tools
+render in their toolset rows, active unclaimed ones under `pi-managed`,
+inactive unclaimed ones nowhere;
+`extensionToolCounts` including MCP tools (an all-MCP toolset
 toggled off raises the slot's `n masked`); the
 static codemode note (present when codemode is active, absent otherwise);
 the `codemode` tool itself counted as a plain builtin — `core:` agrees between
@@ -734,7 +764,8 @@ Live QA against the real `siyuan` server:
 5. `/tbox status` lists the MCP tools under `tbox.mcp@siyuan`, not in the
    `pi.builtin` row.
 6. The three resource tools appear under `pi-managed` in both `/tbox list` and
-   `/tbox status` (siyuan is direct-exposure and serves resources), in no
+   `/tbox status` (siyuan is direct-exposure and serves resources), each
+   exactly once — not also in the `pi.builtin` row — in no
    toolset row ever, and as `name (inactive)` rows with unchanged char counts
    if their exposure ever drops.
 
