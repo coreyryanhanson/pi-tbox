@@ -65,7 +65,7 @@ Out (decided non-goals):
   `list_mcp_resources`, `list_mcp_resource_templates`, and `read_mcp_resource`
   are registered by the builtin mcp extension with no `namespace` and an
   exposure computed at runtime as the widest of the resources-capable servers
-  (`syncResourceTools`, `extensions/mcp/index.ts:426-441`: `direct` when any
+  (`syncResourceTools`, `extensions/mcp/index.ts:426-439`: `direct` when any
   such server is direct, else `codemode`, else `deferred`, and `hidden` when
   none has resources), so there is no per-server owner to attach them to and
   no stable detection hook short of hardcoding the names. They are therefore
@@ -82,7 +82,7 @@ Out (decided non-goals):
 
 An MCP toolset's members are the server's tools whose `exposure` is declarable
 (`direct`). Everything else is excluded. `McpExposure` is fixed upstream at
-`codemode | deferred | direct | hidden` (`core/mcp-servers.ts:17`) and
+`codemode | deferred | direct | hidden` (`core/mcp-servers.ts:16`) and
 `toToolExposure` maps `codemode` → `deferred`, so `direct` is the only
 declarable exposure an MCP tool can arrive with.
 
@@ -115,10 +115,12 @@ export function isMcpTool(tool: ToolInfo): boolean {
 }
 ```
 
-Fallback when `namespace` is absent: `sourceInfo.path === "builtin:mcp"` and the
-name starts with `mcp__`. Read `namespace`/`exposure` defensively so the code also
-runs on pre-0.99 pi, where the fields don't exist (step 8 removes the
-`^0.84.4` types pin):
+Read `exposure` defensively so the code also runs on pre-0.99 pi, where the
+field doesn't exist (step 8 removes the `^0.84.4` types pin). No `namespace`
+fallback is needed: pi sets `namespace` on every MCP tool it registers
+(`extensions/mcp/index.ts:353-357` → `extensions/mcp/tools.ts:276`), so a
+`sourceInfo.path === "builtin:mcp"` fallback could only fire in a pre-0.99
+world where MCP does not exist — dead code, skipped.
 
 ```ts
 const exposure = (tool as { exposure?: ToolExposure }).exposure;
@@ -153,7 +155,10 @@ export const MCP_RESOURCE_TOOL_NAMES = new Set([
 ]);
 
 export function isMcpResourceTool(tool: ToolInfo): boolean {
-	return MCP_RESOURCE_TOOL_NAMES.has(tool.name);
+	return (
+		tool.sourceInfo?.path === "builtin:mcp" &&
+		MCP_RESOURCE_TOOL_NAMES.has(tool.name)
+	);
 }
 ```
 
@@ -161,6 +166,9 @@ Note `isMcpResourceTool` deliberately does **not** go through `isMcpTool`:
 these tools carry no `namespace`, so `isMcpTool` is false for them — which is
 exactly what makes them classify as builtins for free (`isDeclarableMcpTool`
 returns false, so the togglable predicate of step 4 never picks them up).
+The `builtin:mcp` path gate keeps a same-named tool registered by any other
+extension out of the resource-tool classification; only names registered by
+the extension that owns them match.
 Only the names are hardcoded; their state is never cached — every surface
 observes `exposure` and the active set live at render time (step 4). They are
 never togglable and never join a toolset.
@@ -219,9 +227,9 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   subscribe to. The handler currently drops its arguments
   (`pi.on("before_agent_start", () => rerenderSlot(pi))`, `index.ts:229`) and
   must take `(event, ctx)` — step 5 needs the branch there anyway. It cannot
-  catch turn-1 tools: builtin extensions load after
+  catch first-prompt tools: builtin extensions load after
   user extensions (`package-manager.ts` appends `builtin:*` last), so within
-  a turn's `before_agent_start` dispatch this handler runs *before* the mcp
+  a prompt's dispatch this handler runs *before* the mcp
   extension's handler — the one that awaits startup connections (bounded by
   `startupWaitMs`, default 10 s). That is fine: the model never misses tools
   (the first prompt waits on startup connections, and `direct` tools are
@@ -251,8 +259,8 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   reads the branch (`pi-tool-masking/index.ts:1386-1395`). Because the server
   connects after `session_start`, the restore never saw this toolset, so for a
   server the user had toggled off in the branch, the new toolset resolves ON
-  and stays declared until masking's re-assert removes it at the **next** turn
-  boundary — the same one-turn leak the mutation-site reconcile below closes,
+  and stays declared until masking's re-assert removes it at the **next** prompt
+  boundary — the same one-prompt leak the mutation-site reconcile below closes,
   on the primary motivating path (resume with a previously-off server). It
   would also make the intent reads of step 5 (`describeToolset`, the status
   glyph) say "off" while the tools are declared. So after `defineToolset`, the
@@ -270,17 +278,21 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   inequality so an unchanged scan does nothing.
   **Reconcile after the mutation.** The no-actuate trade is not free in one
   direction: pi computes `previousActivatedOnRegistration` from the pre-refresh
-  `_toolDefinitions` (`agent-session.ts:3425-3427`, assigned at 3458), so a
+  `_toolDefinitions` (`agent-session.ts:3425-3427`, assigned at 3459), so a
   tool that reappears with a declarable exposure is re-activated "like a new
   tool" — and masking's re-assert handler runs before tbox's mutation within
-  the same turn (tbox's own `before_agent_start` registration follows the
-  library's), so the re-assert read the *old* member set. Net effect: a
+  the same prompt dispatch (tbox's own `before_agent_start` registration
+  follows the library's — true whenever at least one extension toolset exists
+  at `session_start`, since `autoRegisterBuiltinAndOrphans` runs before the
+  `pi.on` in `captureAndRender`; with zero extension toolsets the order
+  flips, and the explicit reconcile below makes the outcome identical either
+  way), so the re-assert read the *old* member set. Net effect: a
   newly-appearing member of an intent-off toolset is declared for exactly one
-  turn. Fix at the mutation site: when the toolset's persisted intent is off
+  prompt. Fix at the mutation site: when the toolset's persisted intent is off
   (the `effectiveEnabled` read from step 5), call
   `applyToolsetEnabled(pi, spec, false)` immediately after mutating — the
   library's documented immediate-reconcile path — which drops the newcomer
-  from the active set in the same turn. Newly-appearing members of an
+  from the active set in the same prompt. Newly-appearing members of an
   intent-*on* toolset need nothing: they are pi-activated on registration and
   `defaultEnabled: true` unions them.
   The mutation site asserts the entry is tbox-managed before writing —
@@ -293,7 +305,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   declared toolset's `spec.names` can be affected.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
-  `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-408`), the scan
+  `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-409`), the scan
   finds zero declarable members but **must not write an empty set** — it
   skips the mutation and leaves the existing `spec.names` untouched (the
   delta gate already skips identical sets; an empty next-set on an existing
@@ -405,7 +417,7 @@ picks the right read:
   functions that today take only `pi`: `describeToolset`, `toggleAll`,
   `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`), and
   `handleDefaults` (`src/defaults.ts`). Threading `toggleAll` forces the same
-  change on `soloUnit` (`src/focus.ts:196` calls `toggleAll(pi, false)`) and
+  change on `soloUnit` (`src/focus.ts:180` calls `toggleAll(pi, false)`) and
   its `case "solo"` call site in `index.ts` — add both to the diff.
   `formatGroupedList` needs no `branch`: none of the six sites is inside it
   (`list.ts:538` is inside `formatStatus`), and its step-4 gate is an
@@ -489,6 +501,25 @@ active `direct` declarations are hidden. So:
   `/tbox list` and `/tbox status` while their exposure is `direct` (i.e. while
   pi declares them), omitted once it drops to `deferred`/`hidden`. Their
   reachability is managed by pi's `/mcp` surface.
+- A server that is still connecting at the first prompt has its `direct`
+  tools declared for that one prompt despite intent-off (see Risks); the
+  create-path reconcile removes them from the next prompt on. State the
+  residual; do not paper over it.
+- `focus off` and `defaults restore` turn MCP toolsets ON at the packaged
+  `defaultEnabled: true` default when no branch entry or settings pin exists —
+  the same behavior as any other toolset added after those were captured.
+- Sweep the statements this release invalidates, not just append caveats:
+  `README.md:63-65` ("core floor (builtins — immutable overhead)"), `:88-89`
+  ("n extension tools turned off/active"), `:122` ("disable all non-builtin
+  toolsets"), `:170-171` ("Builtins are excluded — they are the non-togglable
+  floor"), and `:221-224` ("Pi's builtin tools are always-on and outside
+  tbox's scope") all describe the old builtin/extension split. The refined
+  rule to write down — here and in `AGENTS.md:109-110` plus `AGENTS.md:49` —
+  is **non-declarable ⇒ read-only**: pi-core builtins and host `sdk` tools
+  stay read-only because pi does not expose their activation through the
+  loadout, while MCP tools are ordinary declarable tools with a real
+  `exposure` and are togglable. Without the AGENTS.md update, the next agent
+  reading it will "fix" tbox back.
 
 ### 8. Dependency and release guarding
 
@@ -534,7 +565,7 @@ Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server, including the
 post-mutation reconcile (a newcomer joining an intent-off toolset is dropped
-from the active set in the same turn, not the next);
+from the active set in the same prompt, not the next);
 a server draining to zero declarable members (the spec keeps its hidden
 members instead of emptying, the registry entry stays live; a toggle while
 disconnected persists off, and the tools do not come back declared when the
@@ -552,7 +583,7 @@ the `pi.builtin` rows of both views only while `exposure === "direct"`, absent
 from both once it drops to `deferred`/`hidden`, never in any toolset row and
 never in `n masked`);
 the create-path reconcile (a toolset created mid-session for an intent-off
-server is applied off in the same turn, not the next; an intent-on server's
+server is applied off in the same prompt, not the next; an intent-on server's
 toolset still actuates normally);
 the re-scan being idempotent; a foreign declared toolset (any id that is not
 `tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
@@ -604,6 +635,16 @@ connect or the real provider-side declaration effect.
   one prompt of display lag on the status bar, no lag for command surfaces,
   and no missed tools. Verify
   with live QA.
+- **Still-connecting servers at the first prompt** — a bounded residual the
+  reconcile cannot close: tbox's `before_agent_start` handler runs before the
+  mcp extension's, so at first-prompt dispatch a not-yet-connected server has
+  no toolset yet; the mcp handler then awaits the connection, pi activates
+  the `direct` tools on registration, and `selectedTools` is snapshotted
+  after the dispatch (`agent-session.ts:1989-2000`) — so the first prompt
+  declares the tools despite intent-off. The create-path reconcile removes
+  them from the next prompt on. A `turn_start` hook is not a fix (it fires
+  after the loadout snapshot); the residual is one prompt, first connect
+  only, and cosmetic.
 - **Disabled servers** — their tools are re-registered `hidden`, so they are
   excluded as non-declarable: the server gets no toolset (or loses members),
   and — because step 4's togglable predicate is the same declarable predicate —
@@ -618,7 +659,7 @@ connect or the real provider-side declaration effect.
   mutation alone leaves: pi re-activates a reappearing declarable tool
   (`previousActivatedOnRegistration` is computed from pre-refresh definitions,
   and masking's re-assert runs before tbox's mutation in the same turn), so a
-  newcomer to an intent-off toolset is declared for one turn — the
+  newcomer to an intent-off toolset is declared for one prompt — the
   post-mutation `applyToolsetEnabled` reconcile (step 3) closes it.
 - **Focus/allowlist captured before MCP toolsets existed** — the new toolset ids
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
