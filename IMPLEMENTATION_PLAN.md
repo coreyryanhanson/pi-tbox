@@ -101,7 +101,8 @@ Why this is the right default rather than a boolean over the whole server:
   declared nor callable.
 - A server with **no** declarable members (the `codemode` default) gets no
   toolset at all — it has nothing tbox can meaningfully toggle. This applies to
-  creation only: an **existing** toolset whose set drains to zero stays (see
+  creation only: an **existing** toolset whose members all turn non-declarable
+  never empties — it keeps its (now-hidden) members in `spec.names` (see
   step 3).
 
 ## Steps
@@ -292,14 +293,25 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   declared toolset's `spec.names` can be affected.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
-  `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-408`), write the empty set and keep the toolset.
-  No special-casing — the `tbox.mcp@<server> (0 members)` row is a useful
-  connectivity/toggle-state diagnostic, prior toggle intent survives the
-  emptying (resolution reads `spec.id`, not members) and reapplies if the
-  tools return — new toggles while empty are no-ops, since masking's witness
-  gate is vacuously satisfied at zero members — and masking has nothing to
-  mask with zero members. The empty-set write must not throw or corrupt the live
-  registry entry.
+  `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-408`), the scan
+  finds zero declarable members but **must not write an empty set** — it
+  skips the mutation and leaves the existing `spec.names` untouched (the
+  delta gate already skips identical sets; an empty next-set on an existing
+  toolset is skipped too). Keeping the hidden members matters for toggling:
+  with a non-empty spec whose members are all non-actuatable, masking's
+  witness gate (`actuatableNames.length !== spec.names.size`,
+  `pi-tool-masking/index.ts:685-695`, `:726-735`) makes `disable()` a
+  *persisting* off — a toggle issued while the server is disconnected is
+  recorded and holds when the tools return. With an empty spec the gate is
+  vacuous (`0 === 0`): the toggle neither applies nor persists, the UI
+  reports "Disabled", and the tools come back ON at the next restore once
+  the server reconnects. Keeping the members costs nothing: counts and
+  classification flow through `isTogglableTool` over `getAllTools()` (step
+  4), never through `spec.names`, so hidden members inflate no `n masked`,
+  no char-count bucket, and are never declared; the `tbox.mcp@<server>` row
+  doubles as the connectivity/toggle-state diagnostic, and prior intent
+  (resolution reads `spec.id`, not members) still governs the return path.
+  The skip-write must not throw or corrupt the live registry entry.
 - Look handles up via `getRegisteredToolsets()` by id rather than caching them,
   so nothing goes stale across `/reload`.
 
@@ -517,9 +529,10 @@ Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server, including the
 post-mutation reconcile (a newcomer joining an intent-off toolset is dropped
 from the active set in the same turn, not the next);
-a server draining to zero declarable members (empty-set write keeps the
-toolset, registry entry stays live; a toggle while empty is a no-op and prior
-intent survives);
+a server draining to zero declarable members (the spec keeps its hidden
+members instead of emptying, the registry entry stays live; a toggle while
+disconnected persists off, and the tools do not come back declared when the
+server reconnects);
 the re-scan being idempotent from both hook sites (per-prompt, and the
 `/tbox` command path — a `/tbox list` issued after the server connects, with
 no intervening prompt, shows the per-server toolset and toggle commands
