@@ -278,7 +278,7 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   declared toolset's `spec.names` can be affected.
   This includes the drain-to-zero case: when every member is re-registered
   `hidden` (pi does this for dropped/disabled MCP tools,
-  `extensions/mcp/index.ts:394-397`, `hideTools` at `:402-408`), write the empty set and keep the toolset.
+  `extensions/mcp/index.ts:395-398`, `hideTools` at `:403-408`), write the empty set and keep the toolset.
   No special-casing — the `tbox.mcp@<server> (0 members)` row is a useful
   connectivity/toggle-state diagnostic, prior toggle intent survives the
   emptying (resolution reads `spec.id`, not members) and reapplies if the
@@ -377,8 +377,13 @@ picks the right read:
   Plumbing: `effectiveEnabled` is the only intent read on the library's
   exported surface — there is no branch-free variant — so `branch` must reach
   functions that today take only `pi`: `describeToolset`, `toggleAll`,
-  `actuateToolset` (`src/groups.ts`), `formatStatus`/`formatGroupedList`
-  (`src/list.ts`), and `handleDefaults` (`src/defaults.ts`). The pattern
+  `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`), and
+  `handleDefaults` (`src/defaults.ts`). Threading `toggleAll` forces the same
+  change on `soloUnit` (`src/focus.ts:196` calls `toggleAll(pi, false)`) and
+  its `case "solo"` call site in `index.ts` — add both to the diff.
+  `formatGroupedList` needs no `branch`: none of the six sites is inside it
+  (`list.ts:538` is inside `formatStatus`), and its step-4 gate is an
+  observational exposure check, not an intent read. The pattern
   already exists (`focusOff(pi, ctx.sessionManager.getBranch())` in
   `index.ts`) and `MockPI` exposes `getBranch`, so it is mechanical — but it
   touches every call site and several tests. All six sites consume `.enabled`
@@ -464,13 +469,19 @@ active `direct` declarations are hidden. So:
   range would be non-conventional and unenforced.
 - During development, point `dependencies["pi-tool-masking"]` at
   `file:../pi-tool-masking` so tests run against the local library (npm symlinks;
-  the library ships TS source, so no build step).
+  the library ships TS source, so no build step). This spec (and its
+  `package-lock.json` entry) must **stay uncommitted**: CI runs `npm ci` on a
+  clone of this repo alone (`.github/workflows/tests.yml`), so a committed
+  `file:` path with no sibling checkout breaks the build.
 - **Add a release guard:** `scripts/release.mjs` (and `prepublishOnly`) must fail
   loudly when `dependencies["pi-tool-masking"]` is not a semver range. Publishing
   a `file:` spec would break every consumer.
-- In the release commit, restore the spec to `^2.0.0` and revert the
-  `package-lock.json` entry that recorded the file path.
-- CHANGELOG `[Unreleased]` → `0.3.0`; `npm run release:minor`.
+- Before releasing, restore the spec to `^2.0.0` and revert the
+  `package-lock.json` entry that recorded the file path, then **commit** —
+  `release.mjs` aborts on a dirty tree.
+- CHANGELOG: draft the `[Unreleased]` entries only — `release.mjs` promotes
+  that heading to the version itself, so do not pre-rename it. Then
+  `npm run release:minor`.
 
 ## Validation
 
