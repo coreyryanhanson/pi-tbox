@@ -24,11 +24,11 @@ extension, so `sourceInfo.source === "builtin"` — and `isExtensionTool`
 
 - MCP tools are never registered as toolsets: they cannot be listed, grouped,
   focused, or toggled, even though they are ordinary togglable tools.
-- Three surfaces classify togglability via `isExtensionTool`, which is false for
-  MCP tools: `computeCharCount` (`src/chars.ts`) counts them as `core`
-  ("non-togglable floor"), `activeExtensionChars` (`src/list.ts`) drops them
-  from char totals, and `formatStatus`'s `pi.builtin` row lists and counts them
-  as builtin.
+- Four surfaces classify togglability via `isExtensionTool`, which is false for
+  MCP tools: `computeCharCount` and `extensionToolCounts` (`src/chars.ts`) count
+  them as `core` (the latter feeding the status bar's masked/focus counts),
+  `activeExtensionChars` (`src/list.ts`) drops them from char totals, and
+  `formatStatus`'s `pi.builtin` row lists and counts them as builtin.
 
 This is live in the current environment: `/root/.pi/agent/mcp.json` defines
 `siyuan` with `exposure: "direct"`, so ~29 `mcp__siyuan__*` tools are declared to
@@ -46,8 +46,9 @@ In:
 - Re-scan when MCP membership changes.
 - Char-count bucket classification and the static codemode overhead note.
 - The shared togglable predicate applied at every classification site —
-  `computeCharCount` (`src/chars.ts`), `activeExtensionChars` and
-  `formatStatus`'s builtin row (`src/list.ts`) — not just the first.
+  `computeCharCount` and `extensionToolCounts` (`src/chars.ts`),
+  `activeExtensionChars` and `formatStatus`'s builtin row (`src/list.ts`) —
+  not just the first.
 - README caveats.
 - Dependency bump and release guarding.
 
@@ -177,9 +178,23 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   registry entry: `entry.spec.names = new Set(next)` (masking 2.0.0's documented
   membership-change contract — no `setMembers` method exists; mutating the
   registered spec in place avoids the `defineToolset` warn-and-replace, so no
-  handle goes stale and no actuate/persist/emit fires, which is fine here
-  because our members are all pi-activated-on-registration `direct`/`model-only`
-  tools). Delta-gate on set inequality so an unchanged scan does nothing.
+  handle goes stale and no actuate/persist/emit fires). Delta-gate on set
+  inequality so an unchanged scan does nothing.
+  **Reconcile after the mutation.** The no-actuate trade is not free in one
+  direction: pi computes `previousActivatedOnRegistration` from the pre-refresh
+  `_toolDefinitions` (`agent-session.ts:3425-3427`, assigned at 3458), so a
+  tool that reappears with a declarable exposure is re-activated "like a new
+  tool" — and masking's re-assert handler runs before tbox's mutation within
+  the same turn (tbox's own `before_agent_start` registration follows the
+  library's), so the re-assert read the *old* member set. Net effect: a
+  newly-appearing member of an intent-off toolset is declared for exactly one
+  turn. Fix at the mutation site: when the toolset's persisted intent is off
+  (the `effectiveEnabled` read from step 5), call
+  `applyToolsetEnabled(pi, spec, false)` immediately after mutating — the
+  library's documented immediate-reconcile path — which drops the newcomer
+  from the active set in the same turn. Newly-appearing members of an
+  intent-*on* toolset need nothing: they are pi-activated on registration and
+  `defaultEnabled: true` unions them.
   The mutation site asserts the entry is tbox-managed before writing —
   `spec.id` starts with `tbox.mcp@` or `tbox.tool@` — so a future regression
   that broadens the lookup into a registry-wide scan fails loudly instead of
@@ -214,6 +229,10 @@ export function isTogglableTool(tool: ToolInfo): boolean {
 
 - `computeCharCount` (`src/chars.ts`): `core` = tools that are not togglable
   (`builtin`/`sdk` that are not MCP); `extension` = `isTogglableTool`.
+- `extensionToolCounts` (`src/chars.ts:33`): the status bar's `total`/`active`
+  counts ("n masked" = `total − active`) flow through `isExtensionTool`, so an
+  all-MCP toolset toggled off would leave the slot `○ tbox` pristine with
+  `excluded = 0`. Same replacement: count by `isTogglableTool`.
 - `activeExtensionChars` (`src/list.ts:77`): replace the
   `if (!isExtensionTool(tool)) continue;` skip with `isTogglableTool` —
   otherwise an all-MCP toolset renders `+0 chars` and `formatByChars`'s
@@ -262,10 +281,12 @@ picks the right read:
   observational: both are declaration-sensitive surfaces, not toolset state —
   switching them to intent would invert the rule the same way reading
   observation for toggle-gating does today. The status-bar slot
-  (`src/status-slot.ts`) is in the same bucket and needs no change:
+  (`src/status-slot.ts`) is in the same bucket and needs no direct change:
   `computeSlotState` reads `extensionToolCounts` (the active set directly;
   "n masked" is `total − active`), so it is declaration-sensitive by
-  construction. Two observation-produced edges, cosmetic and
+  construction — which only becomes true for MCP tools once step 4 fixes
+  `extensionToolCounts` itself; with that fix, an all-MCP toolset toggled off
+  correctly raises `n masked`. Two observation-produced edges, cosmetic and
   self-correcting: an intent-on inert toolset inflates `● tbox n masked`
   ("masked" is observationally true though the user enabled them and no mask
   is suppressing them), and a non-empty but inert allowlist renders
@@ -345,7 +366,9 @@ active `direct` declarations are hidden. So:
 
 Unit tests (`__tests__`, MockPI, no external services): fabricate MCP-shaped
 `ToolInfo` and cover — per-server declared-only toolset creation; a
-`codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server;
+`codemode`-only server producing no toolset; `entry.spec.names` mutation on a changed server, including the
+post-mutation reconcile (a newcomer joining an intent-off toolset is dropped
+from the active set in the same turn, not the next);
 a server draining to zero declarable members (empty-set write keeps the
 toolset, registry entry stays live; a toggle while empty is a no-op and prior
 intent survives);
@@ -356,7 +379,8 @@ afterward (the managed-prefix tripwire guards the one mutation site);
 the `core`/`extension` split with MCP tools; `activeExtensionChars` including
 MCP tools in the char total (a fully-active MCP toolset survives
 `formatByChars`' zero-char skip); `formatStatus`'s builtin row excluding
-`mcp__*` tools; the
+`mcp__*` tools; `extensionToolCounts` including MCP tools (an all-MCP toolset
+toggled off raises the slot's `n masked`); the
 static codemode note (present when codemode is active, absent otherwise);
 graceful degradation when `exposure`/`namespace` are absent; the step-5 intent
 fixes (the toggle guard honors "off" on an intent-on inert toolset;
@@ -394,7 +418,12 @@ connect or the real provider-side declaration effect.
 - **Mid-session membership changes** — handled by raw `entry.spec.names`
   mutation; verify the delta gate keeps an unchanged scan from writing, and that
   `defineToolset`'s warn-and-replace never fires (it would only fire if the
-  re-scan re-`defineToolset`s an existing id, which it must not).
+  re-scan re-`defineToolset`s an existing id, which it must not). One leak the
+  mutation alone leaves: pi re-activates a reappearing declarable tool
+  (`previousActivatedOnRegistration` is computed from pre-refresh definitions,
+  and masking's re-assert runs before tbox's mutation in the same turn), so a
+  newcomer to an intent-off toolset is declared for one turn — the
+  post-mutation `applyToolsetEnabled` reconcile (step 3) closes it.
 - **Focus/allowlist captured before MCP toolsets existed** — the new toolset ids
   are absent from a pre-existing allowlist, so they resolve off; self-heals on the
   next `focus off` / `defaults restore`, matching the documented pattern for
