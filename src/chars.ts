@@ -10,13 +10,15 @@
  * `{name, description, parameters, promptGuidelines, sourceInfo}`
  * per tool, summed. This is the contract — the shape is an impl detail.
  *
- * Returns a split: `core` (builtin + sdk, non-togglable floor) and
- * `extension` (extension tools, togglable budget).
+ * Returns a split: `core` (non-togglable floor: builtin + sdk tools and
+ * non-declarable MCP tools) and `extension` (togglable budget: extension
+ * tools and declarable MCP tools).
  *
  * @module
  */
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { isDeclarableMcpTool } from "./mcp.js";
 
 // ---------------------------------------------------------------------------
 // Tool classification
@@ -29,7 +31,21 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
-/** Counts of all extension tools and active extension tools (single pass). */
+/**
+ * True for tools tbox can toggle: extension tools and declarable MCP tools.
+ * The single togglability predicate for every classification site (char
+ * counts, masked counts, list char totals). MCP tools are ordinary
+ * declarable tools despite their builtin source; non-declarable MCP tools
+ * (`codemode`/`deferred`/`hidden`) are never togglable — counting them
+ * would inflate `n masked` and the char buckets with tools tbox did not
+ * mask. Not used by the registry scan: `isExtensionTool` keeps its narrow
+ * meaning there so MCP tools don't become bogus orphan toolsets.
+ */
+export function isTogglableTool(tool: ToolInfo): boolean {
+	return isExtensionTool(tool) || isDeclarableMcpTool(tool);
+}
+
+/** Counts of all togglable tools and active togglable tools (single pass). */
 export function extensionToolCounts(pi: ExtensionAPI): {
 	total: number;
 	active: number;
@@ -38,7 +54,7 @@ export function extensionToolCounts(pi: ExtensionAPI): {
 	let total = 0;
 	let activeCount = 0;
 	for (const t of pi.getAllTools()) {
-		if (!isExtensionTool(t)) continue;
+		if (!isTogglableTool(t)) continue;
 		total++;
 		if (active.has(t.name)) activeCount++;
 	}
@@ -69,9 +85,10 @@ export function serializeToolDef(tool: ToolInfo): string {
 
 /** Result of computeCharCount: core (untoggleable) vs extension (togglable). */
 export interface CharCountSplit {
-	/** Active builtin + sdk tool char count — non-togglable floor. */
+	/** Active non-togglable tool char count — non-togglable floor (builtin
+	 * + sdk, and non-declarable MCP tools). */
 	core: number;
-	/** Active extension tool char count — togglable budget. */
+	/** Active togglable tool char count — togglable budget. */
 	extension: number;
 }
 
@@ -83,7 +100,8 @@ export interface CharCountSplit {
  * Compute the serialized character count split into core and extension buckets.
  *
  * @param pi - The extension API
- * @returns `{ core, extension }` where core is builtin+sdk and extension is extension
+ * @returns `{ core, extension }` where core is the non-togglable floor
+ * (builtin + sdk, non-declarable MCP) and extension is the togglable set
  */
 export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	const activeNames = new Set(pi.getActiveTools());
@@ -94,7 +112,7 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	for (const tool of allTools) {
 		if (!activeNames.has(tool.name)) continue;
 		const len = serializeToolDef(tool).length;
-		if (!isExtensionTool(tool)) {
+		if (!isTogglableTool(tool)) {
 			result.core += len;
 		} else {
 			result.extension += len;
