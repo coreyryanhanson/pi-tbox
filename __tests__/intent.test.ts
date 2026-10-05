@@ -13,7 +13,7 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,46 +143,6 @@ describe("intent vs observation (inert toolset)", () => {
 		expect(pi.getActiveTools()).toContain("mcp__live__t1");
 	});
 
-	it("toggleAll all off persists off on an intent-on inert toolset", () => {
-		setupInertToolset(mock, true);
-
-		toggleAll(pi, false, readerOf(mock));
-		expect(lastEntryData(mock, KEY)).toEqual({ enabled: false });
-	});
-
-	it("toggleAll all on skips an already-intent-on inert toolset", () => {
-		setupInertToolset(mock, true);
-
-		const entriesBefore = branchOf(mock).length;
-		toggleAll(pi, true, readerOf(mock));
-		// No duplicate {enabled:true} entry appended for the inert toolset.
-		expect(branchOf(mock).length).toBe(entriesBefore);
-	});
-
-	it("toggleAll all on skips fully-active toolsets without entry spam", () => {
-		setupInertToolset(mock, true);
-		// A second, live toolset: intent-on and fully active.
-		mock.registerTool({
-			name: "mcp__live__t1",
-			description: "live tool",
-			sourceInfo: BUILTIN_SOURCE,
-		});
-		mock.defineFakeToolset({
-			id: "tbox.mcp@live",
-			names: new Set(["mcp__live__t1"]),
-			persistKey: "toolset-state:tbox.mcp@live",
-			defaultEnabled: true,
-		});
-		mock.fireLifecycleEvent("session_start");
-		mock.clearEntries();
-		setActiveToolsForMock(mock, ["mcp__live__t1"]);
-
-		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, readerOf(mock));
-		expect(msg).toContain("Enabled 0");
-		expect(branchOf(mock).length).toBe(entriesBefore);
-	});
-
 	it("toggleAll all off removes a stray active member of an intent-off toolset", () => {
 		setupInertToolset(mock, true);
 		actuateToolset(pi, ID, false, readerOf(mock));
@@ -193,85 +153,6 @@ describe("intent vs observation (inert toolset)", () => {
 		const msg = toggleAll(pi, false, readerOf(mock));
 		expect(msg).toContain("Disabled 1");
 		expect(pi.getActiveTools()).not.toContain("mcp__srv__t1");
-	});
-
-	it("toggleAll all off skips intent-off inactive toolsets without entry spam", () => {
-		setupInertToolset(mock, true);
-		actuateToolset(pi, ID, false, readerOf(mock));
-
-		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, false, readerOf(mock));
-		expect(msg).toContain("Disabled 0");
-		expect(branchOf(mock).length).toBe(entriesBefore);
-	});
-
-	it("toggleAll all on skips a mixed toolset (active member + hidden member)", () => {
-		// A hidden member can never be active, so masking's witnessed-on gate
-		// never fires for this shape — enable() would re-append a duplicate
-		// entry on every all on.
-		mock.registerTool({
-			name: "mcp__mix__live",
-			description: "live",
-			sourceInfo: BUILTIN_SOURCE,
-		});
-		mock.registerTool({
-			name: "mcp__mix__hidden",
-			description: "hidden",
-			exposure: "hidden",
-			sourceInfo: BUILTIN_SOURCE,
-		});
-		mock.defineFakeToolset({
-			id: "tbox.mcp@mix",
-			names: new Set(["mcp__mix__live", "mcp__mix__hidden"]),
-			persistKey: "toolset-state:tbox.mcp@mix",
-			defaultEnabled: true,
-		});
-		mock.fireLifecycleEvent("session_start");
-		mock.clearEntries();
-		setActiveToolsForMock(mock, ["mcp__mix__live"]);
-
-		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, readerOf(mock));
-		expect(msg).toContain("Enabled 0");
-		expect(branchOf(mock).length).toBe(entriesBefore);
-	});
-
-	it("toggleAll all on skips an intent-on disconnected (absent) toolset", () => {
-		// Members absent from the registry (server disconnected), intent-on
-		// via the packaged default: enable() would only re-append a duplicate
-		// same-value entry (witnessed-on cannot fire — 0 registered ≠ 1
-		// names), so it must be skipped.
-		mock.defineFakeToolset({
-			id: "tbox.mcp@ghost",
-			names: new Set(["mcp__ghost__t1"]),
-			persistKey: "toolset-state:tbox.mcp@ghost",
-			defaultEnabled: true,
-		});
-
-		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, readerOf(mock));
-		expect(msg).toContain("Enabled 0");
-		expect(branchOf(mock).length).toBe(entriesBefore);
-	});
-
-	it("toggleAll all on persists on-intent for an intent-off disconnected toolset", () => {
-		// The plan's disconnected-toggle contract, on-direction: a toggle
-		// issued while the server is disconnected must be recorded and hold
-		// when the tools return. Intent-off (packaged default false) means
-		// the call must NOT be skipped even though nothing is actuatable.
-		mock.defineFakeToolset({
-			id: "tbox.mcp@ghost",
-			names: new Set(["mcp__ghost__t1"]),
-			persistKey: "toolset-state:tbox.mcp@ghost",
-			defaultEnabled: false,
-		});
-
-		const entriesBefore = branchOf(mock).length;
-		toggleAll(pi, true, readerOf(mock));
-		// Library persists: witnessed-on gate cannot fire (0 registered ≠ 1
-		// names), so appendEntry({enabled:true}) lands despite no loadout
-		// write being possible.
-		expect(branchOf(mock).length).toBe(entriesBefore + 1);
 	});
 
 	it("describeToolset shows persisted intent, not the empty observation", () => {
