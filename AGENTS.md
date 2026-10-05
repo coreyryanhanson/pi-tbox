@@ -142,9 +142,8 @@ point — justified where needed, not preemptively scattered.
   `node:events`. **Call `MockPI.cleanRegistry()` in `beforeEach`** — the
   `pi-tool-masking` registry is process-global and leaks across tests
   otherwise. Follow the pattern in existing test files.
-- `integration.test.ts` and `picker.test.ts` are the largest; the picker
-  tests drive the TUI component via `handleInput`/`render` on a mount state,
-  not real key events.
+- The picker tests drive the TUI component via `handleInput`/`render` on a
+  mount state, not real key events.
 - No external services, no fixtures on disk, no snapshots.
 
 ## Conventions worth keeping
