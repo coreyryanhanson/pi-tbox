@@ -76,8 +76,8 @@ function smallestToolsetMap(
 /** Render-group id for MCP tools tbox cannot toggle. */
 const PI_MANAGED_GID = "pi-managed";
 
-/** Count active extension tools and their serialized char total. */
-function activeExtensionChars(
+/** Count active togglable tools and their serialized char total. */
+function activeTogglableChars(
 	names: Iterable<string>,
 	activeSet: Set<string>,
 	allToolsMap: Map<string, ToolInfo>,
@@ -315,7 +315,7 @@ export function formatGroupedList(
 		}
 
 		// header reflects full toolset state; filter controls row visibility only
-		const { activeCount, charCount } = activeExtensionChars(
+		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,
@@ -378,7 +378,7 @@ export function formatByChars(pi: ExtensionAPI): string {
 	const stats: ToolsetStats[] = [];
 
 	for (const entry of toolsets) {
-		const { activeCount, charCount } = activeExtensionChars(
+		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,

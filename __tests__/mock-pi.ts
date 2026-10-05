@@ -599,7 +599,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 	static cleanRegistry(): void {
 		delete (globalThis as any)["__piToolMaskingRegistry"];
 		delete (globalThis as any)["__piToolMaskingLastRestoreEvent"];
-		delete (globalThis as any)["__piToolMaskingModuleState"];
 	}
 }
 

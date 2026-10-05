@@ -2,7 +2,7 @@
  * MCP togglable classification and the pi-managed display group (Batch 3).
  *
  * Covers: isTogglableTool gating on declarable exposure, the core/extension
- * split with MCP tools, extensionToolCounts (n masked), activeExtensionChars
+ * split with MCP tools, extensionToolCounts (n masked), activeTogglableChars
  * surviving formatByChars' zero-char skip, resource tools rendering under
  * pi-managed in both views exactly once, empty pi-managed rendering nothing,
  * unloaded non-declarable tools appearing nowhere, and the tool_search

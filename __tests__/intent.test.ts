@@ -19,10 +19,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	getRegisteredToolsets,
-	readToolsetDefaults,
-} from "pi-tool-masking";import { actuateToolset, describeToolset, toggleAll } from "../src/groups.js";
+import { readToolsetDefaults } from "pi-tool-masking";
+import { actuateToolset, describeToolset, toggleAll } from "../src/groups.js";
 import { formatStatus } from "../src/list.js";
 import { handleDefaults } from "../src/defaults.js";
 import { setFocusUnit } from "../src/status-slot.js";
