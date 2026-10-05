@@ -40,7 +40,7 @@ import { isDeclarableMcpTool, isMcpTool } from "./mcp.js";
 // ---------------------------------------------------------------------------
 
 /** Prefix for per-source orphan toolset ids: tbox.tool@<source>. */
-export const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
+const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
 
 /** Prefix for per-MCP-server toolset ids: tbox.mcp@<server>. */
 const MCP_TOOLSET_PREFIX = "tbox.mcp@";
