@@ -1,26 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+	MockPI,
+	pinSettingsDefaultsForTests,
+	readerOf,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getActiveAllowlist,
-	getDefaultResolutionMode,
+	readBranchModeState,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
-	setSettingsWriterOverrideForTests,
+	readToolsetDefaults,
 } from "pi-tool-masking";
 import { handleDefaults } from "../src/defaults.js";
 import { focusUnit } from "../src/focus.js";
 import { setFocusUnit, getFocusUnit } from "../src/status-slot.js";
 import {
 	existsSync,
-	mkdirSync,
-	mkdtempSync,
 	readFileSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Fixture: three explicit toolsets, no orphan auto-registration
@@ -84,10 +82,11 @@ function defineFixtureToolsets(mock: MockPI): void {
 function setupFixture(mock: MockPI, pi: ExtensionAPI): void {
 	registerFixtureTools(mock);
 	defineFixtureToolsets(mock);
-	for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+	for (const entry of getRegisteredToolsets())
+		entry.toolset.enable(pi, readerOf(mock));
 	getRegisteredToolsets()
 		.find((e) => e.spec.id === "gamma.tool")!
-		.toolset.disable(pi);
+		.toolset.disable(pi, readerOf(mock));
 	mock.clearEntries();
 }
 
@@ -98,31 +97,22 @@ const KEY = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Seam tests — reader + writer overrides, never touch disk
+// Settings tests — real temp settings.json files (see useTempAgentDir)
 // ---------------------------------------------------------------------------
 
-describe("/tbox defaults (seams)", () => {
+// File-wide temp agent dir + cwd: never touches the developer's ~/.pi.
+const settings = useTempAgentDir();
+
+describe("/tbox defaults (settings)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
-	let writer: {
-		global: Record<string, { enabled: boolean }>;
-		project: Record<string, { enabled: boolean }>;
-	};
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
-		writer = { global: {}, project: {} };
-		setSettingsWriterOverrideForTests(writer);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
 		setupFixture(mock, pi);
-	});
-
-	afterEach(() => {
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
@@ -136,7 +126,7 @@ describe("/tbox defaults (seams)", () => {
 			let result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Saved 3 toolset defaults");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: true },
 				[KEY.gamma]: { enabled: false },
@@ -147,11 +137,11 @@ describe("/tbox defaults (seams)", () => {
 			// defaults).
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 			result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.message).toContain("Saved 3 toolset defaults");
 			expect(result.message).toContain(".pi/settings.json");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: false },
 				[KEY.gamma]: { enabled: false },
@@ -159,32 +149,38 @@ describe("/tbox defaults (seams)", () => {
 
 			result = handleDefaults(pi, ctx(), "defaults save --global");
 			expect(result.message).toContain("Saved 1 toolset default");
-			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(readToolsetDefaults("global")).toEqual({ [KEY.beta]: { enabled: false } });
 		});
 
 		it("scope: bare → project, --global → global, --project → usage error, no write", () => {
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 
 			handleDefaults(pi, ctx(), "defaults save");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: false },
 				[KEY.gamma]: { enabled: false },
 			});
-			expect(writer.global).toEqual({});
+			expect(readToolsetDefaults("global")).toEqual({});
 
 			const globalResult = handleDefaults(pi, ctx(), "defaults save --global");
 			expect(globalResult.level).toBe("info");
-			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(readToolsetDefaults("global")).toEqual({ [KEY.beta]: { enabled: false } });
 
-			const before = JSON.parse(JSON.stringify(writer)) as typeof writer;
+			const before = {
+				global: readToolsetDefaults("global"),
+				project: readToolsetDefaults("project"),
+			};
 			const projectResult = handleDefaults(pi, ctx(), "defaults save --project");
 			expect(projectResult.level).toBe("error");
 			expect(projectResult.message).toContain("unknown flag --project");
 			expect(projectResult.message).toContain("/tbox defaults --help");
-			expect(writer).toEqual(before);
+			expect({
+				global: readToolsetDefaults("global"),
+				project: readToolsetDefaults("project"),
+			}).toEqual(before);
 		});
 
 		it("during focus captures the allowlist selection as pins (not refused)", () => {
@@ -196,7 +192,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(result.level).toBe("info"); // no focus-guard refusal
 			expect(result.message).toContain("Saved 3 toolset defaults");
 			// Full snapshot of the allowlist selection: gamma on, alpha/beta off.
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.gamma]: { enabled: true },
 				[KEY.alpha]: { enabled: false },
 				[KEY.beta]: { enabled: false },
@@ -212,12 +208,12 @@ describe("/tbox defaults (seams)", () => {
 
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Saved 3 toolset defaults");
-			expect(writer.global).toEqual({
+			expect(readToolsetDefaults("global")).toEqual({
 				[KEY.gamma]: { enabled: true },
 				[KEY.alpha]: { enabled: false },
 				[KEY.beta]: { enabled: false },
 			});
-			expect(writer.project).toEqual({});
+			expect(readToolsetDefaults("project")).toEqual({});
 		});
 	});
 
@@ -252,12 +248,14 @@ describe("/tbox defaults (seams)", () => {
 
 	describe("clear", () => {
 		it("removes the block with true/false wording, honoring --global", () => {
-			writer.global[KEY.alpha] = { enabled: false };
+			settings.writeJson(settings.globalSettings, {
+				toolsetDefaults: { [KEY.alpha]: { enabled: false } },
+			});
 
 			let result = handleDefaults(pi, ctx(), "defaults clear --global");
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Cleared toolset defaults from");
-			expect(writer.global).toEqual({});
+			expect(readToolsetDefaults("global")).toEqual({});
 
 			result = handleDefaults(pi, ctx(), "defaults clear");
 			expect(result.message).toContain("No toolsetDefaults block in");
@@ -271,16 +269,15 @@ describe("/tbox defaults (seams)", () => {
 			// Pre-focus manual toggle: beta off (branch entry {enabled:false}).
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 			focusUnit(pi, "+gamma.tool");
-			expect(getActiveAllowlist()).toEqual(["gamma.tool"]);
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).allowlist).toEqual(["gamma.tool"]);
 
 			const result = handleDefaults(pi, ctx(), "defaults restore");
 
 			expect(result.level).toBe("info");
 			expect(result.message).toBe("Restored 3 toolsets to settings defaults.");
-			expect(getDefaultResolutionMode()).toBe("exclusion");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// Live state back to effective defaults: alpha on, beta on, gamma off.
@@ -312,7 +309,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(result.message).toContain("/tbox defaults");
 			expect(result.message).toContain("restore");
 			// --help wins over the would-be save write: nothing was written.
-			expect(writer.project).toEqual({});
+			expect(readToolsetDefaults("project")).toEqual({});
 		});
 
 		it("an unknown -- flag is rejected with the pointed error", () => {
@@ -344,7 +341,7 @@ describe("/tbox defaults (seams)", () => {
 		});
 	});
 
-	describe("command dispatch (seams)", () => {
+	describe("command dispatch", () => {
 		beforeEach(async () => {
 			const mod = await import("../index.js");
 			mod.default(pi);
@@ -359,7 +356,7 @@ describe("/tbox defaults (seams)", () => {
 			const notify = mock.getLastNotify();
 			expect(notify).toBeDefined();
 			expect(notify!.message).toContain("Restored 3 toolsets");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 		});
 
@@ -370,7 +367,7 @@ describe("/tbox defaults (seams)", () => {
 			const notify = mock.getLastNotify();
 			expect(notify).toBeDefined();
 			expect(notify!.message).toContain("Focus released");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("a-tool")).toBe(true);
 			expect(active.has("b-tool")).toBe(false);
@@ -379,50 +376,27 @@ describe("/tbox defaults (seams)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Disk round-trips — neither seam; mkdtemp + env + chdir (attribution
-// needs per-scope reads the reader override collapses)
+// Disk round-trips — attribution needs per-scope reads the merged reader collapses
 // ---------------------------------------------------------------------------
 
 describe("/tbox defaults (disk round-trips)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
-	let tmpHome: string;
-	let oldCwd: string;
-	let oldAgentDir: string | undefined;
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
 		setupFixture(mock, pi);
-
-		tmpHome = mkdtempSync(join(tmpdir(), "tbox-defaults-"));
-		oldCwd = process.cwd();
-		oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = join(tmpHome, ".pi", "agent");
-		process.chdir(tmpHome);
-		mkdirSync(join(tmpHome, ".pi", "agent"), { recursive: true });
-		mkdirSync(join(tmpHome, ".pi"), { recursive: true });
-	});
-
-	afterEach(() => {
-		process.chdir(oldCwd);
-		if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		rmSync(tmpHome, { recursive: true, force: true });
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
 		return mock.createCommandContext();
 	}
 
-	const globalPath = () => join(tmpHome, ".pi", "agent", "settings.json");
-	const projectPath = () => join(tmpHome, ".pi", "settings.json");
+	const globalPath = () => settings.globalSettings;
+	const projectPath = () => settings.projectSettings;
 
 	it("show attributes a global-only pin as [global]", () => {
 		writeFileSync(
@@ -457,7 +431,7 @@ describe("/tbox defaults (disk round-trips)", () => {
 	it("save (bare → project) then show attributes the new pin [project]", () => {
 		getRegisteredToolsets()
 			.find((e) => e.spec.id === "beta.tool")!
-			.toolset.disable(pi);
+			.toolset.disable(pi, ctx().sessionManager);
 
 		const save = handleDefaults(pi, ctx(), "defaults save");
 		expect(save.level).toBe("info");

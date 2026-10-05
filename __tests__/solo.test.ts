@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	readerOf,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getActiveAllowlist,
-	getDefaultResolutionMode,
+	readBranchModeState,
+	type BranchReader,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import { soloUnit, focusUnit } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
@@ -14,6 +18,9 @@ import {
 	setGroupsOverrideForTests,
 	writeGroup,
 } from "../config/settings-reader.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // Reuse focus.test.ts's fixture shape: two toolsets, one requiring the other.
 function registerTools(mock: MockPI): void {
@@ -49,9 +56,9 @@ function defineFakeToolsets(mock: MockPI): void {
 	});
 }
 
-function enableAll(pi: ExtensionAPI): void {
+function enableAll(pi: ExtensionAPI, sessionManager: BranchReader): void {
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, sessionManager);
 	}
 }
 
@@ -59,10 +66,11 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAll(pi);
+	enableAll(pi, readerOf(mock));
 	mock.clearEntries();
 	mock.clearUiRecords();
 }
+
 
 describe("/tbox solo", () => {
 	let mock: MockPI;
@@ -70,7 +78,6 @@ describe("/tbox solo", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		// Keep writeGroup() off the real ~/.pi/agent/pi-tbox/groups.json —
@@ -81,13 +88,12 @@ describe("/tbox solo", () => {
 
 	afterEach(() => {
 		setGroupsOverrideForTests(null);
-		setSettingsOverrideForTests(null);
 	});
 
 	it("toolset: enables target + deps, disables everything else", () => {
 		setup(pi, mock);
 
-		const result = soloUnit(pi, "+portal.web");
+		const result = soloUnit(pi, "+portal.web", readerOf(mock));
 
 		expect(result).toContain('Solo on "portal.web"');
 		const active = new Set(pi.getActiveTools());
@@ -102,17 +108,16 @@ describe("/tbox solo", () => {
 	it("stays in exclusion mode — no allowlist, no lock", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
-		expect(getDefaultResolutionMode()).toBe("exclusion");
-		expect(getActiveAllowlist()).toBeUndefined();
+		expect(readBranchModeState(branchOf(mock)).mode).toBe("exclusion");
 	});
 
 	it("group: enables group toolsets (+ deps) only, others off", () => {
 		setup(pi, mock);
 		writeGroup("web", { toolsets: ["portal.web"] }); // goes to the override, not disk
 
-		const result = soloUnit(pi, "web");
+		const result = soloUnit(pi, "web", readerOf(mock));
 
 		expect(result).toContain("group:web");
 		const active = new Set(pi.getActiveTools());
@@ -121,10 +126,62 @@ describe("/tbox solo", () => {
 		expect(active.has("lens-tool-0")).toBe(false);
 	});
 
+	it("multi-toolset group: every registered member is enabled, not one root", () => {
+		// The ops come from every registered id in resolved.toolsetIds —
+		// a single-root-op form would enable only one member of a
+		// multi-toolset solo unit.
+		setup(pi, mock);
+		mock.defineFakeToolset({
+			id: "portal.chat",
+			names: new Set(["chat-send"]),
+			persistKey: "toolset-state:portal.chat",
+			defaultEnabled: true,
+		});
+		mock.registerTool({
+			name: "chat-send",
+			description: "Chat send",
+			sourceInfo: {
+				path: "x.ts",
+				source: "src",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		writeGroup("pair", { toolsets: ["portal.web", "portal.chat"] }); // no requires between them
+
+		soloUnit(pi, "pair", readerOf(mock));
+
+		const active = new Set(pi.getActiveTools());
+		expect(active.has("web-fetch")).toBe(true);
+		expect(active.has("chat-send")).toBe(true);
+		// Everything else still off
+		expect(active.has("web-learn")).toBe(false);
+		expect(active.has("lens-tool-0")).toBe(false);
+	});
+
+	it("unregistered group member is dropped from the ops, not a batch throw", () => {
+		// forwardClosure adds unregistered seeds to toolsetIds; the batch
+		// throws a plain Error on an explicit unregistered op, so the
+		// registered filter must drop them (the old byId.get(id)?. tolerance).
+		setup(pi, mock);
+		writeGroup("mixed", { toolsets: ["portal.web", "ghost.tool"] });
+
+		const result = soloUnit(pi, "mixed", readerOf(mock));
+
+		expect(result).toContain("group:mixed");
+		expect(mock.getActiveTools()).toContain("web-fetch");
+	});
+
 	it("persists per-toolset entries so /reload replays the solo state", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		// Start from intent-off so the solo's enable is a real delta —
+		// a toggle matching the resolved default is a silent no-op now.
+		getRegisteredToolsets()
+			.find((e) => e.spec.id === "portal.web")!
+			.toolset.disable(pi, readerOf(mock));
+
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
 		const lastFor = (key: string) => {
 			const entries = mock.getEntries().filter((e) => e.customType === key);
@@ -143,23 +200,23 @@ describe("/tbox solo", () => {
 		setup(pi, mock);
 		focusUnit(pi, "+portal.web");
 
-		const result = soloUnit(pi, "+portal.web");
+		const result = soloUnit(pi, "+portal.web", readerOf(mock));
 
 		expect(result).toContain("focus mode");
 		// focus untouched
-		expect(getDefaultResolutionMode()).toBe("allowlist");
+		expect(readBranchModeState(branchOf(mock)).mode).toBe("allowlist");
 	});
 
 	it("errors on unknown input and rejects pi.builtin", () => {
 		setup(pi, mock);
-		expect(soloUnit(pi, "nope")).toContain("No group matching");
-		expect(soloUnit(pi, "pi.builtin")).toContain("out of tbox's scope");
+		expect(soloUnit(pi, "nope", readerOf(mock))).toContain("No group matching");
+		expect(soloUnit(pi, "pi.builtin", readerOf(mock))).toContain("out of tbox's scope");
 	});
 
 	it("sets no focus glyph in the status slot", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web");
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
 		const state = computeSlotState(pi);
 		// no focus glyph — solo sets no focus unit, slot shows the plain count

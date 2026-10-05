@@ -7,30 +7,34 @@
  *   - Two unclaimed-source plugins (pi-lens, notes-plugin)
  *   - builtins + sdk
  *
- * Then drives the full /tbox surface through dispatchCommand and the
- * actuation API.
+ * Retains the tests that need this realistic multi-extension population or
+ * the dispatch seam and have no dedicated-suite home elsewhere: the grouped
+ * list view across all extensions, actuation edge cases, the mid-focus
+ * drift contract (both arms), and the /tbox dispatch regressions.
  *
  * @module
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+	MockPI,
+	branchOf,
+	readerOf,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getActiveAllowlist,
+	readBranchModeState,
 	getRegisteredToolsets,
-	type RegistryEntry,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
 } from "../src/registry.js";
-import { setFocusUnit, computeSlotState } from "../src/status-slot.js";
-import { actuateGroup, actuateToolset, toggleAll } from "../src/groups.js";
-import { focusUnit, focusOff } from "../src/focus.js";
-import { formatList, formatStatus } from "../src/list.js";
-import { computeCharCount, formatCharSplit } from "../src/chars.js";
+import { setFocusUnit } from "../src/status-slot.js";
+import { actuateGroup } from "../src/groups.js";
+import { focusUnit } from "../src/focus.js";
+import { formatList } from "../src/list.js";
 import {
 	writeGroup,
 	readGroups,
@@ -38,15 +42,14 @@ import {
 	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build a realistic multi-extension tool population in the mock.
- *
- * Returns the pi API reference so callers can add more tools/toolsets.
- */
+/** Build a realistic multi-extension tool population in the mock. */
 function buildRealisticPopulation(mock: MockPI, pi: ExtensionAPI): void {
 	// --- Builtins (always-on, platform-managed) ---
 	mock.registerTool({
@@ -213,11 +216,11 @@ function buildRealisticPopulation(mock: MockPI, pi: ExtensionAPI): void {
 
 	// --- Auto-register per-source orphan toolsets ---
 	const newIds = autoRegisterBuiltinAndOrphans(pi);
-	actuateNewToolsets(pi, newIds);
+	actuateNewToolsets(pi, newIds, branchOf(mock));
 
 	// --- Enable all registered toolsets (simulate the library's restore) ---
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, readerOf(mock));
 	}
 
 	// Builtins are always active (platform-managed)
@@ -246,7 +249,6 @@ describe("integration — multi-extension registry", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -265,7 +267,6 @@ describe("integration — multi-extension registry", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
 		setGroupsOverrideForTests(null);
 	});
 
@@ -301,276 +302,19 @@ describe("integration — multi-extension registry", () => {
 		expect(output).toContain("pi.builtin");
 	});
 
-	it("list --flat shows sdk tools as read-only", () => {
-		const output = formatList(pi, "list --flat");
-
-		expect(output).toContain("custom-x");
-		expect(output).toContain("sdk, host-managed");
-	});
-
-	it("list --active filters to active tools only", () => {
-		// All tools active by default in the fixture
-		const output = formatList(pi, "list --active");
-		expect(output).toContain("web-fetch");
-		expect(output).not.toContain("(inactive)");
-
-		// Disable one toolset
-		const registry = getRegisteredToolsets();
-		const learnEntry = registry.find(
-			(e: RegistryEntry) => e.spec.id === "portal.learn",
-		)!;
-		learnEntry.toolset.disable(pi);
-
-		const outputAfter = formatList(pi, "list --active");
-		expect(outputAfter).not.toContain("web-learn");
-	});
-
-	it("list --inactive shows only inactive tools", () => {
-		const output = formatList(pi, "list --inactive");
-		// All tools active by default in fixture — no inactive
-		expect(output).toContain("(no tools match the current filter)");
-
-		// Disable one toolset
-		const registry = getRegisteredToolsets();
-		const learnEntry = registry.find(
-			(e: RegistryEntry) => e.spec.id === "portal.learn",
-		)!;
-		learnEntry.toolset.disable(pi);
-
-		const outputAfter = formatList(pi, "list --inactive");
-		expect(outputAfter).toContain("web-learn");
-		expect(outputAfter).toContain("(inactive)");
-	});
-
-	// -----------------------------------------------------------------------
-	// Group definition + actuation with cascade
-	// -----------------------------------------------------------------------
-
-	it("defines a group via writeGroup, actuateGroup on cascades deps", () => {
-		writeGroup("my-group", { toolsets: ["portal.learn"] });
-
-		const msg = actuateGroup(pi, "my-group", true);
-		expect(msg).toContain("Enabled group");
-
-		// portal.web should be cascaded on (required by portal.learn)
-		const active = mock.getActiveTools();
-		expect(active).toContain("web-fetch");
-		expect(active).toContain("web-learn");
-	});
-
-	it("actuateGroup off reverse-cascades dependents", () => {
-		writeGroup("my-group", { toolsets: ["portal.web"] });
-
-		// First make sure all is on
-		toggleAll(pi, true);
-		mock.setActiveTools([
-			"read",
-			"bash",
-			"edit",
-			"web-fetch",
-			"web-learn",
-			"host-api-read",
-			"host-api-write",
-			"search-tool",
-			"lens-diagnostic",
-			"lens-rule",
-			"note-take",
-		]);
-
-		// Disable portal.web — portal.learn (which requires it) should cascade off
-		const msg = actuateGroup(pi, "my-group", false);
-		expect(msg).toContain("Disabled group");
-
-		const active = mock.getActiveTools();
-		// portal.web is disabled
-		// portal.learn is disabled by cascade (requires portal.web)
-		expect(active).not.toContain("web-fetch");
-	});
-
-	it("actuateGroup reports cascaded non-members in the message", () => {
-		writeGroup("my-group", { toolsets: ["portal.learn"] });
-
-		// First disable all to create a clean slate
-		toggleAll(pi, false);
-		mock.setActiveTools(["read", "bash", "edit"]);
-
-		const msg = actuateGroup(pi, "my-group", true);
-		expect(msg).toContain("Cascaded");
-		expect(msg).toContain("portal.web");
-		// portal.learn should be enabled (it's in the group)
-		const active = mock.getActiveTools();
-		expect(active).toContain("web-learn");
-		expect(active).toContain("web-fetch");
-	});
-
 	it("actuateGroup on an empty group returns a graceful message", () => {
 		writeGroup("empty-group", { toolsets: [] });
-		const msg = actuateGroup(pi, "empty-group", true);
+		const msg = actuateGroup(pi, "empty-group", true, readerOf(mock));
 		expect(msg).toContain("no actuable toolsets");
 	});
 
-	// -----------------------------------------------------------------------
-	// Direct toolset toggle (+ prefix)
-	// -----------------------------------------------------------------------
-
-	it("+<non-existent> returns error", () => {
-		const msg = actuateToolset(pi, "nonexistent.toolset", true);
-		expect(msg).toContain('No toolset "nonexistent.toolset"');
-	});
-
-	it("+<toolset> on enables just that toolset", () => {
-		// Disable all first
-		toggleAll(pi, false);
-		mock.setActiveTools(["read", "bash", "edit"]);
-
-		const msg = actuateToolset(pi, "host.api", true);
-		expect(msg).toContain("Enabled");
-
-		const active = mock.getActiveTools();
-		expect(active).toContain("host-api-read");
-		expect(active).toContain("host-api-write");
-	});
-
-	it("+<toolset> off disables just that toolset", () => {
-		const msg = actuateToolset(pi, "host.api", false);
-		expect(msg).toContain("Disabled");
-
-		const active = mock.getActiveTools();
-		expect(active).not.toContain("host-api-read");
-		expect(active).not.toContain("host-api-write");
-	});
-
-	// -----------------------------------------------------------------------
-	// all on/off
-	// -----------------------------------------------------------------------
-
-	it("all on enables every registered toolset", () => {
-		// Disable all first
-		toggleAll(pi, false);
-		mock.setActiveTools(["read", "bash", "edit"]);
-
-		const msg = toggleAll(pi, true);
-		expect(msg).toContain("Enabled");
-
-		const active = mock.getActiveTools();
-		expect(active).toContain("web-fetch");
-		expect(active).toContain("web-learn");
-		expect(active).toContain("host-api-read");
-		expect(active).toContain("search-tool");
-		expect(active).toContain("lens-diagnostic");
-		expect(active).toContain("note-take");
-		// Builtins always active
-		expect(active).toContain("read");
-		expect(active).toContain("bash");
-	});
-
-	it("all off disables every non-builtin toolset; builtins and sdk untouched", () => {
-		const msg = toggleAll(pi, false);
-		expect(msg).toContain("Disabled");
-
-		const active = mock.getActiveTools();
-		// Builtins remain
-		expect(active).toContain("read");
-		expect(active).toContain("bash");
-		expect(active).toContain("edit");
-		// SDK still not in active (never was — it's in no toolset)
-		expect(active).not.toContain("custom-x");
-		// Extension tools disabled
-		expect(active).not.toContain("web-fetch");
-		expect(active).not.toContain("web-learn");
-		expect(active).not.toContain("host-api-read");
-		expect(active).not.toContain("search-tool");
-		expect(active).not.toContain("lens-diagnostic");
-		expect(active).not.toContain("note-take");
-	});
-
-	// -----------------------------------------------------------------------
-	// Focus
-	// -----------------------------------------------------------------------
-
-	it("focus host.api enters allowlist mode with only host.api (+ closure) on", () => {
-		const msg = focusUnit(pi, "+host.api");
-		expect(msg).toContain("Focus on");
-		expect(getActiveAllowlist()).toEqual(["host.api"]);
-
-		const active = mock.getActiveTools();
-		// host.api tools are on
-		expect(active).toContain("host-api-read");
-		expect(active).toContain("host-api-write");
-
-		// Other extension tools are off
-		expect(active).not.toContain("web-fetch");
-		expect(active).not.toContain("web-learn");
-		expect(active).not.toContain("search-tool");
-		expect(active).not.toContain("lens-diagnostic");
-		expect(active).not.toContain("note-take");
-
-		// Builtins always active
-		expect(active).toContain("read");
-		expect(active).toContain("bash");
-	});
-
-	it("focus on a group keeps the group + forward requires closure on", () => {
-		writeGroup("web-group", { toolsets: ["portal.learn"] });
-
-		const msg = focusUnit(pi, "web-group");
-		expect(msg).toContain("Focus on");
-
-		const active = mock.getActiveTools();
-		// portal.learn members on
-		expect(active).toContain("web-learn");
-		// portal.web cascaded on (required by portal.learn)
-		expect(active).toContain("web-fetch");
-		// Other extension tools off
-		expect(active).not.toContain("host-api-read");
-		expect(active).not.toContain("search-tool");
-	});
-
-	it("focus off restores all toolsets to defaultEnabled", () => {
-		// Enter focus
-		focusUnit(pi, "+host.api");
-		// Exit focus
-		const msg = focusOff(
-			pi,
-			mock.createCommandContext().sessionManager.getBranch(),
-		);
-		expect(msg).toContain("Focus off");
-
-		const active = mock.getActiveTools();
-		// All extension tools back to defaultEnabled (true for our fixture)
-		expect(active).toContain("web-fetch");
-		expect(active).toContain("web-learn");
-		expect(active).toContain("host-api-read");
-		expect(active).toContain("host-api-write");
-		expect(active).toContain("search-tool");
-		expect(active).toContain("lens-diagnostic");
-		expect(active).toContain("note-take");
-	});
-
-	it("focus on pi.builtin errors", () => {
-		const msg = focusUnit(pi, "pi.builtin");
-		expect(msg).toContain("out of tbox's scope");
-	});
-
-	it("actuation is refused while in focus mode", () => {
-		focusUnit(pi, "+host.api");
-
-		const toggleMsg = actuateToolset(pi, "portal.web", true);
-		expect(toggleMsg).toContain("focus mode");
-
-		const allMsg = toggleAll(pi, true);
-		expect(allMsg).toContain("focus mode");
-
-		const groupMsg = actuateGroup(pi, "my-group", true);
-		expect(groupMsg).toContain("focus mode");
-	});
-
+	// Mid-focus drift: both arms (allowlisted newcomer on, unlisted off).
 	it("during focus, a newly-registered toolset in the allowlist comes on; one not in it is off", () => {
 		// Focus on a group that forward-references a not-yet-registered
 		// toolset, so the allowlist includes it before it exists.
 		writeGroup("fwd-group", { toolsets: ["host.api", "future.tool"] });
 		focusUnit(pi, "fwd-group");
-		expect(getActiveAllowlist()).toEqual(["host.api", "future.tool"]);
+		expect(readBranchModeState(branchOf(mock)).allowlist).toEqual(["host.api", "future.tool"]);
 
 		// Register the forward-referenced toolset now (mid-focus install).
 		mock.registerTool({
@@ -589,7 +333,7 @@ describe("integration — multi-extension registry", () => {
 			persistKey: "toolset-state:future.tool",
 			defaultEnabled: true,
 		});
-		actuateNewToolsets(pi, ["future.tool"]);
+		actuateNewToolsets(pi, ["future.tool"], branchOf(mock));
 		expect(pi.getActiveTools()).toContain("future-tool");
 
 		// A toolset NOT in the allowlist lands off.
@@ -609,94 +353,15 @@ describe("integration — multi-extension registry", () => {
 			persistKey: "toolset-state:later-plugin",
 			defaultEnabled: true,
 		});
-		actuateNewToolsets(pi, ["later-plugin"]);
+		actuateNewToolsets(pi, ["later-plugin"], branchOf(mock));
 		expect(pi.getActiveTools()).not.toContain("later-tool");
-	});
-
-	// -----------------------------------------------------------------------
-	// Slot state
-	// -----------------------------------------------------------------------
-
-	it("slot state is pristine when all extension tools are active (n=0)", () => {
-		const state = computeSlotState(pi);
-		expect(state).toEqual({ kind: "pristine" });
-	});
-
-	it("slot shows count when extension tools are excluded", () => {
-		// Disable one toolset
-		const registry = getRegisteredToolsets();
-		const hostEntry = registry.find(
-			(e: RegistryEntry) => e.spec.id === "host.api",
-		)!;
-		hostEntry.toolset.disable(pi);
-
-		const state = computeSlotState(pi);
-		expect(state.kind).toBe("count");
-		if (state.kind === "count") {
-			expect(state.n).toBeGreaterThan(0);
-		}
-	});
-
-	it("slot shows focus state during focus", () => {
-		focusUnit(pi, "+host.api");
-
-		const state = computeSlotState(pi);
-		expect(state.kind).toBe("focus");
-		if (state.kind === "focus") {
-			expect(state.unit).toContain("host.api");
-			expect(state.count).toBeGreaterThan(0);
-		}
-	});
-
-	it("focus on an empty group errors gracefully", () => {
-		writeGroup("empty-group", { toolsets: [] });
-		const msg = focusUnit(pi, "empty-group");
-		expect(msg).toContain("no toolsets");
-	});
-
-	// -----------------------------------------------------------------------
-	// Char count
-	// -----------------------------------------------------------------------
-
-	it("chars is deterministic across two calls in the same state", () => {
-		const first = computeCharCount(pi);
-		const second = computeCharCount(pi);
-		expect(first).toEqual(second);
-		expect(first.core).toBeGreaterThan(0);
-		expect(first.extension).toBeGreaterThan(0);
-	});
-
-	it("formatCharSplit includes core, extension, and total", () => {
-		const split = computeCharCount(pi);
-		const line = formatCharSplit(split);
-		expect(line).toContain("core:");
-		expect(line).toContain("extension:");
-		expect(line).toContain("total:");
-		expect(line).toContain(String(split.core + split.extension));
-	});
-
-	// -----------------------------------------------------------------------
-	// Status
-	// -----------------------------------------------------------------------
-
-	it("formatStatus includes all sections", () => {
-		const output = formatStatus(pi);
-		expect(output).toContain("Toolset Status");
-		expect(output).toContain("portal.web");
-		expect(output).toContain("portal.learn");
-		expect(output).toContain("host.api");
-		expect(output).toContain("search.web");
-		expect(output).toContain("pi.builtin");
-		expect(output).toContain("User Groups");
-		expect(output).toContain("Focus:");
-		expect(output).toContain("Char count");
 	});
 
 	// -----------------------------------------------------------------------
 	// Group management via dispatchCommand (end-to-end through the handler)
 	// -----------------------------------------------------------------------
 
-	it("bikeshed: dispatchCommand routes bare /tbox to formatBareHelp", async () => {
+	it("dispatchCommand routes bare /tbox to formatBareHelp", async () => {
 		// Load the factory (which registers the command) on top of our fixture
 		const mod = await import("../index.js");
 		mod.default(pi);
@@ -710,7 +375,7 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toContain("Subcommands");
 	});
 
-	it("bikeshed: dispatchCommand group list shows groups", async () => {
+	it("dispatchCommand group list shows groups", async () => {
 		writeGroup("test-group", { toolsets: ["portal.web"] });
 
 		const mod = await import("../index.js");
@@ -743,7 +408,7 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).not.toContain('No group named "list"');
 	});
 
-	it("bikeshed: dispatchCommand /tbox chars renders budget view", async () => {
+	it("dispatchCommand /tbox chars renders budget view", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);
 		mock.fireLifecycleEvent("session_start");
@@ -758,7 +423,7 @@ describe("integration — multi-extension registry", () => {
 		);
 	});
 
-	it("bikeshed: bare /tbox restore is reserved, not a group lookup", async () => {
+	it("bare /tbox restore is reserved, not a group lookup", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);
 		mock.fireLifecycleEvent("session_start");
@@ -795,93 +460,5 @@ describe("integration — multi-extension registry", () => {
 			expect(notify!.message).not.toContain("saved");
 			expect(notify!.message).not.toContain("cancelled");
 		}
-	});
-
-	// -----------------------------------------------------------------------
-	// Per-source orphan toolset shape
-	// -----------------------------------------------------------------------
-
-	it("per-source orphan toolsets exist for each unclaimed source", () => {
-		const registry = getRegisteredToolsets();
-		const ids = registry.map((e: RegistryEntry) => e.spec.id);
-
-		expect(ids).toContain("tbox.tool@pi-lens");
-		expect(ids).toContain("tbox.tool@notes-plugin");
-	});
-
-	it("single-tool orphan source gets description passed through", () => {
-		const registry = getRegisteredToolsets();
-		const notesEntry = registry.find(
-			(e: RegistryEntry) => e.spec.id === "tbox.tool@notes-plugin",
-		);
-		expect(notesEntry).toBeDefined();
-		// Single tool → description should be present
-		expect(notesEntry!.spec.description).toBe("Take notes quickly");
-	});
-
-	it("multi-tool orphan source has no description", () => {
-		const registry = getRegisteredToolsets();
-		const lensEntry = registry.find(
-			(e: RegistryEntry) => e.spec.id === "tbox.tool@pi-lens",
-		);
-		expect(lensEntry).toBeDefined();
-		// Multi-tool → no description
-		expect(lensEntry!.spec.description).toBeUndefined();
-	});
-
-	describe("actuateNewToolsets with settings defaults", () => {
-		it("respects settings-pinned-off over defaultEnabled true", () => {
-			mock.registerTool({
-				name: "settings-off-tool",
-				description: "Settings pin test",
-				sourceInfo: {
-					path: "test.ts",
-					source: "settings-off-source",
-					scope: "user",
-					origin: "top-level",
-				},
-			});
-			mock.defineFakeToolset({
-				id: "settings-off-source",
-				names: new Set(["settings-off-tool"]),
-				persistKey: "toolset-state:settings-off-source",
-				defaultEnabled: true,
-			});
-
-			pinSettingsDefaultsForTests({
-				"toolset-state:settings-off-source": { enabled: false },
-			});
-
-			actuateNewToolsets(pi, ["settings-off-source"]);
-
-			expect(pi.getActiveTools()).not.toContain("settings-off-tool");
-		});
-
-		it("respects settings-pinned-on over defaultEnabled false", () => {
-			mock.registerTool({
-				name: "settings-on-tool",
-				description: "Settings pin test",
-				sourceInfo: {
-					path: "test.ts",
-					source: "settings-on-source",
-					scope: "user",
-					origin: "top-level",
-				},
-			});
-			mock.defineFakeToolset({
-				id: "settings-on-source",
-				names: new Set(["settings-on-tool"]),
-				persistKey: "toolset-state:settings-on-source",
-				defaultEnabled: false,
-			});
-
-			pinSettingsDefaultsForTests({
-				"toolset-state:settings-on-source": { enabled: true },
-			});
-
-			actuateNewToolsets(pi, ["settings-on-source"]);
-
-			expect(pi.getActiveTools()).toContain("settings-on-tool");
-		});
 	});
 });

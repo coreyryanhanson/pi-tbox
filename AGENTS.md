@@ -47,12 +47,13 @@ explicitly. Respect this in new code — typecheck will fail otherwise.
   `session_tree` / `session_shutdown` handlers. This is the only entrypoint;
   everything else is imported by it.
 - **`src/`** — domain modules: `registry` (auto-register builtin + orphan
-  toolsets), `groups` (actuate/describe/edit/list + focus guard),
+  toolsets; also the MCP re-scan — one declared-only toolset per MCP server),
+  `groups` (actuate/describe/edit/list + focus guard),
   `group-editor` (TUI picker), `focus` (allowlist-mode entry/exit),
   `defaults` (settings-tier pin save/show/clear/restore), `list` (parse +
   format output), `status-slot` (bar slot render/wire), `chars` (context
-  char-counting), `requires-graph` (dependency closure), `reserved`
-  (reserved-word guard).
+  char-counting), `mcp` (MCP tool detection predicates), `requires-graph`
+  (dependency closure), `reserved` (reserved-word guard).
 - **`config/settings-reader.ts`** — **the group store**, despite the name.
   Reads/writes `${PI_CODING_AGENT_DIR ?? ~/.pi/agent}/pi-tbox/groups.json`
   (a map of group name → `{ toolsets: string[] }`, no wrapper key — see the
@@ -73,6 +74,72 @@ state, focus default-resolution, or the `requires` closure here — call into
 `pi-tool-masking`. The `requires-graph` module in `src/` is the local view
 used for the picker; the source of truth is the library.
 
+## Deferring children (subagent sessions)
+
+Exactly two defer gates exist, both calling masking's shared `isDeferredChild()`
+export — never a hand-rolled `PI_TOOLMASKING_DEFER` presence check (the parent
+legitimately carries its own pid var; only the foreign-pid check is correct):
+
+- **Command dispatch** — first line of the `/tbox` handler in `index.ts`,
+  message-producing: a deferring child gets a notify refusal and no command
+  surface at all. This is also the only protection for the settings-writer
+  flows (`defaults save`/`clear`/`restore`), which masking's defer rule
+  deliberately leaves live (the settings tier is outside it).
+- **`captureAndRender`** — first line of the `session_start`/`session_tree`
+  handler in `index.ts`, silent early-return: no registration, no actuation,
+  no MCP sync, no focus restore, no slot render, no per-prompt re-scan wiring.
+
+**No per-flow or function-level defer gates exist, on purpose.** Every
+governance-writing flow is reachable only through these two gates. A new tbox
+entry point must sit beneath one of them rather than grow its own predicate;
+if one ever genuinely must live outside them, it gets its own gate at that
+point — justified where needed, not preemptively scattered.
+
+## Actuation: unconditional calls, one seam, one reader
+
+- **Intent, not observation.** State shown or acted on outside a toggle call
+  reads persisted **intent** (`effectiveEnabled` — chat-branch entry,
+  allowlist-aware → settings pin → packaged default; the same resolution
+  masking's own restore uses), never the live `isEnabled()` observation: an
+  inert toolset (members hidden or an MCP server not yet connected) has an
+  empty observation, which would corrupt pins, describe output, the status
+  glyph, and orphan restore. Used by `actuateNewToolsets`, `defaultsSave`,
+  `describeToolset`, and `formatStatus`; site comments stay one-liners
+  pointing here.
+- **No intent pre-gates.** tbox runs no "already enabled/disabled" guards —
+  no toggle path reads intent before calling. Masking's delta gate no-ops
+  redundant toggles (returns `[]`), repairs clobbered loadouts, and persists
+  intent-off toggles on inert toolsets. "Already in the desired state"
+  messages render from the returned `[]`; a pre-gate would reintroduce
+  deleted duplicate logic and forfeit the repair arm. (Documented exception:
+  `syncMcpToolsets`' reconcile gate in `src/registry.ts` reads intent before
+  `forceToolsetEnabled` — that apply path always emits, so an ungated call
+  fires a spurious `changed` + slot repaint on every unchanged scan of an
+  intent-off toolset. It is a re-scan reconcile, not a toggle path.)
+- **One batch per command.** Multi-op flows (`all`, `<group> on|off`,
+  `solo <unit>`) go through masking's `toggleBatch` over `ctx.sessionManager`,
+  not wrapper loops — one branch read, one settings read, atomic pre-write
+  plan. Only `actuateToolset` keeps the single-op wrapper.
+- **Refusal architecture:** domain functions (`toggleAll`, `actuateToolset`,
+  `actuateGroup`, `soloUnit`, `focusUnit`) throw raw and catch nothing. The
+  dispatch seam (`runToggle`/`toggleRefusalMessage` in `index.ts`) owns all
+  toggle-refusal copy, matched by `err?.name` (`AllowlistModeError`,
+  `CycleError`) — never `instanceof`, because handles may come from another
+  physical copy of the library off the shared `globalThis` registry. A
+  refusal message added inside a domain function is a bug, not robustness.
+  Under allowlist governance every toggle throws an `AllowlistModeError`
+  (mode-global on the `toggleBatch` path; the `actuateToolset` wrapper sets
+  `specId`) — atomic, nothing written; `focusRelease` deliberately tears
+  down a foreign allowlist — accepted behavior, not a bug to guard against.
+- **Branch reader, not branch value.** Actuation and release paths receive
+  `ctx.sessionManager` (the reader object — never a `getBranch()` array or
+  the bare `getBranch` method reference, which the reader type makes a
+  compile error): `toggleAll`, `actuateToolset`, and `soloUnit` take it where
+  they once took a branch value; `actuateGroup` and `focusRelease` gained it
+  as a new required parameter. The library re-reads the branch at each
+  call's own boundary, so one reader per command covers any number of calls
+  and cascades.
+
 ## Tests
 
 - Vitest with **globals on** (`describe`/`it`/`expect` available without
@@ -84,9 +151,8 @@ used for the picker; the source of truth is the library.
   `node:events`. **Call `MockPI.cleanRegistry()` in `beforeEach`** — the
   `pi-tool-masking` registry is process-global and leaks across tests
   otherwise. Follow the pattern in existing test files.
-- `integration.test.ts` and `picker.test.ts` are the largest; the picker
-  tests drive the TUI component via `handleInput`/`render` on a mount state,
-  not real key events.
+- The picker tests drive the TUI component via `handleInput`/`render` on a
+  mount state, not real key events.
 - No external services, no fixtures on disk, no snapshots.
 
 ## Conventions worth keeping
@@ -106,5 +172,25 @@ used for the picker; the source of truth is the library.
   `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` has a
   separate flush path — it writes the live selection to per-toolset `{enabled}`
   entries, no tombstone, no re-actuation. Don't reinvent a fourth.
+- **MCP tools are togglable; the rule is *non-declarable ⇒ read-only*.**
+  MCP tools carry builtin `sourceInfo` but are ordinary declarable tools with
+  a real `exposure` — `src/registry.ts`'s `syncMcpToolsets` gives each server
+  one `tbox.mcp@<server>` toolset over its `direct`-exposure tools, re-scanned
+  from the per-prompt `before_agent_start` hook and the `/tbox` command
+  dispatch (MCP servers connect after `session_start`; `list_changed` fires
+  no extension event). MCP membership, togglability (`isTogglableTool`), and
+  classification go through `isDeclarableMcpTool` (`src/mcp.ts`) — never bare
+  `isMcpTool` for those decisions; if membership and classification
+  predicates drift, disabled/codemode servers inflate the counts again. Bare
+  `isMcpTool` is used deliberately where the broader set is the point: the
+  orphan-exclusion filter (`src/registry.ts`, so non-declarable MCP tools
+  never become `tbox.tool@builtin` orphans) and pi-managed routing
+  (`src/list.ts`, which must catch non-declarable tools). The
+  three shared resource tools and tool_search-loaded `codemode`/`deferred`
+  tools render read-only under the `pi-managed` group (presentation only —
+  no ledger bucket). Toggling is context hygiene, not a security boundary:
+  non-declarable MCP tools stay script-callable.
 - Builtin tools and `sdk`-source (host `customTools`) tools are out of scope:
-  read-only in `--flat` listings, never togglable.
+  read-only in `--flat` listings, never togglable. (MCP tools are the
+  exception — see the MCP bullet above; `isExtensionTool` keeps its narrow
+  meaning so the orphan scan never creates a `tbox.tool@builtin` toolset.)

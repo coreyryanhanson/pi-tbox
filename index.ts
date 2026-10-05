@@ -14,6 +14,7 @@ import type {
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
+	syncMcpToolsets,
 } from "./src/registry.js";
 import {
 	wireSlot,
@@ -32,6 +33,7 @@ import {
 	parseArgs,
 } from "./src/list.js";
 import { isReserved } from "./src/reserved.js";
+import { isDeferredChild } from "pi-tool-masking";
 import {
 	actuateGroup,
 	describeGroup,
@@ -47,6 +49,43 @@ import {
 } from "./config/settings-reader.js";
 import { focusUnit, focusOff, focusRelease, soloUnit } from "./src/focus.js";
 import { handleDefaults } from "./src/defaults.js";
+
+// ---------------------------------------------------------------------------
+// Toggle-refusal seam
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a masking toggle refusal to its user-facing copy, by error name.
+ *
+ * Name-based, never instanceof: throwers may come from another physical
+ * copy of the library off the shared globalThis registry. Returns
+ * undefined for anything that is not a toggle refusal — callers rethrow.
+ */
+function toggleRefusalMessage(
+	err: unknown,
+	context: string,
+): string | undefined {
+	const name = (err as { name?: string })?.name;
+	if (name === "AllowlistModeError")
+		return `${context} refused — toolset toggles do not operate while allowlist governance is active`;
+	if (name === "CycleError")
+		return `${context} refused — a requires cycle was detected before any write; nothing changed`;
+	return undefined; // not a toggle refusal
+}
+
+/**
+ * The one catch seam for actuation flows: domain functions throw raw;
+ * refusals render here, every other error rethrows to pi's runner.
+ */
+const runToggle = (context: string, flow: () => string): string => {
+	try {
+		return flow();
+	} catch (err) {
+		const refusal = toggleRefusalMessage(err, context);
+		if (refusal === undefined) throw err;
+		return refusal;
+	}
+};
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -72,6 +111,28 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.registerCommand("tbox", {
 		description: "Cross-extension tool manager. Usage: " + USAGE,
 		handler: async (args, ctx) => {
+			// Defer gate — a deferring child gets no tbox command surface at
+			// all: every governance-writing flow is reachable only through
+			// this handler, so one message-producing gate covers them all,
+			// including the settings-writer flows the library's defer rule
+			// leaves live. Before the MCP re-scan: the child must not run it
+			// (registering toolsets serves a surface the child does not
+			// render), and any flow added below inherits the gate.
+			if (isDeferredChild()) {
+				ctx.ui.notify("tbox is governed by the parent session", "info");
+				return;
+			}
+			// Hook 2 — the command-path MCP re-scan. Command invocations never
+			// pass through before_agent_start, so a user who starts a session,
+			// waits for servers to connect, and runs /tbox would otherwise see
+			// the pre-MCP world until they submit a prompt. Idempotent.
+			// One branch read per command: the MCP re-scan and the describe
+			// surfaces below read the same branch — nothing between the reads
+			// appends a SessionEntry (defineToolset is registration-only), so
+			// re-reading would return the same state.
+			const branch = ctx.sessionManager.getBranch();
+			syncMcpToolsets(pi, branch, ctx.ui.notify);
+
 			const trimmed = args.trim();
 			if (!trimmed) {
 				ctx.ui.notify(formatBareHelp(), "info");
@@ -92,16 +153,26 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "status": {
-					const output = formatStatus(pi);
+					const output = formatStatus(pi, branch);
 					ctx.ui.notify(output, "info");
 					break;
 				}
 				case "all": {
 					const sub = rest[1];
 					if (sub === "on") {
-						ctx.ui.notify(toggleAll(pi, true), "info");
+						ctx.ui.notify(
+							runToggle("/tbox all", () =>
+								toggleAll(pi, true, ctx.sessionManager),
+							),
+							"info",
+						);
 					} else if (sub === "off") {
-						ctx.ui.notify(toggleAll(pi, false), "info");
+						ctx.ui.notify(
+							runToggle("/tbox all", () =>
+								toggleAll(pi, false, ctx.sessionManager),
+							),
+							"info",
+						);
 					} else {
 						ctx.ui.notify(
 							"Usage: /tbox all on | /tbox all off — enable or disable all toolsets.",
@@ -176,7 +247,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						);
 						break;
 					}
-					ctx.ui.notify(soloUnit(pi, target), "info");
+					ctx.ui.notify(
+						runToggle("/tbox solo", () =>
+							soloUnit(pi, target, ctx.sessionManager),
+						),
+						"info",
+					);
 					break;
 				}
 				case "chars": {
@@ -186,11 +262,17 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {
-						ctx.ui.notify(focusOff(pi, ctx.sessionManager.getBranch()), "info");
+						ctx.ui.notify(focusOff(pi, branch), "info");
 					} else if (sub === "release") {
-						ctx.ui.notify(focusRelease(pi), "info");
+						ctx.ui.notify(
+							focusRelease(pi, ctx.sessionManager),
+							"info",
+						);
 					} else if (sub) {
-						ctx.ui.notify(focusUnit(pi, sub), "info");
+						ctx.ui.notify(
+							runToggle("/tbox focus", () => focusUnit(pi, sub)),
+							"info",
+						);
 					} else {
 						ctx.ui.notify(
 							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off | /tbox focus release — focus on a group or toolset, or exit focus.",
@@ -210,11 +292,21 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						const toolsetId = command.slice(1);
 						const sub = rest[1];
 						if (sub === "on") {
-							ctx.ui.notify(actuateToolset(pi, toolsetId, true), "info");
+							ctx.ui.notify(
+								runToggle(`/tbox +${toolsetId}`, () =>
+									actuateToolset(pi, toolsetId, true, ctx.sessionManager),
+								),
+								"info",
+							);
 						} else if (sub === "off") {
-							ctx.ui.notify(actuateToolset(pi, toolsetId, false), "info");
+							ctx.ui.notify(
+								runToggle(`/tbox +${toolsetId}`, () =>
+									actuateToolset(pi, toolsetId, false, ctx.sessionManager),
+								),
+								"info",
+							);
 						} else {
-							ctx.ui.notify(describeToolset(pi, toolsetId), "info");
+							ctx.ui.notify(describeToolset(toolsetId, branch), "info");
 						}
 						break;
 					}
@@ -231,9 +323,19 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 					const sub = rest[1];
 					if (sub === "on") {
-						ctx.ui.notify(actuateGroup(pi, command, true), "info");
+						ctx.ui.notify(
+							runToggle(`/tbox ${command}`, () =>
+								actuateGroup(pi, command, true, ctx.sessionManager),
+							),
+							"info",
+						);
 					} else if (sub === "off") {
-						ctx.ui.notify(actuateGroup(pi, command, false), "info");
+						ctx.ui.notify(
+							runToggle(`/tbox ${command}`, () =>
+								actuateGroup(pi, command, false, ctx.sessionManager),
+							),
+							"info",
+						);
 					} else {
 						ctx.ui.notify(describeGroup(command), "info");
 					}
@@ -245,8 +347,19 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Session handlers ---
 
 	const captureAndRender = (ctx: ExtensionContext) => {
+		// Defer gate — silent: a deferring child gets no tbox surface at all
+		// (no registration, actuation, MCP sync, focus restore, slot render,
+		// per-prompt re-scan), matching the library's dispatcher policy.
+		if (isDeferredChild()) return;
+		const branch = ctx.sessionManager.getBranch();
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, branch);
+		// MCP re-scan — idempotent. At session_start servers haven't connected
+		// yet, so this is usually a no-op; on session_tree (branch switch) and
+		// after /reload, connected servers' toolsets are synced here, and the
+		// unconditional defineToolset inside reinstalls masking's restore/re-
+		// assert handlers on a fresh pi for a registry holding only MCP toolsets.
+		syncMcpToolsets(pi, branch, ctx.ui.notify);
 		// SAFETY: SlotCtx is a structural subset of ExtensionContext (ui + sessionManager);
 		// every field SlotCtx reads exists on the real context.
 		lastCtx = ctx as unknown as SlotCtx;
@@ -261,7 +374,16 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		// ponytail: a pi-core TOOLSET_EVENTS emit on every setActiveTools call
 		// would make this redundant; drop this handler if that ever ships.
 		if (!rerenderWired) {
-			pi.on("before_agent_start", () => rerenderSlot(pi));
+			// Hook 1 — the per-prompt MCP re-scan + slot re-render. Fires once per
+			// prompt submission; mid-session MCP tool-list changes (list_changed
+			// notifications) fire no extension event, so this re-scan is the only
+			// observation point. Runs after masking's re-assert in the dispatch
+			// order (orphan defineToolsets above register first), so the scan's
+			// intent reconcile closes the one-prompt leak the re-assert misses.
+			pi.on("before_agent_start", (_event, ctx) => {
+				syncMcpToolsets(pi, ctx.sessionManager.getBranch(), ctx.ui.notify);
+				rerenderSlot(pi);
+			});
 			rerenderWired = true;
 		}
 	};

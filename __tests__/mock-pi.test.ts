@@ -10,76 +10,9 @@ describe("MockPI", () => {
 		mock = new MockPI();
 	});
 
-	describe("registerCommand", () => {
-		it("records a command", async () => {
-			mock.registerCommand("tbox", {
-				description: "Test command",
-				handler: async (args, ctx) => {
-					ctx.ui.notify(`Called with: ${args}`, "info");
-				},
-			});
-
-			const commands = mock.getTboxCommands();
-			expect(commands).toHaveLength(1);
-			expect(commands[0]!.name).toBe("tbox");
-			expect(commands[0]!.description).toBe("Test command");
-		});
-
-		it("dispatches a command", async () => {
-			mock.registerCommand("tbox", {
-				description: "Test command",
-				handler: async (args, ctx) => {
-					ctx.ui.notify(`Called with: ${args}`, "info");
-				},
-			});
-
-			await mock.dispatchCommand("list --flat");
-
-			const notifies = mock.getNotifyRecords();
-			expect(notifies).toHaveLength(1);
-			expect(notifies[0]!.message).toBe("Called with: list --flat");
-		});
-	});
-
-	describe("ui.setStatus", () => {
-		it("records status per slot", async () => {
-			mock.registerCommand("tbox", {
-				description: "Test command",
-				handler: async (_args, ctx) => {
-					ctx.ui.setStatus("tbox", "● tbox 3");
-				},
-			});
-
-			await mock.dispatchCommand("test");
-
-			const status = mock.getStatusRecords();
-			expect(status).toHaveLength(1);
-			expect(status[0]!.slot).toBe("tbox");
-			expect(status[0]!.text).toBe("● tbox 3");
-		});
-
-		it("getLastStatus returns the last status for a slot", async () => {
-			mock.registerCommand("tbox", {
-				description: "Test command",
-				handler: async (_args, ctx) => {
-					ctx.ui.setStatus("tbox", "○ tbox");
-					ctx.ui.setStatus("other", "other slot");
-					ctx.ui.setStatus("tbox", "● tbox 5");
-				},
-			});
-
-			await mock.dispatchCommand("test");
-
-			const lastTbox = mock.getLastStatus("tbox");
-			expect(lastTbox?.text).toBe("● tbox 5");
-
-			const lastOther = mock.getLastStatus("other");
-			expect(lastOther?.text).toBe("other slot");
-
-			expect(mock.getLastStatus("nonexistent")).toBeUndefined();
-		});
-	});
-
+	// registerCommand / ui.setStatus / clearUiRecords behavior is exercised
+	// implicitly by every suite that drives commands and slot renders through
+	// the mock.
 	describe("ui.theme.fg", () => {
 		it("wraps text with color markers", async () => {
 			mock.registerCommand("tbox", {
@@ -94,6 +27,30 @@ describe("MockPI", () => {
 
 			const notifies = mock.getNotifyRecords();
 			expect(notifies[0]!.message).toBe("<accent>●</accent>");
+		});
+	});
+
+	describe("registerTool activation (mirrors pi)", () => {
+		it("activates direct and model-only tools at registration; others are not", () => {
+			for (const [name, exposure] of [
+				["direct-tool", "direct"],
+				["model-only-tool", "model-only"],
+				["codemode-tool", "codemode"],
+				["deferred-tool", "deferred"],
+				["hidden-tool", "hidden"],
+			] as const) {
+				mock.registerTool({ name, description: name, exposure });
+			}
+			// Re-registration does not re-activate (no duplicate entry).
+			mock.registerTool({ name: "direct-tool", description: "again" });
+
+			const active = mock.getActiveTools();
+			expect(active).toContain("direct-tool");
+			expect(active.filter((n) => n === "direct-tool")).toHaveLength(1);
+			expect(active).toContain("model-only-tool");
+			expect(active).not.toContain("codemode-tool");
+			expect(active).not.toContain("deferred-tool");
+			expect(active).not.toContain("hidden-tool");
 		});
 	});
 
@@ -170,26 +127,6 @@ describe("MockPI", () => {
 
 			const ext = tools.find((t) => t.sourceInfo.source === "extension");
 			expect(ext?.name).toBe("web-fetch");
-		});
-	});
-
-	describe("clearUiRecords", () => {
-		it("clears all UI records", async () => {
-			mock.registerCommand("tbox", {
-				description: "Test command",
-				handler: async (_args, ctx) => {
-					ctx.ui.setStatus("tbox", "test");
-					ctx.ui.notify("test", "info");
-				},
-			});
-
-			await mock.dispatchCommand("test");
-			expect(mock.getStatusRecords()).toHaveLength(1);
-			expect(mock.getNotifyRecords()).toHaveLength(1);
-
-			mock.clearUiRecords();
-			expect(mock.getStatusRecords()).toHaveLength(0);
-			expect(mock.getNotifyRecords()).toHaveLength(0);
 		});
 	});
 });

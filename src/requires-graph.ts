@@ -13,7 +13,11 @@
  * @module
  */
 
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	CycleError,
+	getRegisteredToolsets,
+	type RegistryEntry,
+} from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
 // Registry access
@@ -35,7 +39,8 @@ function registryMap(): Map<string, RegistryEntry> {
  * Forward references (a `requires` id not in the registry) are skipped,
  * not fatal — the library skips them the same way at actuation.
  *
- * @throws Error naming the cycle path if a `requires` cycle is detected.
+ * @throws CycleError (masking's — the dispatch seam renders its copy)
+ *        naming the cycle path, if a `requires` cycle is detected.
  */
 export function forwardClosure(toolsetIds: Iterable<string>): Set<string> {
 	const registry = registryMap();
@@ -43,8 +48,8 @@ export function forwardClosure(toolsetIds: Iterable<string>): Set<string> {
 
 	const visit = (id: string, path: string[]): void => {
 		if (path.includes(id)) {
-			throw new Error(
-				`[tbox] requires cycle: ${[...path, id].join(" \u2192 ")}`,
+			throw new CycleError(
+				[...path, id].join(" \u2192 "),
 			);
 		}
 		if (result.has(id)) return; // already closed
@@ -74,7 +79,8 @@ export function forwardClosure(toolsetIds: Iterable<string>): Set<string> {
  * Given a set of toolset ids, return the set plus every toolset that
  * transitively `requires` one of them (i.e. the dependents).
  *
- * @throws Error naming the cycle path if a `requires` cycle is detected.
+ * @throws CycleError (masking's — the picker renders its copy)
+ *        naming the cycle path, if a `requires` cycle is detected.
  */
 export function reverseClosure(toolsetIds: Iterable<string>): Set<string> {
 	const registry = registryMap();
@@ -87,8 +93,8 @@ export function reverseClosure(toolsetIds: Iterable<string>): Set<string> {
 		for (const [depId, entry] of registry) {
 			if (!entry.spec.requires?.includes(id)) continue;
 			if (path.includes(depId)) {
-				throw new Error(
-					`[tbox] requires cycle: ${[...path, depId].join(" \u2192 ")}`,
+				throw new CycleError(
+					[...path, depId].join(" \u2192 "),
 				);
 			}
 			if (result.has(depId)) continue;

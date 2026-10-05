@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach } from "vitest";
 import type {
 	ExtensionAPI,
 	ToolInfo,
@@ -10,7 +14,6 @@ import type {
 import {
 	defineToolset,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 
@@ -18,19 +21,89 @@ type ToolsetDefaultsMap = ReturnType<
 	typeof import("pi-tool-masking").readMergedToolsetDefaults
 >;
 
+// ---------------------------------------------------------------------------
+// Temp settings dir — real settings.json files, never the developer's ~/.pi
+// ---------------------------------------------------------------------------
+
+let tmpCurrent: {
+	tmp: string;
+	origCwd: string;
+	origAgentDir: string | undefined;
+} | null = null;
+
 /**
- * Test seam for settings-pinned toolset defaults. Wraps pi-tool-masking's
- * `setSettingsOverrideForTests`, whose signature is full parsed settings
- * objects per scope — this accepts just the flat `toolsetDefaults` map.
- * Pass no argument for an empty settings state.
+ * Call once at file scope (module level): isolates `PI_CODING_AGENT_DIR` and the
+ * process cwd into a fresh mkdtemp dir per test, so global settings live at
+ * `<tmp>/.pi/agent/settings.json` and project settings at
+ * `<tmp>/.pi/settings.json`. Missing files read as empty settings.
+ */
+export function useTempAgentDir(): {
+	globalSettings: string;
+	projectSettings: string;
+	writeJson(path: string, data: unknown): void;
+} {
+	beforeEach(() => {
+		const tmp = mkdtempSync(join(tmpdir(), "tbox-settings-"));
+		mkdirSync(join(tmp, ".pi", "agent"), { recursive: true });
+		mkdirSync(join(tmp, ".pi"), { recursive: true });
+		tmpCurrent = {
+			tmp,
+			origCwd: process.cwd(),
+			origAgentDir: process.env.PI_CODING_AGENT_DIR,
+		};
+		process.env.PI_CODING_AGENT_DIR = join(tmp, ".pi", "agent");
+		process.chdir(tmp);
+	});
+	afterEach(() => {
+		if (tmpCurrent === null) return;
+		process.chdir(tmpCurrent.origCwd);
+		if (tmpCurrent.origAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
+		} else {
+			process.env.PI_CODING_AGENT_DIR = tmpCurrent.origAgentDir;
+		}
+		rmSync(tmpCurrent.tmp, { recursive: true, force: true });
+		tmpCurrent = null;
+	});
+	return {
+		get globalSettings() {
+			if (tmpCurrent === null) throw new Error("useTempAgentDir not active");
+			return join(tmpCurrent.tmp, ".pi", "agent", "settings.json");
+		},
+		get projectSettings() {
+			if (tmpCurrent === null) throw new Error("useTempAgentDir not active");
+			return join(tmpCurrent.tmp, ".pi", "settings.json");
+		},
+		writeJson(path, data) {
+			writeFileSync(path, JSON.stringify(data, null, 2));
+		},
+	};
+}
+
+/**
+ * Seed toolset-defaults pins into the temp global settings file (real disk —
+ * requires `useTempAgentDir()`).
  */
 export function pinSettingsDefaultsForTests(
-	defaults?: ToolsetDefaultsMap,
+	defaults: ToolsetDefaultsMap,
 ): void {
-	setSettingsOverrideForTests({
-		global: defaults ? { toolsetDefaults: defaults } : undefined,
-		project: undefined,
-	});
+	if (tmpCurrent === null) {
+		throw new Error("pinSettingsDefaultsForTests requires useTempAgentDir()");
+	}
+	writeFileSync(
+		join(tmpCurrent.tmp, ".pi", "agent", "settings.json"),
+		JSON.stringify({ toolsetDefaults: defaults }, null, 2),
+	);
+}
+
+/** Snapshot of the mock's session branch (for intent reads). */
+export function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
+/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
+export function readerOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager;
 }
 
 // -------------------------------------------------------------------------
@@ -65,17 +138,6 @@ export interface StatusRecord {
 export interface NotifyRecord {
 	message: string;
 	level: string;
-}
-
-export interface SelectRecord {
-	message: string;
-	options: string[];
-	selected: string;
-}
-
-export interface ConfirmRecord {
-	message: string;
-	result: boolean;
 }
 
 export interface ExtensionCommandContext {
@@ -116,7 +178,7 @@ export interface ExtensionCommandContext {
  * Supports:
  *   - Everything the library's MockPI supports
  *   - registerCommand / dispatchCommand
- *   - ui.setStatus / ui.notify / ui.select / ui.confirm
+ *   - ui.setStatus / ui.notify
  *   - ui.theme.fg (returns markers for assertable color)
  *   - getAllTools with all five sourceInfo.source flavors
  *   - defineFakeToolset (test-only helper)
@@ -136,12 +198,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 	// UI recording
 	private _statusRecords: StatusRecord[] = [];
 	private _notifyRecords: NotifyRecord[] = [];
-	private _selectRecords: SelectRecord[] = [];
-	private _confirmRecords: ConfirmRecord[] = [];
-
-	// Select/confirm return values (set by tests)
-	private _selectReturnValues: string[] = [];
-	private _confirmReturnValues: boolean[] = [];
 
 	// Component mount (for ctx.ui.custom)
 	private _mountStates = new Map<string, MountState>();
@@ -152,12 +208,16 @@ export class MockPI implements Partial<ExtensionAPI> {
 	registerTool(
 		info: Pick<ToolInfo, "name" | "description"> & {
 			sourceInfo?: ToolInfo["sourceInfo"];
+			exposure?: ToolInfo["exposure"];
+			namespace?: ToolInfo["namespace"];
 		},
 	): void {
 		const tool: ToolInfo = {
 			name: info.name,
 			description: info.description ?? "",
 			parameters: undefined as any,
+			exposure: info.exposure ?? "direct",
+			...(info.namespace ? { namespace: info.namespace } : {}),
 			sourceInfo: info.sourceInfo ?? {
 				path: "mock.ts",
 				source: "extension",
@@ -166,6 +226,16 @@ export class MockPI implements Partial<ExtensionAPI> {
 			},
 		};
 		this._tools.push(tool);
+		// Mirror pi: direct and model-only tools are activated when they are
+		// registered; the others are not. Re-registration does not re-activate
+		// (pi agent-session._isActivatedOnRegistration guards on the previous
+		// set, so a duplicate never lands twice).
+		if (
+			(tool.exposure === "direct" || tool.exposure === "model-only") &&
+			!this._activeTools.includes(tool.name)
+		) {
+			this._activeTools.push(tool.name);
+		}
 	}
 
 	getAllTools(): ToolInfo[] {
@@ -173,7 +243,8 @@ export class MockPI implements Partial<ExtensionAPI> {
 	}
 
 	setActiveTools(toolNames: string[]): void {
-		this._activeTools = [...toolNames];
+		// Dedupe like pi's _applyToolLoadout.
+		this._activeTools = [...new Set(toolNames)];
 	}
 
 	getActiveTools(): string[] {
@@ -250,12 +321,18 @@ export class MockPI implements Partial<ExtensionAPI> {
 
 	// --- Events ---
 
-	on(event: any, handler: any): void {
+	on(event: any, handler: any): () => void {
 		const key = String(event);
 		if (!this._handlers.has(key)) {
 			this._handlers.set(key, []);
 		}
 		this._handlers.get(key)!.push(handler);
+		return () => {
+			const handlers = this._handlers.get(key);
+			if (!handlers) return;
+			const i = handlers.indexOf(handler);
+			if (i !== -1) handlers.splice(i, 1);
+		};
 	}
 
 	get events(): EventBus {
@@ -273,10 +350,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 			};
 		}
 		return this._eventBus;
-	}
-
-	hasHandler(event: string): boolean {
-		return (this._handlers.get(event)?.length ?? 0) > 0;
 	}
 
 	handlerCount(event: string): number {
@@ -419,16 +492,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 			notify: (message: string, level?: string) => {
 				this._notifyRecords.push({ message, level: level ?? "info" });
 			},
-			select: async (message: string, options: string[]): Promise<string> => {
-				const value = this._selectReturnValues.shift() ?? options[0]!;
-				this._selectRecords.push({ message, options, selected: value });
-				return value;
-			},
-			confirm: async (message: string): Promise<boolean> => {
-				const value = this._confirmReturnValues.shift() ?? true;
-				this._confirmRecords.push({ message, result: value });
-				return value;
-			},
 			custom: <T>(
 				factory: (
 					tui: unknown,
@@ -470,34 +533,10 @@ export class MockPI implements Partial<ExtensionAPI> {
 		return this._notifyRecords[this._notifyRecords.length - 1];
 	}
 
-	/** Get all select records (for assertions). */
-	getSelectRecords(): SelectRecord[] {
-		return [...this._selectRecords];
-	}
-
-	/** Set the next N values to return from ui.select. */
-	setSelectReturnValues(values: string[]): void {
-		this._selectReturnValues = [...values];
-	}
-
-	/** Get all confirm records (for assertions). */
-	getConfirmRecords(): ConfirmRecord[] {
-		return [...this._confirmRecords];
-	}
-
-	/** Set the next N values to return from ui.confirm. */
-	setConfirmReturnValues(values: boolean[]): void {
-		this._confirmReturnValues = [...values];
-	}
-
 	/** Clear all UI records (for test isolation). */
 	clearUiRecords(): void {
 		this._statusRecords = [];
 		this._notifyRecords = [];
-		this._selectRecords = [];
-		this._confirmRecords = [];
-		this._selectReturnValues = [];
-		this._confirmReturnValues = [];
 		this._customKeySequence = [];
 		this._mountStates.clear();
 	}
@@ -588,8 +627,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 	 */
 	static cleanRegistry(): void {
 		delete (globalThis as any)["__piToolMaskingRegistry"];
-		delete (globalThis as any)["__piToolMaskingLastRestoreEvent"];
-		delete (globalThis as any)["__piToolMaskingModuleState"];
 	}
 }
 

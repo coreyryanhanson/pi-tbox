@@ -7,15 +7,27 @@
  * @module
  */
 
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import type {
+	ExtensionAPI,
+	SessionEntry,
+	ToolInfo,
+} from "@earendil-works/pi-coding-agent";
+import {
+	effectiveEnabled,
+	getRegisteredToolsets,
+	readMergedToolsetDefaults,
+	type RegistryEntry,
+} from "pi-tool-masking";
 import { getFocusUnit } from "./status-slot.js";
 import {
+	codemodeNote,
 	computeCharCount,
 	formatCharSplit,
-	isExtensionTool,
+	isCodemodeActive,
+	isTogglableTool,
 	serializeToolDef,
 } from "./chars.js";
+import { isMcpResourceTool, isMcpTool } from "./mcp.js";
 import { getGroupNames } from "./groups.js";
 
 // ---------------------------------------------------------------------------
@@ -61,23 +73,34 @@ function smallestToolsetMap(
 	return map;
 }
 
-/** Count active extension tools and their serialized char total. */
-function activeExtensionChars(
+/** Render-group id for MCP tools tbox cannot toggle. */
+const PI_MANAGED_GID = "pi-managed";
+
+/** Count active togglable tools and their serialized char total. Active
+ * non-togglable members (e.g. an inert member lingering in spec.names after
+ * an exposure change) are counted and returned separately so callers can
+ * book them to the core bucket — computeCharCount books them to core, so
+ * the grouped list's footer must too or the two surfaces disagree. */
+function activeTogglableChars(
 	names: Iterable<string>,
 	activeSet: Set<string>,
 	allToolsMap: Map<string, ToolInfo>,
-): { activeCount: number; charCount: number } {
+): { activeCount: number; charCount: number; coreCharCount: number } {
 	let activeCount = 0;
 	let charCount = 0;
+	let coreCharCount = 0;
 	for (const name of names) {
 		if (!activeSet.has(name)) continue;
 		activeCount++;
 		const tool = allToolsMap.get(name);
 		if (!tool) continue;
-		if (!isExtensionTool(tool)) continue;
+		if (!isTogglableTool(tool)) {
+			coreCharCount += serializeToolDef(tool).length;
+			continue;
+		}
 		charCount += serializeToolDef(tool).length;
 	}
-	return { activeCount, charCount };
+	return { activeCount, charCount, coreCharCount };
 }
 
 /** Glyphs for the enabled/active table column (✓ = on, ✗ = off). */
@@ -179,7 +202,9 @@ function renderTable(
  * Format the grouped list view (default).
  *
  * Each tool appears exactly once under its smallest containing toolset.
- * SDK tools are excluded from the grouped view entirely.
+ * SDK tools are excluded from the grouped view entirely. MCP tools tbox
+ * cannot toggle (the shared resource tools, active per-server tools no
+ * toolset claims) render under a separate `pi-managed` group.
  *
  * @param pi  - The extension API
  * @param options  - Optional filters
@@ -203,11 +228,18 @@ export function formatGroupedList(
 		filtered = filtered.filter((t) => !activeSet.has(t.name));
 	}
 
-	// Group filtered tools by their smallest toolset id
+	// Group filtered tools by their smallest toolset id. MCP tools tbox
+	// cannot toggle (shared resource tools, active per-server tools no
+	// toolset claims) route to the pi-managed group first, so they never
+	// fall through to the builtin branch via the source fallback.
 	const groups = new Map<string, ToolInfo[]>();
 	for (const t of filtered) {
 		const entry = toolToToolset.get(t.name);
-		const gid = entry?.spec.id ?? t.sourceInfo.source;
+		const gid =
+			isMcpResourceTool(t) ||
+			(isMcpTool(t) && activeSet.has(t.name) && !entry)
+			? PI_MANAGED_GID
+			: (entry?.spec.id ?? t.sourceInfo.source);
 		if (!groups.has(gid)) groups.set(gid, []);
 		groups.get(gid)!.push(t);
 	}
@@ -224,26 +256,66 @@ export function formatGroupedList(
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
 		if (!entry) {
-			// Non-toolset group — builtins only (orphan extension tools
-			// are auto-registered as tbox.tool@<source> toolsets by
-			// autoRegisterBuiltinAndOrphans before this point).
-			if (tools[0]?.sourceInfo.source === "builtin") {
-				// Deliberate builtin branch: always-on, non-togglable
+			if (gid === PI_MANAGED_GID) {
 				let activeCount = 0;
 				let charCount = 0;
+				let inactiveCount = 0;
 				for (const t of tools) {
-					if (!activeSet.has(t.name)) continue;
+					if (!activeSet.has(t.name)) {
+						inactiveCount++;
+						continue;
+					}
 					activeCount++;
-					charCount += serializeToolDef(t).length;
+					const len = serializeToolDef(t).length;
+					charCount += len;
+					// Togglability is the core/extension axis, same as
+					// computeCharCount: a declarable-but-unclaimed tool goes
+					// to extension; resource and non-declarable tools stay
+					// core.
+					if (isTogglableTool(t)) totalExtChars += len;
+					else totalCoreChars += len;
 				}
 				totalActive += activeCount;
-				totalCoreChars += charCount;
+				totalInactive += inactiveCount;
 				lines.push(
-					`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
+					`  pi-managed (${activeCount} active, +${charCount} chars)`,
 				);
 				for (const t of tools) {
 					const status = activeSet.has(t.name) ? "" : " (inactive)";
 					lines.push(`    ${t.name}${status}`);
+				}
+				lines.push("");
+				continue;
+			}
+
+			// Non-toolset group — builtins only (orphan extension tools
+			// are auto-registered as tbox.tool@<source> toolsets by
+			// autoRegisterBuiltinAndOrphans before this point). Inactive
+			// unclaimed MCP tools also land here via the source fallback
+			// — they cost no context and show nowhere, so the predicate
+			// filters them out of counts and rows.
+			if (tools[0]?.sourceInfo.source === "builtin") {
+				// Deliberate builtin branch: always-on, non-togglable
+				const builtins = tools.filter(
+					(t) => !isMcpTool(t) && !isMcpResourceTool(t),
+				);
+				if (builtins.length > 0) {
+					let activeCount = 0;
+					let charCount = 0;
+					for (const t of builtins) {
+						if (!activeSet.has(t.name)) continue;
+						activeCount++;
+						charCount += serializeToolDef(t).length;
+					}
+					totalActive += activeCount;
+					totalCoreChars += charCount;
+					lines.push(
+						`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
+					);
+					for (const t of builtins) {
+						const status = activeSet.has(t.name) ? "" : " (inactive)";
+						lines.push(`    ${t.name}${status}`);
+					}
 				}
 			}
 			lines.push("");
@@ -251,7 +323,7 @@ export function formatGroupedList(
 		}
 
 		// header reflects full toolset state; filter controls row visibility only
-		const { activeCount, charCount } = activeExtensionChars(
+		const { activeCount, charCount, coreCharCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,
@@ -260,6 +332,7 @@ export function formatGroupedList(
 		totalActive += activeCount;
 		totalInactive += inactiveCount;
 		totalExtChars += charCount;
+		totalCoreChars += coreCharCount;
 
 		lines.push(
 			`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
@@ -269,6 +342,15 @@ export function formatGroupedList(
 			lines.push(`    ${t.name}${status}`);
 		}
 		lines.push("");
+	}
+
+	// Active sdk tools are kept out of the rows but not out of the core
+	// bucket: computeCharCount (/tbox status, /tbox chars) books every
+	// active non-togglable tool into core, and sdk is non-togglable, so
+	// the footer's core: must include them to agree with status.
+	for (const t of allTools) {
+		if (t.sourceInfo.source === "sdk" && activeSet.has(t.name))
+			totalCoreChars += serializeToolDef(t).length;
 	}
 
 	// Footer summary line
@@ -314,7 +396,9 @@ export function formatByChars(pi: ExtensionAPI): string {
 	const stats: ToolsetStats[] = [];
 
 	for (const entry of toolsets) {
-		const { activeCount, charCount } = activeExtensionChars(
+		// coreCharCount deliberately ignored: this view measures the togglable
+		// budget only; /tbox status's core: covers non-togglable members.
+		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,
@@ -330,7 +414,12 @@ export function formatByChars(pi: ExtensionAPI): string {
 	stats.sort((a, b) => b.charCount - a.charCount);
 
 	if (stats.length === 0) {
-		return "Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
+		const empty =
+			"Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
+		// The empty-budget early return must carry the codemode note too — this
+		// is the surface a user opens with exactly the overhead question, and
+		// with no toolset charging budget is precisely when the note matters.
+		return isCodemodeActive(pi) ? `${empty}\n\n  ${codemodeNote()}` : empty;
 	}
 
 	const totalActive = stats.reduce((n, s) => n + s.activeCount, 0);
@@ -349,12 +438,13 @@ export function formatByChars(pi: ExtensionAPI): string {
 	]);
 	const footer = ["Total", String(totalActive), `+${totalChars}`];
 
-	return renderTable(
+	const table = renderTable(
 		"Context budget (toolsets, most expensive first):",
 		cols,
 		tableRows,
 		footer,
 	);
+	return isCodemodeActive(pi) ? `${table}\n\n  ${codemodeNote()}` : table;
 }
 
 // ---------------------------------------------------------------------------
@@ -515,15 +605,24 @@ export function formatList(pi: ExtensionAPI, args: string): string {
  *
  * Toolsets and the builtin floor are rendered as a three-column table:
  * toolset id, an `enabled` column (✓/✗), and a members count. The
- * builtin row carries its active count inside the members cell
- * (`N (M active)`) since it is non-togglable. Trailing User Groups /
- * Focus / Char-count lines are unaffected.
+ * builtin and pi-managed rows carry their active count inside the
+ * members cell (`N (M active)`) since they are non-togglable. Trailing
+ * User Groups / Focus / Char-count lines are unaffected.
+ *
+ * The toolset glyph reads intent, not the live observation (see
+ * AGENTS.md). Hoists the defaults snapshot — one settings read per
+ * command, not per toolset.
  *
  * @param pi - The extension API
+ * @param branch - Chat branch, for the intent read
  */
-export function formatStatus(pi: ExtensionAPI): string {
+export function formatStatus(
+	pi: ExtensionAPI,
+	branch: readonly SessionEntry[],
+): string {
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
+	const defaultsSnapshot = readMergedToolsetDefaults();
 
 	const cols: ColSpec[] = [
 		{ label: "toolset" },
@@ -535,21 +634,51 @@ export function formatStatus(pi: ExtensionAPI): string {
 
 	for (const entry of toolsets) {
 		const { spec } = entry;
-		const isEnabled = [...spec.names].some((n) => activeSet.has(n));
+		const isEnabled = effectiveEnabled(spec, branch, defaultsSnapshot).enabled;
 		const glyph = isEnabled ? ENABLED_GLYPH : DISABLED_GLYPH;
 		tableRows.push([spec.id, glyph, String(spec.names.size)]);
 	}
 
-	// Builtins: always-on, shown as a separate group (not in the registry)
-	const builtinTools = pi
-		.getAllTools()
-		.filter((t) => t.sourceInfo.source === "builtin");
+	const allTools = pi.getAllTools();
+
+	// Builtins: always-on, shown as a separate group (not in the registry).
+	// MCP tools are builtin-source, so exclude per-server mcp__* tools and
+	// the namespace-less resource tools — claimed ones render in their
+	// toolset rows, unclaimed ones under pi-managed; without the filters
+	// they would appear here AND there (double-listed, count inflated).
+	const builtinTools = allTools.filter(
+		(t) =>
+			t.sourceInfo.source === "builtin" &&
+			!isMcpTool(t) &&
+			!isMcpResourceTool(t),
+	);
 	if (builtinTools.length > 0) {
 		const activeCount = builtinTools.filter((t) => activeSet.has(t.name)).length;
 		tableRows.push([
 			"pi.builtin",
 			ENABLED_GLYPH,
 			`${builtinTools.length} (${activeCount} active)`,
+		]);
+	}
+
+	// pi-managed: MCP tools tbox cannot toggle — the shared resource tools
+	// (always, inactive ones at zero chars) and active per-server MCP tools
+	// no toolset claims (loaded mid-session by tool_search; booked to core).
+	const claimed = new Set<string>();
+	for (const entry of toolsets) {
+		for (const name of entry.spec.names) claimed.add(name);
+	}
+	const managedTools = allTools.filter(
+		(t) =>
+			isMcpResourceTool(t) ||
+			(isMcpTool(t) && activeSet.has(t.name) && !claimed.has(t.name)),
+	);
+	if (managedTools.length > 0) {
+		const activeCount = managedTools.filter((t) => activeSet.has(t.name)).length;
+		tableRows.push([
+			"pi-managed",
+			ENABLED_GLYPH,
+			`${managedTools.length} (${activeCount} active)`,
 		]);
 	}
 
@@ -563,9 +692,10 @@ export function formatStatus(pi: ExtensionAPI): string {
 	const focusUnit = getFocusUnit();
 	const focusLine = focusUnit ? `Focus: on (${focusUnit})` : "Focus: off";
 
-	return [table, "", groupLine, focusLine, formatCharSplit(computeCharCount(pi))]
-		.join("\n")
-		.trimEnd();
+	const charLine = formatCharSplit(computeCharCount(pi));
+	const lines = [table, "", groupLine, focusLine, charLine];
+	if (isCodemodeActive(pi)) lines.push(codemodeNote());
+	return lines.join("\n").trimEnd();
 }
 
 // ---------------------------------------------------------------------------

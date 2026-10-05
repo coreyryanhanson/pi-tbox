@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	render,
@@ -166,27 +166,8 @@ describe("status-slot", () => {
 	});
 
 	describe("renderSlotText", () => {
-		it("renders pristine state", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText({ kind: "pristine" }, fg);
-			expect(text).toBe("<dim>○</dim> tbox");
-		});
-
-		it("renders count state with masked suffix", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText({ kind: "count", n: 3 }, fg);
-			expect(text).toBe("<accent>●</accent> tbox 3 masked");
-		});
-
-		it("renders focus state with count in parens", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText(
-				{ kind: "focus", unit: "portal.web", count: 12 },
-				fg,
-			);
-			expect(text).toBe("<success>●</success> focus:portal.web (12)");
-		});
-
+		// pristine/count/focus glyph forms are asserted end-to-end via the real
+		// render path in the "render" and "focus management" describes.
 		it("renders focus-empty state", () => {
 			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "focus-empty" }, fg);
@@ -338,7 +319,7 @@ describe("status-slot", () => {
 			const entry = getRegisteredToolsets().find(
 				(e: RegistryEntry) => e.spec.id === "portal.web",
 			)!;
-			entry.toolset.enable(pi);
+			entry.toolset.enable(pi, readerOf(mock));
 
 			const ctx = mock.createContext();
 			const ctxRef = ctx as unknown as {
@@ -355,7 +336,7 @@ describe("status-slot", () => {
 
 			// Disable the toolset → emits changed → wireSlot re-renders
 			mock.clearUiRecords();
-			entry.toolset.disable(pi);
+			entry.toolset.disable(pi, readerOf(mock));
 
 			const after = mock.getLastStatus(SLOT_NAME);
 			expect(after).toBeDefined();

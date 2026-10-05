@@ -23,6 +23,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	clearToolsetDefaults,
+	effectiveEnabled,
 	getRegisteredToolsets,
 	MalformedSettingsError,
 	readMergedToolsetDefaults,
@@ -118,13 +119,21 @@ function withMalformed(fn: () => DefaultsResult): DefaultsResult {
  * Works during focus: the allowlist selection is captured either way.
  * `writeToolsetDefaults` merges — stale pins from a prior save are
  * `clear`'s job to remove.
+ *
+ * Pins read intent, not the live snapshot (see AGENTS.md): capturing
+ * while a toolset is inert would pin a temporary divergence as a permanent
+ * misconfiguration.
  */
-function defaultsSave(pi: ExtensionAPI, flags: Set<string>): DefaultsResult {
+function defaultsSave(
+	flags: Set<string>,
+	branch: readonly SessionEntry[],
+): DefaultsResult {
 	return withMalformed(() => {
 		const scope = resolveScope(flags);
+		const snapshot = readMergedToolsetDefaults();
 		const pins: Record<string, { enabled: boolean }> = {};
-		for (const { spec, toolset } of getRegisteredToolsets()) {
-			const live = toolset.isEnabled(pi);
+		for (const { spec } of getRegisteredToolsets()) {
+			const live = effectiveEnabled(spec, branch, snapshot).enabled;
 			if (scope === "project" || live !== (spec.defaultEnabled ?? true)) {
 				pins[spec.persistKey] = { enabled: live };
 			}
@@ -246,7 +255,7 @@ export function handleDefaults(
 	const sub = rest[1] ?? "show";
 	switch (sub) {
 		case "save":
-			return defaultsSave(pi, flags);
+			return defaultsSave(flags, ctx.sessionManager.getBranch());
 		case "show":
 			return defaultsShow(flags);
 		case "clear":

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, branchOf, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	formatList,
@@ -12,7 +12,12 @@ import {
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	type BranchReader,
+	type RegistryEntry,
+} from "pi-tool-masking";
+
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,9 +134,12 @@ function defineFakeToolsets(mock: MockPI): void {
 	});
 }
 
-function enableAllToolsets(pi: ExtensionAPI): void {
+function enableAllToolsets(
+	pi: ExtensionAPI,
+	sessionManager: BranchReader,
+): void {
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, sessionManager);
 	}
 }
 
@@ -139,7 +147,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAllToolsets(pi);
+	enableAllToolsets(pi, readerOf(mock));
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +172,7 @@ describe("formatGroupedList", () => {
 			mock.registerTool({
 				name,
 				description: `Tool ${name}`,
+				exposure: "codemode",
 				sourceInfo: {
 					path: "ext.ts",
 					source: "extension",
@@ -271,6 +280,7 @@ describe("formatGroupedList", () => {
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphan",
+			exposure: "codemode",
 			sourceInfo: {
 				path: "ext.ts",
 				source: "extension",
@@ -520,6 +530,28 @@ describe("formatByChars", () => {
 			"No toolsets are consuming context budget right now.",
 		);
 	});
+
+	it("appends the static codemode note only when codemode is active", () => {
+		setupRichMock(mock, pi);
+
+		const quiet = formatByChars(pi);
+		expect(quiet).not.toContain("codemode");
+
+		mock.setActiveTools([...mock.getActiveTools(), "codemode"]);
+		const noted = formatByChars(pi);
+		expect(noted).toContain("codemode.inlineBudget");
+		// No qualifier — N is rendered plainly in every mode.
+		expect(noted).not.toMatch(/[≤≥]/);
+	});
+
+	it("carries the codemode note on the empty-budget early return", () => {
+		// No toolsets registered → the early return fires before any footer.
+		mock.setActiveTools(["codemode"]);
+		const output = formatByChars(pi);
+
+		expect(output).toContain("No toolsets are consuming context budget");
+		expect(output).toContain("codemode.inlineBudget");
+	});
 });
 
 describe("formatList (dispatch)", () => {
@@ -630,7 +662,7 @@ describe("formatStatus", () => {
 	it("prints a line per subsystem", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 
 		expect(output).toContain("portal.web");
 		expect(output).toContain("portal.learn");
@@ -646,7 +678,7 @@ describe("formatStatus", () => {
 	it("shows toolset state via ✓/✗ glyphs", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		// Tabular header and ✓ glyph for enabled toolsets (all enabled here)
 		expect(output).toMatch(/toolset\s+enabled\s+members/);
 		expect(output).toContain("\u2713");
@@ -661,16 +693,16 @@ describe("formatStatus", () => {
 		const learnEntry = registry.find(
 			(e: RegistryEntry) => e.spec.id === "portal.learn",
 		)!;
-		learnEntry.toolset.disable(pi);
+		learnEntry.toolset.disable(pi, readerOf(mock));
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		expect(output).toContain("\u2717");
 	});
 
 	it("does not expose builtins as a toggleable toolset", () => {
 		setupRichMock(mock, pi);
 
-		const output = formatStatus(pi);
+		const output = formatStatus(pi, branchOf(mock));
 		expect(output).not.toContain("protected");
 	});
 });

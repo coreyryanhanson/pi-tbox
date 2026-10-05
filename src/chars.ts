@@ -10,13 +10,15 @@
  * `{name, description, parameters, promptGuidelines, sourceInfo}`
  * per tool, summed. This is the contract — the shape is an impl detail.
  *
- * Returns a split: `core` (builtin + sdk, non-togglable floor) and
- * `extension` (extension tools, togglable budget).
+ * Returns a split: `core` (non-togglable floor: builtin + sdk tools and
+ * non-declarable MCP tools) and `extension` (togglable budget: extension
+ * tools and declarable MCP tools).
  *
  * @module
  */
 
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import { isDeclarableMcpTool } from "./mcp.js";
 
 // ---------------------------------------------------------------------------
 // Tool classification
@@ -29,7 +31,55 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 	);
 }
 
-/** Counts of all extension tools and active extension tools (single pass). */
+/**
+ * True for tools tbox can toggle: extension tools and declarable MCP tools.
+ * The single togglability predicate for every classification site (char
+ * counts, masked counts, list char totals). MCP tools are ordinary
+ * declarable tools despite their builtin source; non-declarable MCP tools
+ * (`codemode`/`deferred`/`hidden`) are never togglable — counting them
+ * would inflate `n masked` and the char buckets with tools tbox did not
+ * mask. Not used by the registry scan: `isExtensionTool` keeps its narrow
+ * meaning there so MCP tools don't become bogus orphan toolsets.
+ */
+export function isTogglableTool(tool: ToolInfo): boolean {
+	return isExtensionTool(tool) || isDeclarableMcpTool(tool);
+}
+
+/**
+ * True when the codemode builtin tool is in the active set (enabled via e.g.
+ * `defaultTools: ["+codemode"]` or a toolset toggle).
+ */
+export function isCodemodeActive(pi: ExtensionAPI): boolean {
+	return pi.getActiveTools().includes("codemode");
+}
+
+/**
+ * Static honesty note for the char count under codemode. The count is the
+ * serialized definitions of the active set; under codemode pi rewrites
+ * declarations at request time (`prepareLoadout`), which tbox cannot measure:
+ * mode "on" appends a codemode signature block to every declared callable's
+ * description, mode "only" additionally hides active direct declarations
+ * while the catalog (budgeted by `codemode.inlineBudget`, default 3000 est.
+ * tokens) sits in context. No qualifier on N is sound in all modes (`≥ N`
+ * holds only under "on"; under "only" the true footprint can be below N),
+ * and a printed numeric range would rot silently on a pi update — so the
+ * count renders plainly and the note names the bound instead of guessing it.
+ *
+ * The `codemode` tool itself is counted like any other builtin: an exclusion
+ * would have to be applied in both accumulators or the two surfaces' `core:`
+ * counts diverge, and under mode "on" every declared callable's description
+ * is rewritten anyway, so excluding one tool buys no accuracy.
+ */
+export function codemodeNote(): string {
+	return (
+		"Note: codemode rewrites tool declarations at request time — the codemode " +
+		"catalog is budgeted by codemode.inlineBudget (default 3000 est. tokens) " +
+		"and every declared callable gains a signature line, so this count does " +
+		"not measure codemode's full context footprint."
+	);
+}
+
+/** Counts of all togglable tools and active togglable tools (single pass). */
 export function extensionToolCounts(pi: ExtensionAPI): {
 	total: number;
 	active: number;
@@ -38,7 +88,7 @@ export function extensionToolCounts(pi: ExtensionAPI): {
 	let total = 0;
 	let activeCount = 0;
 	for (const t of pi.getAllTools()) {
-		if (!isExtensionTool(t)) continue;
+		if (!isTogglableTool(t)) continue;
 		total++;
 		if (active.has(t.name)) activeCount++;
 	}
@@ -69,9 +119,10 @@ export function serializeToolDef(tool: ToolInfo): string {
 
 /** Result of computeCharCount: core (untoggleable) vs extension (togglable). */
 export interface CharCountSplit {
-	/** Active builtin + sdk tool char count — non-togglable floor. */
+	/** Active non-togglable tool char count — non-togglable floor (builtin
+	 * + sdk, and non-declarable MCP tools). */
 	core: number;
-	/** Active extension tool char count — togglable budget. */
+	/** Active togglable tool char count — togglable budget. */
 	extension: number;
 }
 
@@ -83,7 +134,8 @@ export interface CharCountSplit {
  * Compute the serialized character count split into core and extension buckets.
  *
  * @param pi - The extension API
- * @returns `{ core, extension }` where core is builtin+sdk and extension is extension
+ * @returns `{ core, extension }` where core is the non-togglable floor
+ * (builtin + sdk, non-declarable MCP) and extension is the togglable set
  */
 export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	const activeNames = new Set(pi.getActiveTools());
@@ -94,7 +146,7 @@ export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	for (const tool of allTools) {
 		if (!activeNames.has(tool.name)) continue;
 		const len = serializeToolDef(tool).length;
-		if (!isExtensionTool(tool)) {
+		if (!isTogglableTool(tool)) {
 			result.core += len;
 		} else {
 			result.extension += len;

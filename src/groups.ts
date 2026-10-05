@@ -19,8 +19,15 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { getRegisteredToolsets } from "pi-tool-masking";
+import {
+	effectiveEnabled,
+	getRegisteredToolsets,
+	readMergedToolsetDefaults,
+	toggleBatch,
+	type BranchReader,
+} from "pi-tool-masking";
 import {
 	readGroups,
 	writeGroup,
@@ -231,12 +238,22 @@ export function describeGroup(name: string): string {
 /**
  * Describe a toolset by id (for `/tbox +<toolset>` with no action).
  * Returns an error line if the toolset is not registered.
+ *
+ * State is intent, not the live observation (see AGENTS.md) — an inert
+ * toolset shows what the user toggled. Intent reads never touch the live
+ * toolset, so no `pi`.
  */
-export function describeToolset(pi: ExtensionAPI, id: string): string {
+export function describeToolset(
+	id: string,
+	branch: readonly SessionEntry[],
+): string {
 	const registry = getRegisteredToolsets();
 	const entry = registry.find((e) => e.spec.id === id);
 	if (!entry) return `No toolset "${id}".`;
-	const state = entry.toolset.isEnabled(pi) ? "enabled" : "disabled";
+	const state =
+		effectiveEnabled(entry.spec, branch, readMergedToolsetDefaults()).enabled
+			? "enabled"
+			: "disabled";
 	const toolList = [...entry.spec.names].join(", ");
 	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size === 1 ? "" : "s"} (${toolList}). State: ${state}.`;
 }
@@ -253,34 +270,43 @@ export function checkFocusGuard(enable: boolean, noun: string): string | null {
  *
  * Builtins and SDK tools are never in the registry, so they cannot be affected.
  *
- * @returns A summary message.
+ * One `toggleBatch` over the whole registry: the library's intent gate
+ * makes redundant toggles silent no-ops (reported as `[]`), repairs
+ * clobbers, and persists intent-off toggles on inert toolsets — the
+ * flattened delta is the honest count, judgment fully deferred to the
+ * library. Refusals (allowlist governance, requires cycles) throw raw to
+ * the dispatch seam.
+ *
+ * @returns A summary message counting only what changed.
  */
-export function toggleAll(pi: ExtensionAPI, enable: boolean): string {
+export function toggleAll(
+	pi: ExtensionAPI,
+	enable: boolean,
+	sessionManager: BranchReader,
+): string {
 	const guard = checkFocusGuard(enable, "all toolsets");
 	if (guard !== null) return guard;
 
-	const toolsets = getRegisteredToolsets();
-	let changed = 0;
-
-	for (const entry of toolsets) {
-		const wasEnabled = entry.toolset.isEnabled(pi);
-
-		if (enable && !wasEnabled) {
-			entry.toolset.enable(pi);
-			changed++;
-		} else if (!enable && wasEnabled) {
-			entry.toolset.disable(pi);
-			changed++;
-		}
-	}
+	const ops = getRegisteredToolsets().map((entry) => ({
+		id: entry.spec.id,
+		desired: enable,
+	}));
+	const changed = toggleBatch(pi, sessionManager, ops);
 
 	const action = enable ? "Enabled" : "Disabled";
-	const noun = changed === 1 ? "toolset" : "toolsets";
-	return `${action} ${changed} ${noun}.`;
+	const noun = changed.length === 1 ? "toolset" : "toolsets";
+	return `${action} ${changed.length} ${noun}.`;
 }
 
 /**
  * Actuate a single toolset on or off (for `/tbox +<toolset> on|off`).
+ *
+ * Unconditional single-op wrapper: the library's delta gate skips
+ * same-value toggles (returning `[]`), repairs a clobbered loadout, and
+ * persists intent-off toggles on inert toolsets — so "already
+ * enabled/disabled" renders from `[]` and any non-empty delta means the
+ * state changed or was repaired. No intent pre-gate: gating here would
+ * forfeit the repair arm and duplicate library logic.
  *
  * @returns A human-readable result, or an error if the toolset doesn't exist
  *          or focus mode is active.
@@ -289,6 +315,7 @@ export function actuateToolset(
 	pi: ExtensionAPI,
 	id: string,
 	enable: boolean,
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(enable, "a toolset");
 	if (guard !== null) return guard;
@@ -297,18 +324,15 @@ export function actuateToolset(
 	const entry = registry.find((e) => e.spec.id === id);
 	if (!entry) return `No toolset "${id}".`;
 
-	if (enable) {
-		if (entry.toolset.isEnabled(pi)) {
-			return `Toolset "${id}" is already enabled.`;
-		}
-		entry.toolset.enable(pi);
-		return `Enabled toolset "${id}".`;
+	const changed = enable
+		? entry.toolset.enable(pi, sessionManager)
+		: entry.toolset.disable(pi, sessionManager);
+	if (changed.length === 0) {
+		return enable
+			? `Toolset "${id}" is already enabled.`
+			: `Toolset "${id}" is already disabled.`;
 	}
-	if (!entry.toolset.isEnabled(pi)) {
-		return `Toolset "${id}" is already disabled.`;
-	}
-	entry.toolset.disable(pi);
-	return `Disabled toolset "${id}".`;
+	return `${enable ? "Enabled" : "Disabled"} toolset "${id}".`;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,13 +342,17 @@ export function actuateToolset(
 /**
  * Actuate a group on or off.
  *
- * - Activates/deactivates each toolset in the group. The library's
- *   `requires` cascade pulls deps on for `on`; for `off` it
- *   reverse-cascades to dependents outside the group.
+ * - Activates/deactivates each registered toolset in the group via one
+ *   `toggleBatch` — the library's `requires` cascade pulls deps on for
+ *   `on`; for `off` it reverse-cascades to dependents outside the group.
+ *   Unregistered ids are skipped upstream of the batch (an explicit op
+ *   naming one would throw a plain `Error` at planning).
  *
  * The moved set is computed by diffing `getActiveTools()` before vs. after,
  * so it reflects what the library actually did (including cascaded
- * non-members) rather than a static-graph prediction.
+ * non-members) rather than a static-graph prediction. This display
+ * computation cannot be reproduced from the `ToggleResult[]` delta (which
+ * reports per-toolset changes, not moved tools), so it stays.
  *
  * @returns A human-readable summary, including the drift caveat.
  */
@@ -332,6 +360,7 @@ export function actuateGroup(
 	pi: ExtensionAPI,
 	name: string,
 	enable: boolean,
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(enable, "a group");
 	if (guard !== null) return guard;
@@ -352,12 +381,10 @@ export function actuateGroup(
 
 	const before = new Set(pi.getActiveTools());
 
-	for (const id of targetToolsetIds) {
-		const entry = byId.get(id);
-		if (!entry) continue;
-		if (enable) entry.toolset.enable(pi);
-		else entry.toolset.disable(pi);
-	}
+	const ops = [...targetToolsetIds]
+		.filter((id) => byId.has(id))
+		.map((id) => ({ id, desired: enable }));
+	toggleBatch(pi, sessionManager, ops);
 
 	const after = new Set(pi.getActiveTools());
 

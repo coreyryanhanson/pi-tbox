@@ -1,19 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	readerOf,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
-	setSettingsWriterOverrideForTests,
 } from "pi-tool-masking";
 import { handleDefaults } from "../src/defaults.js";
 import { focusUnit, focusOff } from "../src/focus.js";
 import { toggleAll } from "../src/groups.js";
 import { setFocusUnit } from "../src/status-slot.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { writeFileSync } from "node:fs";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+const settings = useTempAgentDir();
 
 // Regression for the user's drift report:
 //   /tbox focus web
@@ -84,25 +88,12 @@ function defineToolsets(mock: MockPI): void {
 describe("drift repro: focus web → save → off → restore → all off → save --global → restore", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
-	let tmpHome: string;
-	let oldCwd: string;
-	let oldAgentDir: string | undefined;
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
-
-		tmpHome = mkdtempSync(join(tmpdir(), "tbox-drift-"));
-		oldCwd = process.cwd();
-		oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = join(tmpHome, ".pi", "agent");
-		process.chdir(tmpHome);
-		mkdirSync(join(tmpHome, ".pi", "agent"), { recursive: true });
-		mkdirSync(join(tmpHome, ".pi"), { recursive: true });
 
 		// Inject a "web" group containing both search + web (matches the user's
 		// groups.json) via the test override — never touches the real file.
@@ -116,20 +107,14 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 	});
 
 	afterEach(() => {
-		process.chdir(oldCwd);
-		if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		rmSync(tmpHome, { recursive: true, force: true });
 		setGroupsOverrideForTests(null);
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
 		return mock.createCommandContext();
 	}
-	const globalPath = () => join(tmpHome, ".pi", "agent", "settings.json");
-	const projectPath = () => join(tmpHome, ".pi", "settings.json");
+	const globalPath = () => settings.globalSettings;
+	const projectPath = () => settings.projectSettings;
 	function live(id: string): boolean {
 		return getRegisteredToolsets()
 			.find((e) => e.spec.id === id)!
@@ -151,13 +136,13 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 		handleDefaults(pi, ctx(), "defaults save");
 
 		// 3. /tbox focus off
-		focusOff(pi, mock.createCommandContext().sessionManager.getBranch());
+		focusOff(pi, branchOf(mock));
 
 		// 4. /tbox defaults restore
 		handleDefaults(pi, ctx(), "defaults restore");
 
 		// 5. /tbox all off
-		toggleAll(pi, false);
+		toggleAll(pi, false, readerOf(mock));
 
 		// 6. /tbox defaults save --global
 		handleDefaults(pi, ctx(), "defaults save --global");

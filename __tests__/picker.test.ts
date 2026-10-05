@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets } from "pi-tool-masking";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
@@ -173,7 +173,8 @@ function setupRichRegistry(mock: MockPI, pi: ExtensionAPI): void {
 	});
 
 	autoRegisterBuiltinAndOrphans(pi);
-	for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+	for (const entry of getRegisteredToolsets())
+		entry.toolset.enable(pi, readerOf(mock));
 }
 
 // ---------------------------------------------------------------------------
@@ -718,7 +719,7 @@ describe("picker — requires cycle surfaces as cue instead of crashing", () => 
 		// Without the handleInput catch this would crash the TUI key handler.
 		expect(() => comp.handleInput(KEY.enter)).not.toThrow();
 		comp.render(120); // cue paints on the next render pass
-		expect(comp.lastCue).toMatch(/requires cycle/);
+		expect(comp.lastCue).toMatch(/Cycle detected/);
 
 		// The picker stays interactive: navigating still works.
 		comp.handleInput(KEY.down);
@@ -733,6 +734,6 @@ describe("picker — requires cycle surfaces as cue instead of crashing", () => 
 		// Bulk op as the FIRST interaction — enableAll calls forwardClosure.
 		expect(() => comp.handleInput(KEY.enableAll)).not.toThrow();
 		comp.render(120);
-		expect(comp.lastCue).toMatch(/requires cycle/);
+		expect(comp.lastCue).toMatch(/Cycle detected/);
 	});
 });

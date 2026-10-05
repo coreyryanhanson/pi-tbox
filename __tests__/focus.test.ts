@@ -1,14 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+	MockPI,
+	branchOf,
+	pinSettingsDefaultsForTests,
+	readerOf,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getActiveAllowlist,
+	readBranchModeState,
+	type BranchReader,
 	getEffectiveDefault,
 	getRegisteredToolsets,
-	getDefaultResolutionMode,
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
 import { focusUnit, focusOff, focusRelease } from "../src/focus.js";
 import {
@@ -25,6 +30,9 @@ import {
 } from "../src/status-slot.js";
 import { formatStatus } from "../src/list.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -143,9 +151,9 @@ function defineFakeToolsets(mock: MockPI): void {
 	});
 }
 
-function enableAll(pi: ExtensionAPI): void {
+function enableAll(pi: ExtensionAPI, sessionManager: BranchReader): void {
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, sessionManager);
 	}
 }
 
@@ -153,15 +161,10 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAll(pi);
+	enableAll(pi, readerOf(mock));
 	// Reset entries written during setup so tests see only focus writes
 	mock.clearEntries();
 	mock.clearUiRecords();
-}
-
-/** Snapshot of the mock's session branch (for tombstone reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
 }
 
 // ---------------------------------------------------------------------------
@@ -174,15 +177,10 @@ describe("/tbox focus", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setGroupsOverrideForTests(null);
 		setFocusUnit(null);
-	});
-
-	afterEach(() => {
-		setSettingsOverrideForTests(null);
 	});
 
 	describe("guards", () => {
@@ -225,8 +223,8 @@ describe("/tbox focus", () => {
 			expect(active.has("my-tool")).toBe(false);
 
 			// Allowlist mode is set with the forward-closure-resolved ids
-			expect(getDefaultResolutionMode()).toBe("allowlist");
-			expect(getActiveAllowlist()).toEqual(["portal.web"]);
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("allowlist");
+			expect(readBranchModeState(readerOf(mock).getBranch()).allowlist).toEqual(["portal.web"]);
 		});
 
 		it("writes no per-toolset entries during enter — the allowlist array is the authority", () => {
@@ -242,8 +240,8 @@ describe("/tbox focus", () => {
 			).toHaveLength(0);
 
 			// The authority is the mode entry's allowlist array.
-			expect(getDefaultResolutionMode()).toBe("allowlist");
-			expect(getActiveAllowlist()).toEqual(["portal.web"]);
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("allowlist");
+			expect(readBranchModeState(readerOf(mock).getBranch()).allowlist).toEqual(["portal.web"]);
 		});
 
 		it("preserves non-toolset tools (not owned by any toolset)", () => {
@@ -256,7 +254,7 @@ describe("/tbox focus", () => {
 			focusUnit(pi, "+portal.web");
 
 			const active = new Set(pi.getActiveTools());
-			// applyToolsetEnabled is a per-spec delta — only each spec's own
+			// forceToolsetEnabled is a per-spec delta — only each spec's own
 			// names move, so tools outside the registry survive focus.
 			expect(active.has("custom-x")).toBe(true);
 			expect(active.has("web-fetch")).toBe(true);
@@ -274,7 +272,7 @@ describe("/tbox focus", () => {
 			const result = focusUnit(pi, "mylearn");
 
 			expect(result).toContain("group:mylearn");
-			expect(getActiveAllowlist()).toEqual(["portal.learn", "portal.web"]);
+			expect(readBranchModeState(readerOf(mock).getBranch()).allowlist).toEqual(["portal.learn", "portal.web"]);
 			const active = new Set(pi.getActiveTools());
 
 			// portal.learn + portal.web (requires closure) are active
@@ -366,7 +364,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msg = actuateToolset(pi, "portal.web", true);
+			const msg = actuateToolset(pi, "portal.web", true, readerOf(mock));
 			expect(msg).toContain("Cannot enable a toolset while in focus mode");
 			expect(msg).toContain("/tbox focus off");
 		});
@@ -375,11 +373,11 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msgOn = toggleAll(pi, true);
+			const msgOn = toggleAll(pi, true, readerOf(mock));
 			expect(msgOn).toContain("Cannot enable all toolsets while in focus mode");
 			expect(msgOn).toContain("/tbox focus off");
 
-			const msgOff = toggleAll(pi, false);
+			const msgOff = toggleAll(pi, false, readerOf(mock));
 			expect(msgOff).toContain("Cannot disable all toolsets while in focus mode");
 			expect(msgOff).toContain("/tbox focus off");
 		});
@@ -391,7 +389,7 @@ describe("/tbox focus", () => {
 			setup(pi, mock);
 			focusUnit(pi, "+portal.web");
 
-			const msg = actuateGroup(pi, "webgroup", true);
+			const msg = actuateGroup(pi, "webgroup", true, readerOf(mock));
 			expect(msg).toContain("Cannot enable a group while in focus mode");
 			expect(msg).toContain("/tbox focus off");
 		});
@@ -402,7 +400,7 @@ describe("/tbox focus", () => {
 			focusOff(pi, branchOf(mock));
 
 			// direct toolset actuation should now work
-			const msg = actuateToolset(pi, "portal.learn", false);
+			const msg = actuateToolset(pi, "portal.learn", false, readerOf(mock));
 			expect(msg).toContain('Disabled toolset "portal.learn"');
 		});
 	});
@@ -413,14 +411,13 @@ describe("/tbox focus", () => {
 
 			// Enter focus
 			focusUnit(pi, "+portal.web");
-			expect(getDefaultResolutionMode()).toBe("allowlist");
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("allowlist");
 
 			// Exit focus
 			const result = focusOff(pi, branchOf(mock));
 
 			expect(result).toContain("Focus off");
-			expect(getDefaultResolutionMode()).toBe("exclusion");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// All extension toolsets back to defaultEnabled
@@ -441,7 +438,7 @@ describe("/tbox focus", () => {
 			const orphanEntry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "tbox.tool@pi-lens",
 			)!;
-			orphanEntry.toolset.disable(pi);
+			orphanEntry.toolset.disable(pi, readerOf(mock));
 
 			focusUnit(pi, "+portal.web");
 			expect(orphanEntry.toolset.isEnabled(pi)).toBe(false);
@@ -474,7 +471,7 @@ describe("/tbox focus", () => {
 
 			// portal.learn requires portal.web (defaults: both on). Pin the
 			// dependency off — focusOff must apply the dependent ON without
-			// cascading the pin away (applyToolsetEnabled is the no-cascade
+			// cascading the pin away (forceToolsetEnabled is the no-cascade
 			// path; the old enable()-based loop re-enabled the dep via the
 			// forward requires cascade).
 			pinSettingsDefaultsForTests({
@@ -513,10 +510,10 @@ describe("/tbox focus", () => {
 			const entry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "pin-off-test",
 			)!;
-			entry.toolset.enable(pi);
+			entry.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("pin-off-test");
 
-			// Pin it off via settings override
+			// Pin it off via a settings pin
 			pinSettingsDefaultsForTests({ [key]: { enabled: false } });
 			expect(getEffectiveDefault(entry.spec, readMergedToolsetDefaults())).toBe(
 				false,
@@ -555,10 +552,10 @@ describe("/tbox focus", () => {
 			const entry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "test-pin-on",
 			);
-			entry!.toolset.enable(pi);
+			entry!.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("test-pin-on");
 
-			// Pin it on via settings override
+			// Pin it on via a settings pin
 			pinSettingsDefaultsForTests({ [key]: { enabled: true } });
 
 			const result = focusOff(pi, branchOf(mock));
@@ -596,7 +593,7 @@ describe("/tbox focus", () => {
 				persistKey: "toolset-state:new-plugin",
 				defaultEnabled: true,
 			});
-			actuateNewToolsets(pi, ["new-plugin"]);
+			actuateNewToolsets(pi, ["new-plugin"], readerOf(mock).getBranch());
 
 			// The new tool should be off — not in the allowlist
 			const active = new Set(pi.getActiveTools());
@@ -637,7 +634,7 @@ describe("/tbox focus", () => {
 			// Activate the new toolset (simulating what happens at registration)
 			const registry = getRegisteredToolsets();
 			const newEntry = registry.find((e) => e.spec.id === "new-plugin");
-			newEntry!.toolset.enable(pi);
+			newEntry!.toolset.enable(pi, readerOf(mock));
 			mock.clearEntries();
 
 			// Fire a restore — under exclusion mode, defaultEnabled wins
@@ -652,13 +649,11 @@ describe("/tbox focus", () => {
 				setup(pi, mock);
 
 				focusUnit(pi, "+portal.web");
-				mock.clearEntries();
 
-				const result = focusRelease(pi);
+				const result = focusRelease(pi, readerOf(mock));
 
 				expect(result).toContain("Focus released");
-				expect(getDefaultResolutionMode()).toBe("exclusion");
-				expect(getActiveAllowlist()).toBeUndefined();
+				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
 				expect(getFocusUnit()).toBeNull();
 
 				// Live state unchanged from the focus era
@@ -687,16 +682,51 @@ describe("/tbox focus", () => {
 				expect(reloaded.has("lens-tool-0")).toBe(false);
 			});
 
+			it("foreign allowlist governance is released deliberately (teardown, not no-op)", () => {
+				// A foreign extension enters allowlist mode mid-session via
+				// setDefaultResolutionMode — never touching tbox's focus mirror.
+				// The old restore-time mirror would no-op the release by
+				// staleness; the live branch read sees the mode and release
+				// proceeds: an explicitly commanded teardown ends the foreign
+				// governance and flushes a clean slate.
+				setup(pi, mock);
+				setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
+				expect(getFocusUnit()).toBeNull(); // foreign — tbox's mirror untouched
+
+				const result = focusRelease(pi, readerOf(mock));
+
+				expect(result).toContain("Focus released");
+				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe(
+					"exclusion",
+				);
+				// {enabled} entries flushed for the registered toolsets — what a
+				// /reload replays.
+				const entries = mock.getEntries();
+				for (const entry of getRegisteredToolsets()) {
+					const last = entries
+						.filter((e) => e.customType === entry.spec.persistKey)
+						.at(-1);
+					expect(last).toBeDefined();
+					const enabled = (last!.data as Record<string, unknown> | null)?.enabled;
+					expect(enabled).toBe(entry.spec.id === "portal.web");
+				}
+				// A /reload lands at the flushed selection.
+				mock.fireLifecycleEvent("session_start");
+				const reloaded = new Set(pi.getActiveTools());
+				expect(reloaded.has("web-fetch")).toBe(true);
+				expect(reloaded.has("web-learn")).toBe(false);
+			});
+
 			it("without active focus returns the hint and mutates nothing", () => {
 				setup(pi, mock);
 				mock.clearEntries();
 
-				const result = focusRelease(pi);
+				const result = focusRelease(pi, readerOf(mock));
 
 				expect(result).toContain("Focus is not active");
 				// No per-toolset entries written, mode unchanged, nothing disabled
 				expect(mock.getEntries()).toHaveLength(0);
-				expect(getDefaultResolutionMode()).toBe("exclusion");
+				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
 				expect(pi.getActiveTools()).toContain("web-fetch");
 				expect(pi.getActiveTools()).toContain("web-learn");
 			});
@@ -709,7 +739,7 @@ describe("/tbox focus", () => {
 
 			focusUnit(pi, "+portal.web");
 
-			const output = formatStatus(pi);
+			const output = formatStatus(pi, branchOf(mock));
 			expect(output).toContain("Focus: on");
 			expect(output).toContain("portal.web");
 		});
@@ -717,7 +747,7 @@ describe("/tbox focus", () => {
 		it("/tbox status shows focus off when not focused", () => {
 			setup(pi, mock);
 
-			const output = formatStatus(pi);
+			const output = formatStatus(pi, branchOf(mock));
 			expect(output).toContain("Focus: off");
 		});
 	});
