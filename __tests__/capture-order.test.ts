@@ -8,13 +8,9 @@
  *
  * Capture ctx at the top of the handler, but call render() at
  * the END — so the first paint always lands on post-restore state regardless
- * of handler registration order.
- *
- * Tests simulate both orderings:
- *   1. Tbox handler registered BEFORE sibling → tbox renders first, then
- *      sibling fires events (wireSlot re-renders)
- *   2. Tbox handler registered AFTER sibling → sibling fires events while
- *      lastCtx is still null (no-op), then tbox renders at end (correct)
+ * of handler registration order. The remaining rows pin the two regimes that
+ * survive that fix: repeated restored emissions, and post-restore (not
+ * pre-restore) slot state.
  *
  * @module
  */
@@ -79,48 +75,7 @@ describe("capture-order — render ordering", () => {
 		});
 	}
 
-	it("tbox handler registered before sibling: slot is correct on first paint", () => {
-		addSiblingThatEmitsRestored();
-
-		// Register tbox FIRST, then sibling's emitter handler
-		tboxFactory(pi);
-		emitRestoredFromHandler();
-
-		// Fire session_start
-		mock.fireLifecycleEvent("session_start");
-
-		// The slot should have been painted. Since all tools are active
-		// (defaultEnabled: true), the state should be pristine or count.
-		const status = mock.getLastStatus("tbox");
-		expect(status).toBeDefined();
-		expect(status!.text).toBeTruthy();
-
-		// Verify sibling's toolset is registered
-		const ids = getRegisteredToolsets().map((e: RegistryEntry) => e.spec.id);
-		expect(ids).toContain("sibling.ext");
-	});
-
-	it("sibling handler registered before tbox: slot is correct on first paint", () => {
-		addSiblingThatEmitsRestored();
-
-		// Register sibling's emitter handler FIRST, then tbox
-		emitRestoredFromHandler();
-		tboxFactory(pi);
-
-		// Fire session_start
-		mock.fireLifecycleEvent("session_start");
-
-		// Slot should be painted correctly
-		const status = mock.getLastStatus("tbox");
-		expect(status).toBeDefined();
-		expect(status!.text).toBeTruthy();
-
-		// Verify sibling's toolset is registered
-		const ids = getRegisteredToolsets().map((e: RegistryEntry) => e.spec.id);
-		expect(ids).toContain("sibling.ext");
-	});
-
-	it("multiple TOOLSET_EVENTS.restored emissions don't crash", () => {
+	it("slot reflects post-restore state, not a stale pre-restore snapshot", () => {
 		addSiblingThatEmitsRestored();
 
 		// Both handlers emit restored

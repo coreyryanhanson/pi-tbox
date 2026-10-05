@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI, branchOf } from "./mock-pi.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { asPi, BUILTIN_SOURCE, registerMcpTool } from "./fixtures.js";
 import { syncMcpToolsets } from "../src/registry.js";
 import {
 	computeCharCount,
@@ -32,28 +32,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const BUILTIN_SOURCE = {
-	path: "builtin:mcp",
-	source: "builtin" as const,
-	scope: "user" as const,
-	origin: "top-level" as const,
-};
-
-function registerMcpTool(
-	mock: MockPI,
-	server: string,
-	name: string,
-	exposure?: "codemode" | "deferred" | "direct" | "hidden",
-): void {
-	mock.registerTool({
-		name,
-		description: `${name} description`,
-		namespace: { name: `mcp__${server}` },
-		sourceInfo: BUILTIN_SOURCE,
-		...(exposure ? { exposure } : {}),
-	});
-}
 
 function registerBuiltinTool(mock: MockPI, name: string): void {
 	mock.registerTool({
@@ -75,8 +53,6 @@ function registerResourceTool(mock: MockPI, name: string): void {
 		sourceInfo: BUILTIN_SOURCE,
 	});
 }
-
-const asPi = (m: MockPI): ExtensionAPI => m as unknown as ExtensionAPI;
 
 /** All tools active by default, like pi activating declarable MCP tools. */
 function activateAll(mock: MockPI): void {

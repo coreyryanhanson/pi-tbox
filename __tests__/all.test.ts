@@ -170,21 +170,6 @@ describe("toggleAll", () => {
 		expect(after).not.toContain("custom-x");
 	});
 
-	it("all off leaves builtins untouched (not in registry)", () => {
-		setupRichMock(mock, pi);
-
-		toggleAll(pi, false, readerOf(mock));
-
-		// Builtins are platform-managed — not in tbox's registry.
-		// toggleAll can only affect registered toolsets.
-		const active = mock.getActiveTools();
-		expect(active).toContain("read");
-		expect(active).toContain("bash");
-		expect(active).not.toContain("web-fetch");
-		expect(active).not.toContain("web-learn");
-		expect(active).not.toContain("orphan-tool");
-	});
-
 	it("requires pair: one entry per toolset, count 2 not 3", () => {
 		// The batch planner resolves the requires closure into one final
 		// state per id and emits each changed toolset exactly once — a

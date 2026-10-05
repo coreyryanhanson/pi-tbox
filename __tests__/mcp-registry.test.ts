@@ -17,8 +17,9 @@ import {
 	pinSettingsDefaultsForTests,
 	readerOf,
 } from "./mock-pi.js";
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import { asPi, BUILTIN_SOURCE, registerMcpTool } from "./fixtures.js";
 import { syncMcpToolsets } from "../src/registry.js";
 import tboxFactory from "../index.js";
 import { actuateToolset } from "../src/groups.js";
@@ -26,29 +27,6 @@ import { actuateToolset } from "../src/groups.js";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const BUILTIN_SOURCE = {
-	path: "builtin:mcp",
-	source: "builtin" as const,
-	scope: "user" as const,
-	origin: "top-level" as const,
-};
-
-/** Register an MCP-shaped tool on a server's namespace. */
-function registerMcpTool(
-	mock: MockPI,
-	server: string,
-	name: string,
-	exposure?: "codemode" | "deferred" | "direct" | "hidden",
-): void {
-	mock.registerTool({
-		name,
-		description: `${name} description`,
-		namespace: { name: `mcp__${server}` },
-		sourceInfo: BUILTIN_SOURCE,
-		...(exposure ? { exposure } : {}),
-	});
-}
 
 /** Push a raw ToolInfo with no exposure field (pre-0.99 degradation shape). */
 function registerMcpToolNoExposure(mock: MockPI, server: string, name: string): void {
@@ -60,8 +38,6 @@ function registerMcpToolNoExposure(mock: MockPI, server: string, name: string): 
 		sourceInfo: BUILTIN_SOURCE,
 	} as unknown as ToolInfo);
 }
-
-const asPi = (m: MockPI): ExtensionAPI => m as unknown as ExtensionAPI;
 
 function findEntry(id: string): RegistryEntry | undefined {
 	return getRegisteredToolsets().find((e: RegistryEntry) => e.spec.id === id);
