@@ -5,9 +5,10 @@
  * with a `mcp__<server>` namespace and an `exposure` field. Tbox manages a
  * toolset per server covering only the server's *declarable* tools
  * (`exposure: "direct"` — the only exposure that gets declared to the model
- * on every request). Non-declarable MCP tools (`codemode`/`deferred`/`hidden`)
- * are reachable through codemode/`tool_search` and are managed by pi's `/mcp`
- * surface, not by tbox.
+ * on every request). Non-declarable MCP tools (`deferred`/`hidden` — a tool
+ * never carries `codemode` exposure; pi maps that config value to
+ * `deferred` at the tool level) are reachable through codemode/`tool_search`
+ * and are managed by pi's `/mcp` surface, not by tbox.
  *
  * `exposure` is read defensively as a plain string so this code also runs on
  * pre-0.99 pi where the field doesn't exist (a missing exposure is treated as

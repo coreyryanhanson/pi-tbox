@@ -102,7 +102,11 @@ point — justified where needed, not preemptively scattered.
   redundant toggles (returns `[]`), repairs clobbered loadouts, and persists
   intent-off toggles on inert toolsets. "Already in the desired state"
   messages render from the returned `[]`; a pre-gate would reintroduce
-  deleted duplicate logic and forfeit the repair arm.
+  deleted duplicate logic and forfeit the repair arm. (Documented exception:
+  `syncMcpToolsets`' reconcile gate in `src/registry.ts` reads intent before
+  `forceToolsetEnabled` — that apply path always emits, so an ungated call
+  fires a spurious `changed` + slot repaint on every unchanged scan of an
+  intent-off toolset. It is a re-scan reconcile, not a toggle path.)
 - **One batch per command.** Multi-op flows (`all`, `<group> on|off`,
   `solo <unit>`) go through masking's `toggleBatch` over `ctx.sessionManager`,
   not wrapper loops — one branch read, one settings read, atomic pre-write
@@ -166,10 +170,14 @@ point — justified where needed, not preemptively scattered.
   one `tbox.mcp@<server>` toolset over its `direct`-exposure tools, re-scanned
   from the per-prompt `before_agent_start` hook and the `/tbox` command
   dispatch (MCP servers connect after `session_start`; `list_changed` fires
-  no extension event). All MCP decisions — membership, togglability
-  (`isTogglableTool`), classification — go through `isDeclarableMcpTool`
-  (`src/mcp.ts`), never bare `isMcpTool`; if membership and classification
-  predicates drift, disabled/codemode servers inflate the counts again. The
+  no extension event). MCP membership, togglability (`isTogglableTool`), and
+  classification go through `isDeclarableMcpTool` (`src/mcp.ts`) — never bare
+  `isMcpTool` for those decisions; if membership and classification
+  predicates drift, disabled/codemode servers inflate the counts again. Bare
+  `isMcpTool` is used deliberately where the broader set is the point: the
+  orphan-exclusion filter (`src/registry.ts`, so non-declarable MCP tools
+  never become `tbox.tool@builtin` orphans) and pi-managed routing
+  (`src/list.ts`, which must catch non-declarable tools). The
   three shared resource tools and tool_search-loaded `codemode`/`deferred`
   tools render read-only under the `pi-managed` group (presentation only —
   no ledger bucket). Toggling is context hygiene, not a security boundary:
