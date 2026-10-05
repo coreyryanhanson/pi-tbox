@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { forwardClosure, reverseClosure } from "../src/requires-graph.js";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -127,12 +126,10 @@ describe("reverseClosure", () => {
 
 describe("cycle detection", () => {
 	let mock: MockPI;
-	let pi: ExtensionAPI;
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
 		mock = new MockPI();
-		pi = mock as unknown as ExtensionAPI;
 	});
 
 	it("forwardClosure throws naming the cycle path for A→B→C→A", () => {
@@ -155,7 +152,7 @@ describe("cycle detection", () => {
 			requires: ["A"],
 		});
 
-		expect(() => forwardClosure(["A"])).toThrow(/requires cycle/);
+		expect(() => forwardClosure(["A"])).toThrow(/Cycle detected/);
 		try {
 			forwardClosure(["A"]);
 		} catch (e) {
@@ -187,7 +184,7 @@ describe("cycle detection", () => {
 			requires: ["A"],
 		});
 
-		expect(() => reverseClosure(["A"])).toThrow(/requires cycle/);
+		expect(() => reverseClosure(["A"])).toThrow(/Cycle detected/);
 	});
 
 	it("a self-requiring toolset is a 1-node cycle", () => {
@@ -197,7 +194,7 @@ describe("cycle detection", () => {
 			persistKey: "toolset-state:self",
 			requires: ["self"],
 		});
-		expect(() => forwardClosure(["self"])).toThrow(/requires cycle/);
+		expect(() => forwardClosure(["self"])).toThrow(/Cycle detected/);
 	});
 });
 

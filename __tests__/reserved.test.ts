@@ -92,7 +92,8 @@ describe("reserved-word dispatch via /tbox", () => {
 			defaultEnabled: true,
 		});
 		autoRegisterBuiltinAndOrphans(pi);
-		for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+		for (const entry of getRegisteredToolsets())
+			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 
 		const mod = await import("../index.js");
 		mod.default(pi);

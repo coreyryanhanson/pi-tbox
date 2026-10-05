@@ -2,7 +2,63 @@
 
 ## [Unreleased]
 
+### Added
+
+- **MCP tools are now visible and togglable.** Each MCP server gets one
+  toolset, id `tbox.mcp@<server>` (picker label `mcp__<server>`), covering
+  the server's *declarable* (`direct`-exposure) tools only — the tools pi
+  declares to the model on every request. `codemode`/`deferred` MCP tools
+  are managed by pi's `/mcp` surface and are never toggled here; toggling
+  is context hygiene, not a security boundary (non-declarable MCP tools
+  stay script-callable while off). MCP servers connect asynchronously after
+  `session_start`, so toolsets are kept in sync by a re-scan on every prompt
+  submission *and* at the top of every `/tbox` command, making command
+  surfaces deterministic instead of prompt-timing dependent. Membership
+  changes sync the live registry entry in place; a server draining to zero
+  declarable members (disabled or disconnected) keeps its hidden members so
+  toggles recorded while it's away still hold when it returns. Known
+  residual: a declarable tool registered mid-dispatch (first-prompt connect,
+  lazy connect, OAuth reconnect) is declared until the next prompt boundary,
+  then removed by tbox's reconcile.
+
+- **`pi-managed` display group** in `/tbox list` and `/tbox status`: a
+  read-only home for MCP tools tbox cannot toggle — the three shared
+  resource tools (`list_mcp_resources`, `list_mcp_resource_templates`,
+  `read_mcp_resource`; no namespace, no per-server owner) and active
+  per-server MCP tools no toolset claims (loaded mid-session by
+  `tool_search`). Their chars are booked to `core`; an inactive resource
+  tool renders as `name (inactive)` at zero chars. The group renders only
+  when it has members. Persistent control for these is the server's
+  `toolExposure` config.
+
+- **Static codemode note on the char surfaces.** When the `codemode` tool is
+  active, `/tbox status`'s char line and `/tbox chars` (including its
+  empty-budget early return) append a static note: codemode rewrites tool
+  declarations at request time (the catalog is budgeted by
+  `codemode.inlineBudget`, default 3000 est. tokens, and every declared
+  callable gains a signature line), so the count does not measure codemode's
+  full context footprint. No `≥`/`≤` qualifier — no qualifier is sound in
+  all codemode modes, and a printed numeric range would rot on a pi update.
+
 ### Changed
+
+- **Togglability classification now covers MCP tools.** A new shared
+  predicate (`isTogglableTool` = extension tools + declarable MCP tools) is
+  applied at every classification site: the `core`/`extension` char-count
+  split, the status bar's masked counts, `/tbox list`'s char totals, and
+  `/tbox status`'s `pi.builtin` row (which now excludes every per-server
+  `mcp__*` tool and the resource tools — they render in their toolset rows
+  or under `pi-managed`, never double-listed). Previously MCP tools counted
+  as `core` everywhere: they were invisible to every count and toggle.
+  `pi.builtin`'s floor is now exactly the pi-core builtins (plus host `sdk`
+  tools, as before).
+
+- **Display sites read persisted intent, not live observation.**
+  `describeToolset`'s state line, the toolset glyph in `/tbox status`, and
+  `defaults save` now read `effectiveEnabled` (branch-aware) instead of
+  `isEnabled()`: an inert toolset (members hidden, or an MCP server not yet
+  connected) shows the state the user toggled instead of freezing a
+  temporary divergence as a pin.
 
 - **Orphan toolsets from version-pinned npm plugins no longer carry the
   version in their name.** When a plugin is pinned by version in settings

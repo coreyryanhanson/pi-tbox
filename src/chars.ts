@@ -45,6 +45,40 @@ export function isTogglableTool(tool: ToolInfo): boolean {
 	return isExtensionTool(tool) || isDeclarableMcpTool(tool);
 }
 
+/**
+ * True when the codemode builtin tool is in the active set (enabled via e.g.
+ * `defaultTools: ["+codemode"]` or a toolset toggle).
+ */
+export function isCodemodeActive(pi: ExtensionAPI): boolean {
+	return pi.getActiveTools().includes("codemode");
+}
+
+/**
+ * Static honesty note for the char count under codemode. The count is the
+ * serialized definitions of the active set; under codemode pi rewrites
+ * declarations at request time (`prepareLoadout`), which tbox cannot measure:
+ * mode "on" appends a codemode signature block to every declared callable's
+ * description, mode "only" additionally hides active direct declarations
+ * while the catalog (budgeted by `codemode.inlineBudget`, default 3000 est.
+ * tokens) sits in context. No qualifier on N is sound in all modes (`≥ N`
+ * holds only under "on"; under "only" the true footprint can be below N),
+ * and a printed numeric range would rot silently on a pi update — so the
+ * count renders plainly and the note names the bound instead of guessing it.
+ *
+ * The `codemode` tool itself is counted like any other builtin: an exclusion
+ * would have to be applied in both accumulators or the two surfaces' `core:`
+ * counts diverge, and under mode "on" every declared callable's description
+ * is rewritten anyway, so excluding one tool buys no accuracy.
+ */
+export function codemodeNote(): string {
+	return (
+		"Note: codemode rewrites tool declarations at request time — the codemode " +
+		"catalog is budgeted by codemode.inlineBudget (default 3000 est. tokens) " +
+		"and every declared callable gains a signature line, so this count does " +
+		"not measure codemode's full context footprint."
+	);
+}
+
 /** Counts of all togglable tools and active togglable tools (single pass). */
 export function extensionToolCounts(pi: ExtensionAPI): {
 	total: number;

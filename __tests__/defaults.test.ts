@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	getActiveAllowlist,
-	getDefaultResolutionMode,
+	readBranchModeState,
 	getRegisteredToolsets,
 	setSettingsOverrideForTests,
 	setSettingsWriterOverrideForTests,
@@ -84,10 +83,11 @@ function defineFixtureToolsets(mock: MockPI): void {
 function setupFixture(mock: MockPI, pi: ExtensionAPI): void {
 	registerFixtureTools(mock);
 	defineFixtureToolsets(mock);
-	for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+	for (const entry of getRegisteredToolsets())
+		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 	getRegisteredToolsets()
 		.find((e) => e.spec.id === "gamma.tool")!
-		.toolset.disable(pi);
+		.toolset.disable(pi, mock.createCommandContext().sessionManager);
 	mock.clearEntries();
 }
 
@@ -147,7 +147,7 @@ describe("/tbox defaults (seams)", () => {
 			// defaults).
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 			result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.message).toContain("Saved 3 toolset defaults");
 			expect(result.message).toContain(".pi/settings.json");
@@ -165,7 +165,7 @@ describe("/tbox defaults (seams)", () => {
 		it("scope: bare → project, --global → global, --project → usage error, no write", () => {
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 
 			handleDefaults(pi, ctx(), "defaults save");
 			expect(writer.project).toEqual({
@@ -271,16 +271,16 @@ describe("/tbox defaults (seams)", () => {
 			// Pre-focus manual toggle: beta off (branch entry {enabled:false}).
 			getRegisteredToolsets()
 				.find((e) => e.spec.id === "beta.tool")!
-				.toolset.disable(pi);
+				.toolset.disable(pi, ctx().sessionManager);
 			focusUnit(pi, "+gamma.tool");
-			expect(getActiveAllowlist()).toEqual(["gamma.tool"]);
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).allowlist).toEqual(["gamma.tool"]);
 
 			const result = handleDefaults(pi, ctx(), "defaults restore");
 
 			expect(result.level).toBe("info");
 			expect(result.message).toBe("Restored 3 toolsets to settings defaults.");
-			expect(getDefaultResolutionMode()).toBe("exclusion");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// Live state back to effective defaults: alpha on, beta on, gamma off.
@@ -359,7 +359,7 @@ describe("/tbox defaults (seams)", () => {
 			const notify = mock.getLastNotify();
 			expect(notify).toBeDefined();
 			expect(notify!.message).toContain("Restored 3 toolsets");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 		});
 
@@ -370,7 +370,7 @@ describe("/tbox defaults (seams)", () => {
 			const notify = mock.getLastNotify();
 			expect(notify).toBeDefined();
 			expect(notify!.message).toContain("Focus released");
-			expect(getActiveAllowlist()).toBeUndefined();
+			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("a-tool")).toBe(true);
 			expect(active.has("b-tool")).toBe(false);
@@ -457,7 +457,7 @@ describe("/tbox defaults (disk round-trips)", () => {
 	it("save (bare → project) then show attributes the new pin [project]", () => {
 		getRegisteredToolsets()
 			.find((e) => e.spec.id === "beta.tool")!
-			.toolset.disable(pi);
+			.toolset.disable(pi, ctx().sessionManager);
 
 		const save = handleDefaults(pi, ctx(), "defaults save");
 		expect(save.level).toBe("info");

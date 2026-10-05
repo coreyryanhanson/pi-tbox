@@ -82,9 +82,9 @@ function defineToolsets(mock: MockPI): void {
 }
 
 
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
+/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
+function readerOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager;
 }
 
 describe("drift repro: focus web → save → off → restore → all off → save --global → restore", () => {
@@ -163,7 +163,7 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 		handleDefaults(pi, ctx(), "defaults restore");
 
 		// 5. /tbox all off
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 
 		// 6. /tbox defaults save --global
 		handleDefaults(pi, ctx(), "defaults save --global");

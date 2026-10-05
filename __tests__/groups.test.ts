@@ -118,7 +118,8 @@ function setupRegistry(mock: MockPI, pi: ExtensionAPI): void {
 	});
 
 	autoRegisterBuiltinAndOrphans(pi);
-	for (const entry of getRegisteredToolsets()) entry.toolset.enable(pi);
+	for (const entry of getRegisteredToolsets())
+		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,18 +180,35 @@ describe("actuateGroup", () => {
 		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		// Disable portal.web (and its dependent portal.learn) first.
 		const web = getRegisteredToolsets().find((e) => e.spec.id === "portal.web")!;
-		web.toolset.disable(pi);
+		web.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
-		const msg = actuateGroup(pi, "webgroup", true);
+		const msg = actuateGroup(pi, "webgroup", true, mock.createCommandContext().sessionManager);
 		expect(msg).toContain('Enabled group "webgroup"');
 		expect(mock.getActiveTools()).toContain("web-fetch");
+	});
+
+	it("off on a clobbered-active toolset persists the off entry (threaded reader)", () => {
+		// A foreign extension empties the active set mid-session — the loadout
+		// is clobbered but portal.web's branch intent stays on (enableAll wrote
+		// {enabled:true} in setup).
+		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
+		mock.setActiveTools([]);
+		expect(mock.getActiveTools()).not.toContain("web-fetch");
+
+		actuateGroup(pi, "webgroup", false, mock.createCommandContext().sessionManager);
+
+		// The off entry is persisted via the threaded reader — a future
+		// /reload replays off instead of falling back to the on default.
+		const last = mock.getEntries("toolset-state:portal.web").at(-1);
+		expect(last).toBeDefined();
+		expect((last!.data as { enabled?: boolean } | null)?.enabled).toBe(false);
 	});
 
 	it("off disables the group's toolset and reports a cascaded non-member (portal.learn)", () => {
 		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
 		// Everything starts enabled. Disabling portal.web cascades to
 		// portal.learn (which requires portal.web).
-		const msg = actuateGroup(pi, "webgroup", false);
+		const msg = actuateGroup(pi, "webgroup", false, mock.createCommandContext().sessionManager);
 		expect(msg).toContain('Disabled group "webgroup"');
 		expect(mock.getActiveTools()).not.toContain("web-fetch");
 		// portal.learn is a cascaded non-member — surfaced in the output.
@@ -207,10 +225,10 @@ describe("actuateGroup", () => {
 		const learn = getRegisteredToolsets().find(
 			(e) => e.spec.id === "portal.learn",
 		)!;
-		host.toolset.disable(pi);
-		learn.toolset.disable(pi);
+		host.toolset.disable(pi, mock.createCommandContext().sessionManager);
+		learn.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
-		const msg = actuateGroup(pi, "mixed", true);
+		const msg = actuateGroup(pi, "mixed", true, mock.createCommandContext().sessionManager);
 		expect(msg).toContain('Enabled group "mixed"');
 		expect(mock.getActiveTools()).toContain("host-call");
 		expect(mock.getActiveTools()).toContain("web-learn");
@@ -221,9 +239,9 @@ describe("actuateGroup", () => {
 			webgroup: { toolsets: ["portal.web", "ghost.tool"] },
 		});
 		const web = getRegisteredToolsets().find((e) => e.spec.id === "portal.web")!;
-		web.toolset.disable(pi);
+		web.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
-		const msg = actuateGroup(pi, "webgroup", true);
+		const msg = actuateGroup(pi, "webgroup", true, mock.createCommandContext().sessionManager);
 		expect(msg).toContain('Enabled group "webgroup"');
 		expect(mock.getActiveTools()).toContain("web-fetch");
 		expect(msg).toContain("Not registered (skipped): ghost.tool");
@@ -231,13 +249,13 @@ describe("actuateGroup", () => {
 
 	it("actuating a non-existent group → clear error", () => {
 		setGroupsOverrideForTests({});
-		const msg = actuateGroup(pi, "ghost", true);
+		const msg = actuateGroup(pi, "ghost", true, mock.createCommandContext().sessionManager);
 		expect(msg).toContain('No group named "ghost"');
 	});
 
 	it("the drift caveat line appears in the output", () => {
 		setGroupsOverrideForTests({ webgroup: { toolsets: ["portal.web"] } });
-		const msg = actuateGroup(pi, "webgroup", true);
+		const msg = actuateGroup(pi, "webgroup", true, mock.createCommandContext().sessionManager);
 		expect(msg).toContain("drift-free snapshots");
 	});
 });
@@ -270,7 +288,7 @@ describe("group dispatch via /tbox", () => {
 		const web = getRegisteredToolsets().find(
 			(e: RegistryEntry) => e.spec.id === "portal.web",
 		)!;
-		web.toolset.disable(pi);
+		web.toolset.disable(pi, mock.createCommandContext().sessionManager);
 		mock.clearUiRecords();
 
 		await mock.dispatchCommand("webgroup on");
@@ -348,7 +366,7 @@ describe("group dispatch via /tbox", () => {
 		const web = getRegisteredToolsets().find(
 			(e: RegistryEntry) => e.spec.id === "portal.web",
 		)!;
-		web.toolset.disable(pi);
+		web.toolset.disable(pi, mock.createCommandContext().sessionManager);
 		mock.clearUiRecords();
 
 		await mock.dispatchCommand("+portal.web on");

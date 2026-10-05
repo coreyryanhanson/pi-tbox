@@ -281,6 +281,28 @@ describe("formatGroupedList with MCP tools", () => {
 		);
 	});
 
+	it("books an active unclaimed declarable MCP tool to extension, agreeing with /tbox status", () => {
+		// Reachable when a server's toolset registration is skipped (e.g. the
+		// id-squat guard): pi activates the tool but no toolset claims it.
+		// The display group is pi-managed, but the char bucket follows
+		// togglability, so it must agree with computeCharCount (extension).
+		const mock = new MockPI();
+		registerBuiltinTool(mock, "read");
+		registerMcpTool(mock, "srv", "mcp__srv__a");
+		activateAll(mock);
+		// No syncMcpToolsets — nothing claims mcp__srv__a.
+
+		const out = formatGroupedList(asPi(mock));
+		expect(out).toContain("pi-managed (1 active");
+		expect(listCore(out)).toBe(
+			statusCore(formatStatus(asPi(mock), branchOf(mock))),
+		);
+		// The tool is togglable, so it must land in the extension bucket
+		// (the builtin read is the only core tool).
+		expect(out).toMatch(/extension: [1-9]/);
+		expect(listCore(out)).toBeGreaterThan(0);
+	});
+
 	it("renders the shared resource tools under pi-managed, active with chars", () => {
 		const mock = new MockPI();
 		registerBuiltinTool(mock, "read");

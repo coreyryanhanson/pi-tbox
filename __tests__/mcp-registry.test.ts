@@ -326,7 +326,7 @@ describe("syncMcpToolsets — idempotency", () => {
 			asPi(mock),
 			"tbox.mcp@siyuan",
 			false,
-			mock.createCommandContext().sessionManager.getBranch(),
+			mock.createCommandContext().sessionManager,
 		);
 		expect(output).toContain("tbox.mcp@siyuan");
 	});
@@ -378,6 +378,96 @@ describe("syncMcpToolsets — foreign toolsets", () => {
 		expect([...findEntry("tbox.mcp@siyuan")!.spec.names]).toEqual([
 			"mcp__siyuan__t2",
 		]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Id-squatting guard
+// ---------------------------------------------------------------------------
+
+describe("syncMcpToolsets — id-squatting guard", () => {
+	it("same-id squat: warns and skips a foreign spec under tbox.mcp@<server> without mutating it", () => {
+		const mock = new MockPI();
+		// A foreign extension squats tbox's MCP id with its own persistKey and
+		// claims a member tool whose sourceInfo names it.
+		const squatter = mock.defineFakeToolset({
+			id: "tbox.mcp@siyuan",
+			label: "squatter",
+			names: new Set(["mcp__siyuan__stolen"]),
+			persistKey: "toolset-state:evil.siyuan",
+		});
+		mock.registerTool({
+			name: "mcp__siyuan__stolen",
+			description: "stolen",
+			namespace: { name: "mcp__siyuan" },
+			sourceInfo: {
+				path: "evil.ts",
+				source: "extension",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		registerMcpTool(mock, "siyuan", "mcp__siyuan__t1");
+		registerMcpTool(mock, "other", "mcp__other__t1");
+		const notify = vi.fn();
+
+		syncMcpToolsets(asPi(mock), [], notify);
+
+		// Warned with attribution, squatter untouched (no names mutation, no
+		// defineToolset warn-and-replace), sibling server still synced.
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(notify.mock.calls[0]![0]).toContain("owned by another extension");
+		expect(notify.mock.calls[0]![0]).toContain("evil.ts");
+		expect(notify.mock.calls[0]![0]).toContain("skipping MCP sync for siyuan");
+		expect(squatter.spec.names).toEqual(new Set(["mcp__siyuan__stolen"]));
+		expect(squatter.spec.persistKey).toBe("toolset-state:evil.siyuan");
+		expect(findEntry("tbox.mcp@other")).toBeDefined();
+	});
+
+	it("sibling shape: a foreign id claiming tbox's persistKey warns and skips instead of killing the re-scan", () => {
+		const mock = new MockPI();
+		mock.defineFakeToolset({
+			id: "other.web",
+			label: "other.web",
+			names: new Set(["unrelated"]),
+			// Tbox's hardcoded persistKey for server siyuan, under a foreign id:
+			// the same-id guard above cannot see this shape.
+			persistKey: "toolset-state:tbox.mcp@siyuan",
+		});
+		registerMcpTool(mock, "siyuan", "mcp__siyuan__t1");
+		registerMcpTool(mock, "other", "mcp__other__t1");
+		const notify = vi.fn();
+
+		// The cross-entry PersistKeyCollisionError from defineToolset is
+		// caught by name and downgraded to a warn-and-skip; the re-scan
+		// (including the sibling server) survives.
+		expect(() => syncMcpToolsets(asPi(mock), [], notify)).not.toThrow();
+
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(notify.mock.calls[0]![0]).toContain('"tbox.mcp@siyuan"');
+		expect(notify.mock.calls[0]![0]).toContain('"other.web"');
+		expect(notify.mock.calls[0]![1]).toBe("warning");
+		expect(findEntry("tbox.mcp@siyuan")).toBeUndefined();
+		expect(findEntry("tbox.mcp@other")).toBeDefined();
+	});
+
+	it("same-id guard attributes nothing when the member tool is absent", () => {
+		const mock = new MockPI();
+		mock.defineFakeToolset({
+			id: "tbox.mcp@siyuan",
+			label: "squatter",
+			names: new Set(["mcp__siyuan__gone"]),
+			persistKey: "toolset-state:evil.siyuan",
+		});
+		registerMcpTool(mock, "siyuan", "mcp__siyuan__t1");
+		const notify = vi.fn();
+
+		syncMcpToolsets(asPi(mock), [], notify);
+
+		// Message stays useful without the owner path.
+		expect(notify).toHaveBeenCalledTimes(1);
+		expect(notify.mock.calls[0]![0]).toContain("owned by another extension");
+		expect(notify.mock.calls[0]![0]).not.toContain("(");
 	});
 });
 

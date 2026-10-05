@@ -12,7 +12,11 @@ import {
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	type BranchReader,
+	type RegistryEntry,
+} from "pi-tool-masking";
 
 
 /** Snapshot of the mock's session branch (for intent reads). */
@@ -135,9 +139,12 @@ function defineFakeToolsets(mock: MockPI): void {
 	});
 }
 
-function enableAllToolsets(pi: ExtensionAPI): void {
+function enableAllToolsets(
+	pi: ExtensionAPI,
+	sessionManager: BranchReader,
+): void {
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, sessionManager);
 	}
 }
 
@@ -145,7 +152,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAllToolsets(pi);
+	enableAllToolsets(pi, mock.createCommandContext().sessionManager);
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +533,28 @@ describe("formatByChars", () => {
 			"No toolsets are consuming context budget right now.",
 		);
 	});
+
+	it("appends the static codemode note only when codemode is active", () => {
+		setupRichMock(mock, pi);
+
+		const quiet = formatByChars(pi);
+		expect(quiet).not.toContain("codemode");
+
+		mock.setActiveTools([...mock.getActiveTools(), "codemode"]);
+		const noted = formatByChars(pi);
+		expect(noted).toContain("codemode.inlineBudget");
+		// No qualifier — N is rendered plainly in every mode.
+		expect(noted).not.toMatch(/[≤≥]/);
+	});
+
+	it("carries the codemode note on the empty-budget early return", () => {
+		// No toolsets registered → the early return fires before any footer.
+		mock.setActiveTools(["codemode"]);
+		const output = formatByChars(pi);
+
+		expect(output).toContain("No toolsets are consuming context budget");
+		expect(output).toContain("codemode.inlineBudget");
+	});
 });
 
 describe("formatList (dispatch)", () => {
@@ -667,7 +696,7 @@ describe("formatStatus", () => {
 		const learnEntry = registry.find(
 			(e: RegistryEntry) => e.spec.id === "portal.learn",
 		)!;
-		learnEntry.toolset.disable(pi);
+		learnEntry.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
 		const output = formatStatus(pi, branchOf(mock));
 		expect(output).toContain("\u2717");

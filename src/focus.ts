@@ -19,16 +19,18 @@ import type {
 	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 import {
-	applyToolsetEnabled,
 	clearAllToolsetEntries,
-	getActiveAllowlist,
+	forceToolsetEnabled,
 	getEffectiveDefault,
 	getRegisteredToolsets,
+	readBranchModeState,
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
+	toggleBatch,
+	type BranchReader,
 } from "pi-tool-masking";
 import { forwardClosure } from "./requires-graph.js";
-import { resolveGroup, toggleAll, checkFocusGuard } from "./groups.js";
+import { resolveGroup, checkFocusGuard } from "./groups.js";
 import { setFocusUnit, rerenderSlot, persistFocusUnit } from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
@@ -123,7 +125,7 @@ function resolveFocusUnit(input: string): ResolvedUnit {
  * 2. Persists the allowlist as the branch mode entry (allowlist mode) —
  *    the array is the authority: the library's restore handler applies
  *    "in array → on, else → off", including toolsets registered later.
- * 3. Live-actuates each registered toolset via `applyToolsetEnabled` (the
+ * 3. Live-actuates each registered toolset via `forceToolsetEnabled` (the
  *    no-cascade apply path). Non-toolset tools are preserved automatically:
  *    each call is a per-spec delta (enable = union(current, spec.names),
  *    disable = current \ spec.names), so only the spec's own names move.
@@ -137,7 +139,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	const ids = resolved.toolsetIds;
 
 	// Set the focus unit BEFORE actuating so the TOOLSET_EVENTS.changed
-	// fanout (emitted synchronously inside applyToolsetEnabled) renders the
+	// fanout (emitted synchronously inside forceToolsetEnabled) renders the
 	// focus glyph, not a one-frame-stale count glyph. The final rerenderSlot
 	// covers the no-event edge case (re-focus on an identical allowlist).
 	setFocusUnit(resolved.label);
@@ -146,7 +148,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 	setDefaultResolutionMode(pi, "allowlist", ids);
 	const allow = new Set(ids);
 	for (const { spec } of getRegisteredToolsets()) {
-		applyToolsetEnabled(pi, spec, allow.has(spec.id));
+		forceToolsetEnabled(pi, spec, allow.has(spec.id));
 	}
 
 	rerenderSlot(pi);
@@ -157,11 +159,14 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 /**
  * Solo on a single unit — the lockless cousin of focus.
  *
- * Equivalent to `/tbox all off` followed by enabling the unit: every
- * registered toolset is disabled, then the resolved unit (+ its `requires`
- * deps via the library's forward cascade) is enabled. Persists as ordinary
- * per-toolset `{enabled}` entries — no allowlist mode, no lock, no exit
- * command. /reload replays the solo state.
+ * One `toggleBatch` over the closure partition: enable ops for every
+ * registered id in the unit's transitive `requires` closure (what
+ * `resolveFocusUnit` returns), disable ops for every other registered
+ * id. The partition is disjoint over a transitive closure, so the batch
+ * is coherent by construction (an enabled id's deps are always inside
+ * the enabled set) — no two-phase disable-all-then-enable, no persisted
+ * intermediate state. Unregistered seeds in the closure are dropped
+ * (the batch throws a plain `Error` on an explicit unregistered op).
  *
  * Refused while focus is active (own guard, checked before unit
  * resolution so focus is the first thing reported) — exit focus first,
@@ -172,7 +177,7 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 export function soloUnit(
 	pi: ExtensionAPI,
 	input: string,
-	branch: readonly SessionEntry[],
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(true, "solo");
 	if (guard !== null) return guard;
@@ -180,14 +185,19 @@ export function soloUnit(
 	const resolved = resolveFocusUnit(input);
 	if (!resolved.ok) return resolved.error;
 
-	// toggleAll carries the same guard — double-guarded is harmless.
-	toggleAll(pi, false, branch);
-
-	const registry = getRegisteredToolsets();
-	const byId = new Map(registry.map((e) => [e.spec.id, e]));
-	for (const id of resolved.toolsetIds) {
-		byId.get(id)?.toolset.enable(pi);
-	}
+	const registered = new Set(
+		getRegisteredToolsets().map((e) => e.spec.id),
+	);
+	const unitSet = new Set(resolved.toolsetIds);
+	const ops = [
+		...[...unitSet]
+			.filter((id) => registered.has(id))
+			.map((id) => ({ id, desired: true })),
+		...[...registered]
+			.filter((id) => !unitSet.has(id))
+			.map((id) => ({ id, desired: false })),
+	];
+	toggleBatch(pi, sessionManager, ops);
 
 	const n = resolved.toolsetIds.length;
 	return `Solo on "${resolved.label}" — ${n} toolset${n === 1 ? "" : "s"} (+ requires deps) on, everything else off.`;
@@ -201,7 +211,7 @@ export function soloUnit(
  * Durable via tombstone: stale per-toolset branch entries (e.g. pre-focus
  * manual toggles) are cleared with `clearAllToolsetEntries`, so a later
  * /reload lands at the same defaults the live apply produced.
- * `applyToolsetEnabled` is the no-cascade apply path — applying a
+ * `forceToolsetEnabled` is the no-cascade apply path — applying a
  * dependent toolset ON cannot surprise-re-enable a pinned-off dependency.
  *
  * Documented: "Restore defaults" means each toolset returns to its
@@ -214,7 +224,7 @@ export function applyEffectiveDefaults(
 	branch: readonly SessionEntry[],
 ): number {
 	// Clear the focus unit BEFORE re-actuating so the TOOLSET_EVENTS.changed
-	// fanout (emitted synchronously inside applyToolsetEnabled) renders the
+	// fanout (emitted synchronously inside forceToolsetEnabled) renders the
 	// post-focus glyph, not a one-frame-stale focus glyph.
 	setFocusUnit(null);
 	persistFocusUnit(pi, null);
@@ -227,7 +237,7 @@ export function applyEffectiveDefaults(
 	const snapshot = readMergedToolsetDefaults();
 	const toolsets = getRegisteredToolsets();
 	for (const { spec } of toolsets) {
-		applyToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot));
+		forceToolsetEnabled(pi, spec, getEffectiveDefault(spec, snapshot));
 	}
 
 	setDefaultResolutionMode(pi, "exclusion");
@@ -256,16 +266,22 @@ export function focusOff(
  * rest), then switches to exclusion mode. Live state is untouched — what
  * you see is what you keep; a later /reload replays the flushed entries.
  *
- * Guarded: with no active focus, `getActiveAllowlist()` is `undefined` —
- * return a hint instead of flushing `{enabled:false}` for every toolset.
+ * Guarded on the branch mode state — the same shared branch read the
+ * library's restore and resolver use — never on an in-memory mirror: a
+ * foreign extension that enters allowlist mode mid-session is seen live
+ * and released deliberately (release is an explicitly commanded
+ * teardown; a user who types it while any allowlist is active wants the
+ * clean slate it performs).
  *
- * Note: unlike `focusOff`, this takes no `branch` — no tombstone, so no
- * stale-entry clearing (see `applyEffectiveDefaults`). The branch is only
- * needed by the shared exit-to-defaults path.
+ * Note: unlike `focusOff`, this writes no tombstone, so no stale-entry
+ * clearing (see `applyEffectiveDefaults`).
  */
-export function focusRelease(pi: ExtensionAPI): string {
-	const allow = getActiveAllowlist();
-	if (!allow) {
+export function focusRelease(
+	pi: ExtensionAPI,
+	sessionManager: BranchReader,
+): string {
+	const { mode, allowlist } = readBranchModeState(sessionManager.getBranch());
+	if (mode !== "allowlist") {
 		return `Focus is not active — nothing to release. Use /tbox focus <group>|+<toolset> first.`;
 	}
 
@@ -275,7 +291,7 @@ export function focusRelease(pi: ExtensionAPI): string {
 	// ponytail: each release flushes N per-toolset entries; focus cycles
 	// accumulate branch entries over a long session. Upgrade path: a
 	// pi-core compact-toolset-entries op, out of scope.
-	const allowSet = new Set(allow);
+	const allowSet = new Set(allowlist);
 	for (const { spec } of getRegisteredToolsets()) {
 		pi.appendEntry(spec.persistKey, { enabled: allowSet.has(spec.id) });
 	}

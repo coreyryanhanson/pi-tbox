@@ -20,8 +20,10 @@ import {
 } from "pi-tool-masking";
 import { getFocusUnit } from "./status-slot.js";
 import {
+	codemodeNote,
 	computeCharCount,
 	formatCharSplit,
+	isCodemodeActive,
 	isTogglableTool,
 	serializeToolDef,
 } from "./chars.js";
@@ -246,7 +248,6 @@ export function formatGroupedList(
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
 		if (!entry) {
-			// MCP tools cannot toggle — real declared context, booked to core.
 			if (gid === PI_MANAGED_GID) {
 				let activeCount = 0;
 				let charCount = 0;
@@ -257,13 +258,19 @@ export function formatGroupedList(
 						continue;
 					}
 					activeCount++;
-					charCount += serializeToolDef(t).length;
+					const len = serializeToolDef(t).length;
+					charCount += len;
+					// Togglability is the core/extension axis, same as
+					// computeCharCount: a declarable-but-unclaimed tool goes
+					// to extension; resource and non-declarable tools stay
+					// core.
+					if (isTogglableTool(t)) totalExtChars += len;
+					else totalCoreChars += len;
 				}
 				totalActive += activeCount;
 				totalInactive += inactiveCount;
-				totalCoreChars += charCount;
 				lines.push(
-					`  pi-managed (${activeCount} active, +${charCount} chars, core)`,
+					`  pi-managed (${activeCount} active, +${charCount} chars)`,
 				);
 				for (const t of tools) {
 					const status = activeSet.has(t.name) ? "" : " (inactive)";
@@ -387,7 +394,12 @@ export function formatByChars(pi: ExtensionAPI): string {
 	stats.sort((a, b) => b.charCount - a.charCount);
 
 	if (stats.length === 0) {
-		return "Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
+		const empty =
+			"Context budget (toolsets, most expensive first):\n\n  No toolsets are consuming context budget right now.";
+		// The empty-budget early return must carry the codemode note too — this
+		// is the surface a user opens with exactly the overhead question, and
+		// with no toolset charging budget is precisely when the note matters.
+		return isCodemodeActive(pi) ? `${empty}\n\n  ${codemodeNote()}` : empty;
 	}
 
 	const totalActive = stats.reduce((n, s) => n + s.activeCount, 0);
@@ -406,12 +418,13 @@ export function formatByChars(pi: ExtensionAPI): string {
 	]);
 	const footer = ["Total", String(totalActive), `+${totalChars}`];
 
-	return renderTable(
+	const table = renderTable(
 		"Context budget (toolsets, most expensive first):",
 		cols,
 		tableRows,
 		footer,
 	);
+	return isCodemodeActive(pi) ? `${table}\n\n  ${codemodeNote()}` : table;
 }
 
 // ---------------------------------------------------------------------------
@@ -661,9 +674,10 @@ export function formatStatus(
 	const focusUnit = getFocusUnit();
 	const focusLine = focusUnit ? `Focus: on (${focusUnit})` : "Focus: off";
 
-	return [table, "", groupLine, focusLine, formatCharSplit(computeCharCount(pi))]
-		.join("\n")
-		.trimEnd();
+	const charLine = formatCharSplit(computeCharCount(pi));
+	const lines = [table, "", groupLine, focusLine, charLine];
+	if (isCodemodeActive(pi)) lines.push(codemodeNote());
+	return lines.join("\n").trimEnd();
 }
 
 // ---------------------------------------------------------------------------

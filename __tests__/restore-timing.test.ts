@@ -75,7 +75,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		//   1. autoRegisterBuiltinAndOrphans (registers orphan toolsets)
 		//   2. actuateNewToolsets (applies defaultEnabled since restore missed them)
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		// All 3 extension tools should now be active (defaultEnabled: true)
 		const active = mock.getActiveTools();
@@ -136,7 +136,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		// All 5 extension tools are active → slot should be pristine (n=0)
 		const state = computeSlotState(pi);
@@ -146,7 +146,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		const entry = getRegisteredToolsets().find(
 			(e) => e.spec.id === orphanToolsetId("my-ext"),
 		)!;
-		entry.toolset.disable(pi);
+		entry.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
 		const stateAfter = computeSlotState(pi);
 		expect(stateAfter).toEqual({ kind: "count", n: 5 });
@@ -172,13 +172,13 @@ describe("restore-timing: actuateNewToolsets", () => {
 		}
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		const activeAfterFirst = [...mock.getActiveTools()].sort();
 		const entriesAfterFirst = mock.getEntries().length;
 
 		// Actuate again — should not duplicate entries or change active set
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		const activeAfterSecond = [...mock.getActiveTools()].sort();
 		const entriesAfterSecond = mock.getEntries().length;
@@ -238,7 +238,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		expect(newIds).not.toContain("portal.web");
 		expect(newIds).toContain(orphanToolsetId("pi-lens"));
 
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		// Portal tools stay active (restore handled them), lens tools now active too
 		const active = mock.getActiveTools();
@@ -286,7 +286,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		// All 6 tools should be active
 		const active = mock.getActiveTools();
@@ -301,7 +301,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 	it("actuateNewToolsets with empty array is a safe no-op", () => {
 		const activeBefore = mock.getActiveTools();
-		actuateNewToolsets(pi, []);
+		actuateNewToolsets(pi, [], mock.createCommandContext().sessionManager.getBranch());
 		expect(mock.getActiveTools()).toEqual(activeBefore);
 	});
 
@@ -337,6 +337,33 @@ describe("restore-timing: actuateNewToolsets", () => {
 		// Second call — no new ids (idempotent)
 		const secondIds = autoRegisterBuiltinAndOrphans(pi);
 		expect(secondIds).toHaveLength(0);
+	});
+
+	it("exclusion: an intent-off newcomer actuates off from the branch in the same pass", () => {
+		// A branch entry for the not-yet-registered orphan toolset (e.g. the
+		// user toggled it off in a previous session). actuateNewToolsets must
+		// resolve through the branch (effectiveEnabled), not fall back to the
+		// branch-blind settings default — the one-prompt leak this row pins
+		// shut.
+		mock.registerTool({
+			name: "off-tool",
+			description: "Previously toggled off",
+			sourceInfo: {
+				path: "my-ext.ts",
+				source: "my-ext",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		const persistKey = `toolset-state:${orphanToolsetId("my-ext")}`;
+		mock.appendEntry(persistKey, { enabled: false });
+
+		const newIds = autoRegisterBuiltinAndOrphans(pi);
+		expect(newIds).toContain(orphanToolsetId("my-ext"));
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+
+		// Applied off in the SAME pass — not the next restore.
+		expect(mock.getActiveTools()).not.toContain("off-tool");
 	});
 
 	it("during focus, newly-registered orphan toolsets land off (not in the allowlist)", () => {
@@ -375,7 +402,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		expect(newIds).toContain(orphanToolsetId("new-ext"));
-		actuateNewToolsets(pi, newIds);
+		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
 
 		expect(pi.getActiveTools()).not.toContain("new-tool");
 		expect(pi.getActiveTools()).toContain("web-fetch");

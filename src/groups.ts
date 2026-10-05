@@ -25,6 +25,8 @@ import {
 	effectiveEnabled,
 	getRegisteredToolsets,
 	readMergedToolsetDefaults,
+	toggleBatch,
+	type BranchReader,
 } from "pi-tool-masking";
 import {
 	readGroups,
@@ -269,80 +271,43 @@ export function checkFocusGuard(enable: boolean, noun: string): string | null {
  *
  * Builtins and SDK tools are never in the registry, so they cannot be affected.
  *
- * @returns A summary message.
+ * One `toggleBatch` over the whole registry: the library's intent gate
+ * makes redundant toggles silent no-ops (reported as `[]`), repairs
+ * clobbers, and persists intent-off toggles on inert toolsets — the
+ * flattened delta is the honest count, judgment fully deferred to the
+ * library. Refusals (allowlist governance, requires cycles) throw raw to
+ * the dispatch seam.
+ *
+ * @returns A summary message counting only what changed.
  */
 export function toggleAll(
 	pi: ExtensionAPI,
 	enable: boolean,
-	branch: readonly SessionEntry[],
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(enable, "all toolsets");
 	if (guard !== null) return guard;
 
-	// One snapshot per command — each intent read must not re-read the
-	// settings files, and the actuatable scan must not re-run, per toolset.
-	const snapshot = readMergedToolsetDefaults();
-	const toolsets = getRegisteredToolsets();
-	// Actuatable = registered and not hidden-exposure (mirrors the library's
-	// internal scan: pi's setActiveTools silently drops hidden names, so a
-	// toolset whose members are all hidden is inert — enable() over it only
-	// re-appends a duplicate branch entry).
-	const actuatable = new Set<string>();
-	for (const tool of pi.getAllTools()) {
-		if ((tool as { exposure?: string }).exposure === "hidden") continue;
-		actuatable.add(tool.name);
-	}
-	const activeSet = new Set(pi.getActiveTools());
-	let changed = 0;
-
-	for (const entry of toolsets) {
-		const names = [...entry.spec.names];
-		// Persist-direction correctness comes from intent; whether a library
-		// call can change anything comes from observation. Both are needed:
-		// the library's witness gates make enable()/disable() silent no-ops
-		// at the extremes, so gating on either read alone strands state
-		// (intent-only skips the repair of a clobbered active set;
-		// observation-only drops the off on an intent-on inert toolset).
-		const intent = effectiveEnabled(entry.spec, branch, snapshot).enabled;
-		const anyActive = names.some((n) => activeSet.has(n));
-
-		if (enable) {
-			// Skip exactly what enable() cannot improve: its only real write
-			// is adding members ∩ actuatable ∩ ¬active. When every name is
-			// already active or not actuatable (hidden, or absent because the
-			// MCP server is disconnected), that set is empty and enable()
-			// could only re-append a duplicate same-value branch entry —
-			// which is why the skip requires intent-on. Covers fully-active,
-			// fully-inert, and mixed (one member active, one hidden)
-			// toolsets; a clobbered toolset still has an actuatable inactive
-			// member and is repaired.
-			const nothingToAdd = names.every(
-				(n) => activeSet.has(n) || !actuatable.has(n),
-			);
-			if (intent && nothingToAdd) continue;
-			entry.toolset.enable(pi);
-			changed++;
-		} else {
-			// Intent-on always gets the off (persisting it, even when inert —
-			// the witnessed-off gate would drop it if we skipped on observation
-			// alone). Keep an observation arm for residue: an intent-off
-			// toolset with a still-active member (mid-dispatch re-activation,
-			// another extension's setActiveTools) must still get its member
-			// removed. Skip only when intent and observation agree nothing is
-			// on.
-			if (!intent && !anyActive) continue;
-			entry.toolset.disable(pi);
-			changed++;
-		}
-	}
+	const ops = getRegisteredToolsets().map((entry) => ({
+		id: entry.spec.id,
+		desired: enable,
+	}));
+	const changed = toggleBatch(pi, sessionManager, ops);
 
 	const action = enable ? "Enabled" : "Disabled";
-	const noun = changed === 1 ? "toolset" : "toolsets";
-	return `${action} ${changed} ${noun}.`;
+	const noun = changed.length === 1 ? "toolset" : "toolsets";
+	return `${action} ${changed.length} ${noun}.`;
 }
 
 /**
  * Actuate a single toolset on or off (for `/tbox +<toolset> on|off`).
+ *
+ * Unconditional single-op wrapper: the library's delta gate skips
+ * same-value toggles (returning `[]`), repairs a clobbered loadout, and
+ * persists intent-off toggles on inert toolsets — so "already
+ * enabled/disabled" renders from `[]` and any non-empty delta means the
+ * state changed or was repaired. No intent pre-gate: gating here would
+ * forfeit the repair arm and duplicate library logic.
  *
  * @returns A human-readable result, or an error if the toolset doesn't exist
  *          or focus mode is active.
@@ -351,7 +316,7 @@ export function actuateToolset(
 	pi: ExtensionAPI,
 	id: string,
 	enable: boolean,
-	branch: readonly SessionEntry[],
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(enable, "a toolset");
 	if (guard !== null) return guard;
@@ -360,26 +325,15 @@ export function actuateToolset(
 	const entry = registry.find((e) => e.spec.id === id);
 	if (!entry) return `No toolset "${id}".`;
 
-	// Toggle gating reads persisted intent: an intent-on inert toolset
-	// (members hidden / MCP server disconnected) must still accept "off".
-	const enabled = effectiveEnabled(
-		entry.spec,
-		branch,
-		readMergedToolsetDefaults(),
-	).enabled;
-
-	if (enable) {
-		if (enabled) {
-			return `Toolset "${id}" is already enabled.`;
-		}
-		entry.toolset.enable(pi);
-		return `Enabled toolset "${id}".`;
+	const changed = enable
+		? entry.toolset.enable(pi, sessionManager)
+		: entry.toolset.disable(pi, sessionManager);
+	if (changed.length === 0) {
+		return enable
+			? `Toolset "${id}" is already enabled.`
+			: `Toolset "${id}" is already disabled.`;
 	}
-	if (!enabled) {
-		return `Toolset "${id}" is already disabled.`;
-	}
-	entry.toolset.disable(pi);
-	return `Disabled toolset "${id}".`;
+	return `${enable ? "Enabled" : "Disabled"} toolset "${id}".`;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,13 +343,17 @@ export function actuateToolset(
 /**
  * Actuate a group on or off.
  *
- * - Activates/deactivates each toolset in the group. The library's
- *   `requires` cascade pulls deps on for `on`; for `off` it
- *   reverse-cascades to dependents outside the group.
+ * - Activates/deactivates each registered toolset in the group via one
+ *   `toggleBatch` — the library's `requires` cascade pulls deps on for
+ *   `on`; for `off` it reverse-cascades to dependents outside the group.
+ *   Unregistered ids are skipped upstream of the batch (an explicit op
+ *   naming one would throw a plain `Error` at planning).
  *
  * The moved set is computed by diffing `getActiveTools()` before vs. after,
  * so it reflects what the library actually did (including cascaded
- * non-members) rather than a static-graph prediction.
+ * non-members) rather than a static-graph prediction. This display
+ * computation cannot be reproduced from the `ToggleResult[]` delta (which
+ * reports per-toolset changes, not moved tools), so it stays.
  *
  * @returns A human-readable summary, including the drift caveat.
  */
@@ -403,6 +361,7 @@ export function actuateGroup(
 	pi: ExtensionAPI,
 	name: string,
 	enable: boolean,
+	sessionManager: BranchReader,
 ): string {
 	const guard = checkFocusGuard(enable, "a group");
 	if (guard !== null) return guard;
@@ -423,12 +382,10 @@ export function actuateGroup(
 
 	const before = new Set(pi.getActiveTools());
 
-	for (const id of targetToolsetIds) {
-		const entry = byId.get(id);
-		if (!entry) continue;
-		if (enable) entry.toolset.enable(pi);
-		else entry.toolset.disable(pi);
-	}
+	const ops = [...targetToolsetIds]
+		.filter((id) => byId.has(id))
+		.map((id) => ({ id, desired: enable }));
+	toggleBatch(pi, sessionManager, ops);
 
 	const after = new Set(pi.getActiveTools());
 

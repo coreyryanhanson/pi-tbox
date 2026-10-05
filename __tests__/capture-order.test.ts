@@ -170,7 +170,7 @@ describe("capture-order — render ordering", () => {
 				(e: RegistryEntry) => e.spec.id === "other.set",
 			);
 			if (entry) {
-				entry.toolset.enable(mock as unknown as ExtensionAPI);
+				entry.toolset.enable(mock as unknown as ExtensionAPI, mock.createCommandContext().sessionManager);
 			}
 			// Then emit restored
 			mock.emit(TOOLSET_EVENTS.restored, {
@@ -205,7 +205,7 @@ describe("capture-order — render ordering", () => {
 				(e: RegistryEntry) => e.spec.id === "sibling.ext",
 			);
 			if (entry) {
-				entry.toolset.enable(mock as unknown as ExtensionAPI);
+				entry.toolset.enable(mock as unknown as ExtensionAPI, mock.createCommandContext().sessionManager);
 			}
 			mock.emit(TOOLSET_EVENTS.restored, {
 				id: "sibling.restore",

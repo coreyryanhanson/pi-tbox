@@ -7,7 +7,8 @@ Make MCP tools visible and togglable, stop miscounting them as non-togglable
 contract on live registry entries, the allowlist-aware `effectiveEnabled`
 export, and the `hidden`-exposure fix). That release ships first (its changes sit on the library's
 `CHANGELOG.md` `[Unreleased]`, which — together with the JSDoc on
-`getRegisteredToolsets`/`applyToolsetEnabled` in `pi-tool-masking/index.ts` —
+`getRegisteredToolsets`/`forceToolsetEnabled` (renamed from
+`applyToolsetEnabled` in 2.0.0 — void, always applies and always emits) in `pi-tool-masking/index.ts` —
 is the source of truth for the API contract). MCP support cannot land before
 it, because tbox's CI clones only this repo and would otherwise resolve the old
 published library.
@@ -206,7 +207,9 @@ registered:
 - Do **not** return newly-registered ids for actuation via `actuateNewToolsets`:
   its resolution falls back to `getEffectiveDefault` (branch-unaware), which
   is exactly why step 3 has the caller resolve intent itself through the
-  branch-aware `effectiveEnabled` + `applyToolsetEnabled` reconcile. The
+  branch-aware `effectiveEnabled` + `forceToolsetEnabled` reconcile (2.0.0
+  renames `applyToolsetEnabled` → `forceToolsetEnabled`, void — it shares
+  the restore path's always-emit invariant and takes no report). The
   helper keeps earning its keep only for non-MCP orphans.
 
 Also make the orphan scan skip MCP tools **explicitly** (they are currently
@@ -228,10 +231,10 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   `notifications/tools/list_changed` notification
   (`extensions/mcp/runtime.ts:384-386`), which pi handles by re-registering
   tools internally — no extension event fires, so there is nothing else to
-  subscribe to. The handler currently drops its arguments
-  (`pi.on("before_agent_start", () => rerenderSlot(pi))`, `index.ts:264`,
-  inside `captureAndRender` at `index.ts:247`) and
-  must take `(event, ctx)` — step 5 needs the branch there anyway. It cannot
+  subscribe to. The handler already takes `(event, ctx)` and calls the
+  re-scan (`index.ts`, inside `captureAndRender`) — step 5's branch read is
+  what this same threading provides; the remaining work here is keeping the
+  re-scan itself cheap and idempotent. It cannot
   catch first-prompt tools: builtin extensions load after
   user extensions (`package-manager.ts` appends `builtin:*` last), so within
   a prompt's dispatch this handler runs *before* the mcp
@@ -274,8 +277,8 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   caller resolves intent directly —
   `effectiveEnabled(spec, ctx.sessionManager.getBranch(), readMergedToolsetDefaults())`
   (allowlist-aware for free) — and when the resolved intent is off, calls
-  `applyToolsetEnabled(pi, spec, false)` immediately instead of relying on the
-  default resolution. Intent-on needs nothing extra: `actuateNewToolsets`'
+  `forceToolsetEnabled(pi, spec, false)` immediately instead of relying on the
+  default resolution (renamed from `applyToolsetEnabled` in 2.0.0). Intent-on needs nothing extra: `actuateNewToolsets`'
   `defaultEnabled: true` union is a no-op over pi-activated `direct` tools.
 - **Existing server whose declarable set changed** → sync the live registry
   entry in place, `entry.spec.names = new Set(next)` (masking 2.0.0's documented
@@ -310,18 +313,27 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   newly-appearing member of an intent-off toolset is declared for exactly one
   prompt. Fix at the mutation site: when the toolset's persisted intent is off
   (the `effectiveEnabled` read from step 5), call
-  `applyToolsetEnabled(pi, spec, false)` immediately after mutating — the
+  `forceToolsetEnabled(pi, spec, false)` immediately after mutating — the
   library's documented immediate-reconcile path — which drops the newcomer
   from the active set in the same prompt. Newly-appearing members of an
   intent-*on* toolset need nothing: they are pi-activated on registration and
   `defaultEnabled: true` unions them.
-  The mutation site asserts the entry is tbox-managed before writing —
-  `spec.id` starts with `tbox.mcp@` or `tbox.tool@` — so a future regression
-  that broadens the lookup into a registry-wide scan fails loudly instead of
-  silently mutating a foreign declared toolset. Beyond the tripwire, declared
-  toolsets are protected by construction: the re-scan looks entries up by ids
-  tbox itself generated (never reachable for a foreign id), and overlap with
-  foreign toolsets is prevented rather than guarded — masking's name-overlap
+  The mutation site is guarded by an id-squatting guard: the re-scan looks
+  entries up by ids tbox itself generated, and before mutating, the found
+  entry's `persistKey` is compared against tbox's deterministically built
+  spec — a foreign extension squatting `tbox.mcp@<server>` fails the
+  comparison, and the scan warns (with best-effort attribution from the
+  member tools' `sourceInfo.path`) and skips that server instead of
+  rewriting a foreign spec. The guard is a collision heuristic, not a lock:
+  a squatter copying tbox's hardcoded `persistKey` constant passes it. The
+  sibling shape (a foreign id claiming tbox's persistKey) is caught where
+  `defineToolset` throws its cross-entry `PersistKeyCollisionError` — the
+  call is wrapped and downgraded to the same warn-and-skip so the throw
+  never escapes the `before_agent_start` handler, which would otherwise be
+  swallowed by the runner as an extension error and kill the re-scan
+  including `rerenderSlot`. Beyond squatting, declared toolsets are
+  protected by construction: overlap with foreign toolsets is prevented
+  rather than guarded — masking's name-overlap
   guard is a throw at registration time, and MCP toolsets register *after*
   other toolsets, so a guard hit would throw inside the `before_agent_start`
   handler, be swallowed by the runner as an extension error, and kill the
@@ -336,15 +348,14 @@ extension's handler schedules `setImmediate(...).then(loadMcpRuntime).then(creat
   finds zero declarable members but **must not write an empty set** — it
   skips the mutation and leaves the existing `spec.names` untouched (the
   delta gate already skips identical sets; an empty next-set on an existing
-  toolset is skipped too). Keeping the hidden members matters for toggling:
-  with a non-empty spec whose members are all non-actuatable, masking's
-  witness gate (`actuatableNames.length !== spec.names.size`,
-  `pi-tool-masking/index.ts:685-695`, `:726-735`) makes `disable()` a
-  *persisting* off — a toggle issued while the server is disconnected is
-  recorded and holds when the tools return. With an empty spec the gate is
-  vacuous (`0 === 0`): the toggle neither applies nor persists, the UI
-  reports "Disabled", and the tools come back ON at the next restore once
-  the server reconnects. Keeping the members costs nothing: counts and
+  toolset is skipped too). Toggling does not depend on keeping the hidden
+  members: under masking 2.0.0's delta gate a disable persists whenever it
+  opposes the resolved state, empty spec or not (`before=true, desired=false`
+  still differs — the off entry is written), so an intent recorded while the
+  server is disconnected holds when the tools return either way. Keeping the
+  hidden members is a **diagnostic convenience, not a correctness rule** —
+  the connectivity/toggle-state row (below) and the return-path-intent
+  argument stand alone. Keeping the members costs nothing: counts and
   classification flow through `isTogglableTool` over `getAllTools()` (step
   4), never through `spec.names`, so hidden members inflate no `n masked`,
   no char-count bucket, and are never declared; the `tbox.mcp@<server>` row
@@ -480,55 +491,77 @@ persisted *intent* (branch entry, `effectiveEnabled`) and *observation*
 MCP server not yet connected, the exact case steps 2–3 introduce. Each site
 picks the right read:
 
-- **Display and toggle-gating read intent** —
+- **Display sites read intent** —
   `effectiveEnabled(spec, branch, readMergedToolsetDefaults())`, with `branch`
-  from `ctx.sessionManager.getBranch()` inside the handler. Six observation
-  reads of the toolset-state class switch to intent (line numbers verified in
-  current source):
-  - `src/groups.ts:301` — the "already enabled" toggle guard;
-  - `src/groups.ts:307` — the "already disabled" toggle guard, which refuses
-    "off" on an intent-on inert toolset (the motivating case);
-  - `src/groups.ts:266` — `toggleAll`'s `wasEnabled` gate: `/tbox all off` on
-    an intent-on inert toolset currently drops the off entirely (neither
-    applied nor persisted) and under-counts the summary; reading intent also
-    lets `/tbox all on` skip an already-intent-on inert toolset instead of
-    re-appending a duplicate entry;
-  - `src/groups.ts:239` — `describeToolset`'s state line;
-  - `src/list.ts:538` — the toolset glyph in `/tbox status`;
-  - `src/defaults.ts:127` — `defaults save`, which must capture intent,
+  from `ctx.sessionManager.getBranch()` inside the handler. Three observation
+  reads of the toolset-state class switch to intent (line numbers verified
+  against the current branch state — implemented post-2.0.0-migration; these
+  display sites take branch values, per the display carve-out below — the
+  reader discipline governs only the toggle paths):
+  - `src/groups.ts:255` — `describeToolset`'s state line;
+  - `src/list.ts:606` — the toolset glyph in `/tbox status`;
+  - `src/defaults.ts:137` — `defaults save`, which must capture intent,
     never a mid-session `isEnabled()` snapshot — capturing while a toolset is
     inert would pin a temporary divergence as a permanent misconfiguration.
+
+  The actuation paths that this list once carried are gone with the 2.0.0
+  migration: the toggle-gating preamble and the "already enabled/disabled"
+  guard bullets (formerly `src/groups.ts:306`, `:372`, `:378`) described
+  intent reads duplicating library logic, and were deleted. The unconditional
+  toggle plus the delta gate delivers the same guarantees with no tbox-side
+  intent read — the "already in the desired state" message renders from the
+  returned `[]`, and an 'off' toggle on an intent-on inert toolset is
+  honored by persisting the off entry rather than refused before the toggle
+  runs (enable-after-clobber is the loud repair arm). Under allowlist
+  governance masking's allowlist-boundary rule rejects **every** toggle
+  with `AllowlistModeError` (unconditional, atomic — see masking's
+  AGENTS.md allowlist-boundary paragraph); tbox's dispatch seam renders
+  that refusal, and a future reader must not treat the throw as a
+  regression of the deleted guards.
 
   Plumbing: the only branch-aware intent read on the library's exported
   surface is `effectiveEnabled` (`getEffectiveDefault(spec, snapshot)` is
   exported and branch-free, but it skips the chat-branch tier, so it is not a
   substitute at these sites) — so `branch` must reach
-  functions that today take only `pi`: `describeToolset`, `toggleAll`,
-  `actuateToolset` (`src/groups.ts`), `formatStatus` (`src/list.ts`, same),
-  and `defaultsSave` (`src/defaults.ts:122`) — `handleDefaults` already
-  receives `ctx` with `sessionManager.getBranch()` (`defaults.ts:230`), so
-  only `defaultsSave` needs the parameter threaded down to its `:127` read.
-  Threading `toggleAll` forces the same
-  change on `soloUnit` (`src/focus.ts:180` calls `toggleAll(pi, false)`) and
-  its `case "solo"` call site in `index.ts` — add both to the diff.
-  `formatGroupedList` needs no `branch`: none of the six sites is inside it
-  (`list.ts:538` is inside `formatStatus`), and its step-4 display predicate
+  functions that today take only `pi`: `describeToolset` (`src/groups.ts`),
+  `formatStatus` (`src/list.ts`, same), and `defaultsSave`
+  (`src/defaults.ts:128`) — `handleDefaults` already
+  receives `ctx` with `sessionManager.getBranch()` (`defaults.ts:259`), so
+  only `defaultsSave` needs the parameter threaded down to its `:137` read.
+  `formatGroupedList` needs no `branch`: none of the three sites is inside it
+  (`list.ts:606` is inside `formatStatus`), and its step-4 display predicate
   is an observational active-set check, not an intent read. The pattern
   already exists (`focusOff(pi, ctx.sessionManager.getBranch())` in
   `index.ts`) and `MockPI` exposes `getBranch`, so it is mechanical — but it
-  touches every call site and several tests. All six sites consume `.enabled`
+  touches every call site and several tests. All three sites consume `.enabled`
   off the `{enabled, persistedEntry}` return, not the object itself. Hoist
-  the snapshot: sites that loop over the registry (`toggleAll`,
-  `formatStatus`) must read `readMergedToolsetDefaults()` (and the branch)
-  once per command, not once per toolset — otherwise each intent read costs
-  two file reads × N toolsets. The pattern exists
-  (`registry.ts:176-180`, `focus.ts:213`).
+  the **defaults snapshot** per command: looping sites read
+  `readMergedToolsetDefaults()` once per command, not once per toolset —
+  otherwise each intent read costs two file reads × N toolsets. The pattern
+  exists (`registry.ts:176-180`, `focus.ts:213`). The **branch reader is
+  passed, not a value**: masking 2.0.0's toggle API takes a required
+  `sessionManager` parameter (in practice `ctx.sessionManager`; structurally
+  `ReadonlySessionManager` — pass the object, never the bare `getBranch`
+  method reference, which the reader type makes a compile error) and
+  reads the branch once per public toggle call, at that call's own
+  boundary, so the reader passed
+  once per command is correct for any number of actuation calls and
+  cascades — a later toggle call's delta reads the branch that includes
+  every earlier call's entries (inside one call the library's pre-computed
+  plan is the intent authority; no per-apply re-read exists). The only wrong moves are caching the value
+  (`getBranch()` once, then passing the array) and passing the bare method
+  reference — both type errors at these sites: a hoisted array goes stale
+  the moment the first toggle appends its entry, and the next toggle's
+  intent delta then resolves against pre-command intent — duplicate
+  entries and a miscounted summary. Display-only loops (`formatStatus`'s
+  intent reads) never write, so they may hoist both.
 - **"Is anything actually declared right now?" reads observation** —
   `isEnabled()` (and the active set directly). The char count (step 6)
   already does, and the per-tool glyph (`src/list.ts:405`) stays
   observational: both are declaration-sensitive surfaces, not toolset state —
   switching them to intent would invert the rule the same way reading
-  observation for toggle-gating does today. The status-bar slot
+  observation for an actuation decision would (the mistake the deleted
+  toggle guards made). The status-bar slot
   (`src/status-slot.ts`) is in the same bucket and needs no direct change:
   `computeSlotState` reads `extensionToolCounts` (the active set directly;
   "n masked" is `total − active`), so it is declaration-sensitive by
@@ -721,7 +754,8 @@ toolset still actuates normally);
 a foreign declared toolset (any id that is not
 `tbox.mcp@*`/`tbox.tool@*`, including other `tbox.*` ids) registered before
 the re-scan having its `spec.names` byte-identical
-afterward (the managed-prefix tripwire guards the one mutation site);
+afterward (the persistKey collision guard, step 3, guards the one mutation
+site);
 the `/reload` handler path (a registry holding only MCP toolsets, re-scanned
 through a fresh pi: masking's restore/re-assert are installed — an intent-off
 MCP toolset is not re-declared on registration — exercised by running the
@@ -745,8 +779,10 @@ static codemode note (present when codemode is active, absent otherwise);
 the `codemode` tool itself counted as a plain builtin — `core:` agrees between
 `/tbox status` (`computeCharCount`) and `/tbox list`'s footer, with no exclusion
 divergence); graceful degradation when `exposure`/`namespace` are absent; the
-step-5 intent fixes (the toggle guard honors "off" on an intent-on inert
-toolset; `defaults save` persists intent, never a mid-session
+step-5 intent fixes (an "off" toggle on an intent-on inert toolset is
+honored by the unconditional call persisting the off entry — enable-after-
+clobber is the loud repair arm — with no tbox-side intent pre-gate;
+`defaults save` persists intent, never a mid-session
 `isEnabled()` snapshot).
 
 `npm test` and `npm run typecheck` (typecheck runs in CI before tests).
@@ -828,7 +864,7 @@ connect or the real provider-side declaration effect.
   and masking's re-assert runs before tbox's mutation in the same prompt
   dispatch), so a newcomer to an intent-off toolset is declared for one prompt
   — the
-  post-mutation `applyToolsetEnabled` reconcile (step 3) closes it. (This
+  post-mutation `forceToolsetEnabled` reconcile (step 3) closes it. (This
   closes the between-prompts case only; registrations that land mid-dispatch
   are the separate residual above.)
   A second leak the mutation cannot close: when a tool's exposure changes
@@ -852,9 +888,13 @@ connect or the real provider-side declaration effect.
   "the toolset is on" into persisted *intent* (`effectiveEnabled`) and
   *observation* (`isEnabled()`); the two diverge for inert toolsets (members
   `hidden`, or the MCP server not yet connected — the exact case this release
-  introduces). Step 5 assigns the right read per site; the failure it prevents
-  is an observation-gated toggle guard refusing "off" on an intent-on inert
-  toolset (`src/groups.ts` does this today).
+  introduces). Step 5 assigns the right read per site; the failure it
+  prevents is a decision or pinning surface reading observation for an inert
+  toolset and freezing a temporary divergence as permanent state — the
+  concrete case is `defaults save` capturing a mid-session `isEnabled()`
+  snapshot as a pin. (The toggle-path intent guards this release once
+  carried were deleted in the 2.0.0 migration — the unconditional toggle
+  plus the delta gate handles actuation; do not re-add them.)
 - **Name overlap** — masking's guard means each tool can belong to one toolset;
   MCP tools are claimed only by their per-server toolset, and a name
   pre-claimed by a foreign toolset is subtracted from MCP membership (step

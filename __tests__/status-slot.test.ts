@@ -338,7 +338,7 @@ describe("status-slot", () => {
 			const entry = getRegisteredToolsets().find(
 				(e: RegistryEntry) => e.spec.id === "portal.web",
 			)!;
-			entry.toolset.enable(pi);
+			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 
 			const ctx = mock.createContext();
 			const ctxRef = ctx as unknown as {
@@ -355,7 +355,7 @@ describe("status-slot", () => {
 
 			// Disable the toolset → emits changed → wireSlot re-renders
 			mock.clearUiRecords();
-			entry.toolset.disable(pi);
+			entry.toolset.disable(pi, mock.createCommandContext().sessionManager);
 
 			const after = mock.getLastStatus(SLOT_NAME);
 			expect(after).toBeDefined();

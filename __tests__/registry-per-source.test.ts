@@ -374,7 +374,7 @@ describe("focus granularity with per-source toolsets", () => {
 
 		// Enable all registered toolsets so focus can disable
 		for (const entry of getRegisteredToolsets()) {
-			entry.toolset.enable(pi);
+			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 		}
 		mock.clearUiRecords();
 
@@ -386,9 +386,9 @@ describe("focus granularity with per-source toolsets", () => {
 
 		for (const entry of getRegisteredToolsets()) {
 			if (allowlist.has(entry.spec.id)) {
-				entry.toolset.enable(pi);
+				entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 			} else {
-				entry.toolset.disable(pi);
+				entry.toolset.disable(pi, mock.createCommandContext().sessionManager);
 			}
 		}
 

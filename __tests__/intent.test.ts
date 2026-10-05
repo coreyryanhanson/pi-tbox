@@ -1,13 +1,13 @@
 /**
  * Intent vs observation per use site (Batch 4).
  *
- * Masking 2.0.0's inert-toolset contract splits "the toolset is on" into
- * persisted intent (`effectiveEnabled`) and observation (`isEnabled()`); the
- * two diverge when the toolset's members are hidden (or an MCP server has not
- * connected). Covers: the toggle guard honoring "off" on an intent-on inert
- * toolset, toggleAll persisting off on intent-on inert toolsets and skipping
- * already-intent-on inert toolsets, the describeToolset/formatStatus state
- * reads showing intent, and defaults save capturing intent — never a
+ * Masking 2.0.0's delta gate makes toggles unconditional: same-value
+ * toggles are silent no-ops (`[]`), a toggle opposing persisted intent
+ * persists even on an inert toolset (members hidden, or an MCP server not
+ * connected — where intent and observation diverge). Covers: "off" on an
+ * intent-on inert toolset persisting, redundant toggles staying silent
+ * (rendered as "already enabled/disabled"), and the
+ * describeToolset/formatStatus state reads showing intent — never a
  * mid-session isEnabled() snapshot.
  *
  * @module
@@ -68,6 +68,11 @@ function branchOf(mock: MockPI) {
 	return mock.createCommandContext().sessionManager.getBranch();
 }
 
+/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
+function readerOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager;
+}
+
 /** Replace the mock's whole active list (what a clobbering caller does). */
 function setActiveToolsForMock(mock: MockPI, tools: string[]): void {
 	(mock as unknown as { setActiveTools: (t: string[]) => void }).setActiveTools(
@@ -104,7 +109,7 @@ describe("intent vs observation (inert toolset)", () => {
 
 		// Observation says off; the old observation-gated guard answered
 		// "already disabled" and dropped the toggle entirely.
-		const output = actuateToolset(pi, ID, false, branchOf(mock));
+		const output = actuateToolset(pi, ID, false, readerOf(mock));
 		expect(output).toContain("Disabled");
 		expect(lastEntryData(mock, KEY)).toEqual({ enabled: false });
 	});
@@ -112,19 +117,48 @@ describe("intent vs observation (inert toolset)", () => {
 	it("actuateToolset guard still refuses redundant toggles by intent", () => {
 		setupInertToolset(mock, true);
 
-		expect(actuateToolset(pi, ID, true, branchOf(mock))).toContain(
+		expect(actuateToolset(pi, ID, true, readerOf(mock))).toContain(
 			"already enabled",
 		);
-		actuateToolset(pi, ID, false, branchOf(mock));
-		expect(actuateToolset(pi, ID, false, branchOf(mock))).toContain(
+		actuateToolset(pi, ID, false, readerOf(mock));
+		expect(actuateToolset(pi, ID, false, readerOf(mock))).toContain(
 			"already disabled",
 		);
+	});
+
+	it("actuateToolset repair arm: enable after an external clobber renders a delta, not a refusal", () => {
+		// A live (direct-exposure) toolset: intent on, member clobbered off by
+		// another extension's setActiveTools. The kept pre-gate would refuse
+		// with "already enabled" and leave the member undeclared with no
+		// self-heal; the unconditional call repairs the loadout instead.
+		mock.registerTool({
+			name: "mcp__live__t1",
+			description: "live tool",
+			sourceInfo: BUILTIN_SOURCE,
+		});
+		mock.defineFakeToolset({
+			id: "tbox.mcp@live",
+			names: new Set(["mcp__live__t1"]),
+			persistKey: "toolset-state:tbox.mcp@live",
+			defaultEnabled: true,
+		});
+		mock.fireLifecycleEvent("session_start");
+		mock.clearEntries();
+		expect(pi.getActiveTools()).toContain("mcp__live__t1");
+
+		// Clobber: another extension empties the active set.
+		setActiveToolsForMock(mock, []);
+
+		const output = actuateToolset(pi, "tbox.mcp@live", true, readerOf(mock));
+		expect(output).toContain("Enabled");
+		expect(output).not.toContain("already enabled");
+		expect(pi.getActiveTools()).toContain("mcp__live__t1");
 	});
 
 	it("toggleAll all off persists off on an intent-on inert toolset", () => {
 		setupInertToolset(mock, true);
 
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 		expect(lastEntryData(mock, KEY)).toEqual({ enabled: false });
 	});
 
@@ -132,7 +166,7 @@ describe("intent vs observation (inert toolset)", () => {
 		setupInertToolset(mock, true);
 
 		const entriesBefore = branchOf(mock).length;
-		toggleAll(pi, true, branchOf(mock));
+		toggleAll(pi, true, readerOf(mock));
 		// No duplicate {enabled:true} entry appended for the inert toolset.
 		expect(branchOf(mock).length).toBe(entriesBefore);
 	});
@@ -156,29 +190,29 @@ describe("intent vs observation (inert toolset)", () => {
 		setActiveToolsForMock(mock, ["mcp__live__t1"]);
 
 		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, branchOf(mock));
+		const msg = toggleAll(pi, true, readerOf(mock));
 		expect(msg).toContain("Enabled 0");
 		expect(branchOf(mock).length).toBe(entriesBefore);
 	});
 
 	it("toggleAll all off removes a stray active member of an intent-off toolset", () => {
 		setupInertToolset(mock, true);
-		actuateToolset(pi, ID, false, branchOf(mock));
+		actuateToolset(pi, ID, false, readerOf(mock));
 		// Residue: intent is off but a member is still active (mid-dispatch
 		// re-activation, another extension's setActiveTools).
 		setActiveToolsForMock(mock, ["mcp__srv__t1"]);
 
-		const msg = toggleAll(pi, false, branchOf(mock));
+		const msg = toggleAll(pi, false, readerOf(mock));
 		expect(msg).toContain("Disabled 1");
 		expect(pi.getActiveTools()).not.toContain("mcp__srv__t1");
 	});
 
 	it("toggleAll all off skips intent-off inactive toolsets without entry spam", () => {
 		setupInertToolset(mock, true);
-		actuateToolset(pi, ID, false, branchOf(mock));
+		actuateToolset(pi, ID, false, readerOf(mock));
 
 		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, false, branchOf(mock));
+		const msg = toggleAll(pi, false, readerOf(mock));
 		expect(msg).toContain("Disabled 0");
 		expect(branchOf(mock).length).toBe(entriesBefore);
 	});
@@ -209,7 +243,7 @@ describe("intent vs observation (inert toolset)", () => {
 		setActiveToolsForMock(mock, ["mcp__mix__live"]);
 
 		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, branchOf(mock));
+		const msg = toggleAll(pi, true, readerOf(mock));
 		expect(msg).toContain("Enabled 0");
 		expect(branchOf(mock).length).toBe(entriesBefore);
 	});
@@ -227,7 +261,7 @@ describe("intent vs observation (inert toolset)", () => {
 		});
 
 		const entriesBefore = branchOf(mock).length;
-		const msg = toggleAll(pi, true, branchOf(mock));
+		const msg = toggleAll(pi, true, readerOf(mock));
 		expect(msg).toContain("Enabled 0");
 		expect(branchOf(mock).length).toBe(entriesBefore);
 	});
@@ -245,7 +279,7 @@ describe("intent vs observation (inert toolset)", () => {
 		});
 
 		const entriesBefore = branchOf(mock).length;
-		toggleAll(pi, true, branchOf(mock));
+		toggleAll(pi, true, readerOf(mock));
 		// Library persists: witnessed-on gate cannot fire (0 registered ≠ 1
 		// names), so appendEntry({enabled:true}) lands despite no loadout
 		// write being possible.
@@ -259,7 +293,7 @@ describe("intent vs observation (inert toolset)", () => {
 		expect(describeToolset(ID, branchOf(mock))).toContain(
 			"State: enabled",
 		);
-		actuateToolset(pi, ID, false, branchOf(mock));
+		actuateToolset(pi, ID, false, readerOf(mock));
 		expect(describeToolset(ID, branchOf(mock))).toContain(
 			"State: disabled",
 		);
@@ -271,7 +305,7 @@ describe("intent vs observation (inert toolset)", () => {
 		expect(formatStatus(pi, branchOf(mock))).toMatch(
 			/tbox\.mcp@srv\s+\u2713/,
 		);
-		actuateToolset(pi, ID, false, branchOf(mock));
+		actuateToolset(pi, ID, false, readerOf(mock));
 		expect(formatStatus(pi, branchOf(mock))).toContain("\u2717");
 	});
 });
@@ -318,7 +352,7 @@ describe("defaults save captures intent, not observation", () => {
 
 	it("pins off for an intent-off toolset (also inert)", () => {
 		setupInertToolset(mock, true);
-		actuateToolset(pi, ID, false, branchOf(mock));
+		actuateToolset(pi, ID, false, readerOf(mock));
 
 		handleDefaults(pi, mock.createCommandContext(), "defaults save");
 

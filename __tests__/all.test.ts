@@ -6,9 +6,9 @@ import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
 
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
+/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
+function readerOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 
 	// Enable all registered toolsets
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi);
+		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
 	}
 
 	// Simulate the real Pi platform: builtins are always active.
@@ -128,10 +128,10 @@ describe("toggleAll", () => {
 		setupRichMock(mock, pi);
 
 		// Disable everything first
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 
 		// Now enable all
-		const msg = toggleAll(pi, true, branchOf(mock));
+		const msg = toggleAll(pi, true, readerOf(mock));
 		expect(msg).toContain("Enabled");
 
 		// Extension tools are active
@@ -147,7 +147,7 @@ describe("toggleAll", () => {
 	it("all off disables every non-builtin toolset", () => {
 		setupRichMock(mock, pi);
 
-		const msg = toggleAll(pi, false, branchOf(mock));
+		const msg = toggleAll(pi, false, readerOf(mock));
 		expect(msg).toContain("Disabled");
 
 		// Builtins remain active (platform-managed, not in tbox)
@@ -169,7 +169,7 @@ describe("toggleAll", () => {
 		const before = mock.getActiveTools();
 		expect(before).not.toContain("custom-x");
 
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 
 		const after = mock.getActiveTools();
 		expect(after).not.toContain("custom-x");
@@ -178,7 +178,7 @@ describe("toggleAll", () => {
 	it("all off leaves builtins untouched (not in registry)", () => {
 		setupRichMock(mock, pi);
 
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 
 		// Builtins are platform-managed — not in tbox's registry.
 		// toggleAll can only affect registered toolsets.
@@ -188,6 +188,38 @@ describe("toggleAll", () => {
 		expect(active).not.toContain("web-fetch");
 		expect(active).not.toContain("web-learn");
 		expect(active).not.toContain("orphan-tool");
+	});
+
+	it("requires pair: one entry per toolset, count 2 not 3", () => {
+		// The batch planner resolves the requires closure into one final
+		// state per id and emits each changed toolset exactly once — a
+		// duplicate entry for the dependency is unrepresentable.
+		mock.defineFakeToolset({
+			id: "portal.web",
+			names: new Set(["web-fetch"]),
+			persistKey: "toolset-state:portal.web",
+			defaultEnabled: true,
+		});
+		mock.defineFakeToolset({
+			id: "portal.learn",
+			names: new Set(["web-learn"]),
+			persistKey: "toolset-state:portal.learn",
+			defaultEnabled: true,
+			requires: ["portal.web"],
+		});
+
+		const msgOff = toggleAll(pi, false, readerOf(mock));
+		expect(msgOff).toContain("Disabled 2 toolsets.");
+		const offWeb = mock.getEntries("toolset-state:portal.web");
+		const offLearn = mock.getEntries("toolset-state:portal.learn");
+		expect(offWeb).toHaveLength(1);
+		expect(offLearn).toHaveLength(1);
+
+		const msgOn = toggleAll(pi, true, readerOf(mock));
+		expect(msgOn).toContain("Enabled 2 toolsets.");
+		// Still exactly one entry per toolset for the on pass.
+		expect(mock.getEntries("toolset-state:portal.web")).toHaveLength(2);
+		expect(mock.getEntries("toolset-state:portal.learn")).toHaveLength(2);
 	});
 });
 
@@ -214,7 +246,7 @@ describe("all via dispatchCommand", () => {
 
 	it("dispatches all on and enables all", async () => {
 		// Disable all first
-		toggleAll(pi, false, branchOf(mock));
+		toggleAll(pi, false, readerOf(mock));
 		mock.clearUiRecords();
 
 		await mock.dispatchCommand("all on");

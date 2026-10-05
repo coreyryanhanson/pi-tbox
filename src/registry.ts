@@ -24,13 +24,12 @@
 
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
-	applyToolsetEnabled,
 	defineToolset,
 	effectiveEnabled,
-	getActiveAllowlist,
-	getEffectiveDefault,
+	forceToolsetEnabled,
 	getRegisteredToolsets,
 	readMergedToolsetDefaults,
+	PersistKeyCollisionError,
 	TOOLSET_EVENTS,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
@@ -45,10 +44,16 @@ import { isDeclarableMcpTool, isMcpTool } from "./mcp.js";
 export const ORPHAN_TOOLSET_PREFIX = "tbox.tool@";
 
 /** Prefix for per-MCP-server toolset ids: tbox.mcp@<server>. */
-export const MCP_TOOLSET_PREFIX = "tbox.mcp@";
+const MCP_TOOLSET_PREFIX = "tbox.mcp@";
 
 /** Namespace prefix pi puts on every MCP tool. */
 const MCP_NAMESPACE_PREFIX = "mcp__";
+
+/** UI notify callback, threaded so sync paths can surface collisions. */
+export type NotifyFn = (
+	message: string,
+	level?: "info" | "warning" | "error",
+) => void;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -169,32 +174,39 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
  * Actuate a set of toolset ids to their desired state, without appending
  * persist entries or emitting events.
  *
- * During focus (allowlist mode) the allowlist array is the authority: a
- * toolset registered after focus was entered is in the array → on, else
- * → off. Outside focus, each toolset falls back to its settings-aware
- * default (`getEffectiveDefault`). This mirrors what the library's restore
- * handler would have done if it had seen these toolsets at the time it ran.
- * Used after autoRegisterBuiltinAndOrphans when the restore handler already
- * fired before these orphans were registered.
+ * Branch-aware via `effectiveEnabled` — the same resolution masking's own
+ * restore uses (chat-branch entry, allowlist-aware, → settings pin →
+ * packaged default), so orphan actuation and restore cannot disagree, and
+ * an orphan whose chat-branch entry says off resolves off on a resumed
+ * session (a branch-blind settings-only fallback would resolve it ON —
+ * the one-prompt leak). During focus (allowlist mode) the allowlist array
+ * is the authority: a toolset registered after focus was entered is in
+ * the array → on, else → off. Used after autoRegisterBuiltinAndOrphans
+ * when the library's restore handler already fired before these orphans
+ * were registered.
  *
  * @param pi - The extension API
  * @param ids - Toolset ids to actuate (typically the return of
  *   autoRegisterBuiltinAndOrphans)
+ * @param branch - The session branch (`ctx.sessionManager.getBranch()`);
+ *   required — an omitted argument would resolve exactly like an empty
+ *   mirror, re-creating the branch-blind fallback this replaces.
  */
-export function actuateNewToolsets(pi: ExtensionAPI, ids: string[]): void {
+export function actuateNewToolsets(
+	pi: ExtensionAPI,
+	ids: string[],
+	branch: readonly SessionEntry[],
+): void {
 	if (ids.length === 0) return;
 
-	const allow = getActiveAllowlist();
 	const defaultsSnapshot = readMergedToolsetDefaults();
 	const registry = getRegisteredToolsets();
 	const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
 	const activeSet = new Set(pi.getActiveTools());
 	let changed = false;
 
-	const wantEnabled = (spec: ToolsetSpec): boolean => {
-		if (allow !== undefined) return allow.includes(spec.id);
-		return getEffectiveDefault(spec, defaultsSnapshot);
-	};
+	const wantEnabled = (spec: ToolsetSpec): boolean =>
+		effectiveEnabled(spec, branch, defaultsSnapshot).enabled;
 
 	for (const id of ids) {
 		const entry = registry.find((e: RegistryEntry) => e.spec.id === id);
@@ -257,9 +269,16 @@ function buildMcpToolsetSpec(server: string, names: Set<string>): ToolsetSpec {
 		id,
 		label: `${MCP_NAMESPACE_PREFIX}${server}`,
 		names: new Set(names),
-		persistKey: `toolset-state:${id}`,
+		persistKey: mcpToolsetPersistKey(id),
 		defaultEnabled: true,
 	};
+}
+
+/** The persistKey an id owns — the squat guard's authority. One format,
+ * two readers (spec builder + guard), so the guard can never disagree
+ * with what buildMcpToolsetSpec actually writes. */
+function mcpToolsetPersistKey(id: string): string {
+	return `toolset-state:${id}`;
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -268,6 +287,13 @@ function setsEqual(a: Set<string>, b: Set<string>): boolean {
 		if (!b.has(name)) return false;
 	}
 	return true;
+}
+
+/** Best-effort attribution: the source path of the extension behind a
+ * toolset's first member tool, when the tool is still present. */
+function ownerSourcePath(pi: ExtensionAPI, names: Set<string>): string | undefined {
+	const tool = pi.getAllTools().find((t) => names.has(t.name));
+	return tool?.sourceInfo.path;
 }
 
 /**
@@ -293,22 +319,29 @@ function syncOneMcpToolset(
 	nextNames: Set<string>,
 	branch: readonly SessionEntry[],
 	defaultsSnapshot: ReturnType<typeof readMergedToolsetDefaults>,
+	notify: NotifyFn,
 ): void {
 	const id = mcpToolsetId(server);
 	const entry = getRegisteredToolsets().find((e) => e.spec.id === id);
 	let spec: ToolsetSpec;
 
 	if (entry) {
-		// Tripwire: the lookup is by an id tbox itself generated, so this can
-		// only fire if a future change broadens the lookup into a registry-wide
-		// scan. Fail loudly rather than mutate a foreign declared toolset.
-		if (
-			!entry.spec.id.startsWith(MCP_TOOLSET_PREFIX) &&
-			!entry.spec.id.startsWith(ORPHAN_TOOLSET_PREFIX)
-		) {
-			throw new Error(
-				`[tbox] refusing to mutate foreign toolset "${entry.spec.id}"`,
+		// Id-squatting guard: the lookup is by an id tbox itself generated, so
+		// an entry found here was either defined by tbox or squatting the id.
+		// tbox builds its spec deterministically, so a foreign spec's
+		// persistKey cannot match. Warn-and-skip (not throw) — an error inside
+		// a re-scan kills the whole pass, isolating the damage to this server
+		// instead. Collision heuristic, not a lock: a squatter copying tbox's
+		// hardcoded persistKey constant passes this check.
+		if (entry.spec.persistKey !== mcpToolsetPersistKey(id)) {
+			const owner = ownerSourcePath(pi, entry.spec.names);
+			notify(
+				`tbox: toolset id "${id}" is owned by another extension` +
+					(owner ? ` (${owner})` : "") +
+					`; skipping MCP sync for ${server}`,
+				"warning",
 			);
+			return; // before any spec mutation or defineToolset
 		}
 		if (nextNames.size > 0 && !setsEqual(entry.spec.names, nextNames)) {
 			entry.spec.names = nextNames;
@@ -319,7 +352,25 @@ function syncOneMcpToolset(
 		spec = buildMcpToolsetSpec(server, nextNames);
 	}
 
-	defineToolset(pi, spec);
+	try {
+		defineToolset(pi, spec);
+	} catch (err) {
+		// Name-based, never instanceof or message match: handles may come from
+		// another physical copy of the library off the shared globalThis
+		// registry. Covers the sibling squatting shape the same-id guard above
+		// cannot see — a foreign id claiming tbox's persistKey — where the
+		// cross-entry collision throw would otherwise kill the whole re-scan.
+		// Every other error rethrows raw: a genuine tbox defect must stay loud.
+		if ((err as { name?: string })?.name !== "PersistKeyCollisionError")
+			throw err;
+		const collision = err as PersistKeyCollisionError;
+		notify(
+			`tbox: toolset id "${spec.id}" claims the persistKey already owned ` +
+				`by toolset "${collision.existingId}"; skipping MCP sync for ${server}`,
+			"warning",
+		);
+		return;
+	}
 
 	// Branch-aware intent reconcile. actuateNewToolsets is deliberately not
 	// used: its getEffectiveDefault fallback skips the chat-branch tier, so an
@@ -330,14 +381,14 @@ function syncOneMcpToolset(
 	// newcomer to an intent-off toolset is pi-activated before masking's
 	// re-assert (which read the old member set) and is dropped here in the
 	// same prompt.
-	// Gated on a member actually being active: applyToolsetEnabled's disable
+	// Gated on a member actually being active: forceToolsetEnabled's disable
 	// path always emits `changed`, so an ungated call would fire a spurious
 	// emit (and slot re-render) on every unchanged scan of an intent-off
 	// toolset whose members are already undeclared. Nothing to reconcile then.
 	const activeSet = new Set(pi.getActiveTools());
 	const hasActiveMember = [...spec.names].some((n) => activeSet.has(n));
 	if (hasActiveMember && !effectiveEnabled(spec, branch, defaultsSnapshot).enabled) {
-		applyToolsetEnabled(pi, spec, false);
+		forceToolsetEnabled(pi, spec, false);
 	}
 }
 
@@ -366,6 +417,7 @@ function syncOneMcpToolset(
 export function syncMcpToolsets(
 	pi: ExtensionAPI,
 	branch: readonly SessionEntry[],
+	notify: NotifyFn = console.warn,
 ): void {
 	const defaultsSnapshot = readMergedToolsetDefaults();
 	const registry = getRegisteredToolsets();
@@ -398,6 +450,6 @@ export function syncMcpToolsets(
 		for (const name of names) {
 			if (!claimedElsewhere.has(name)) next.add(name);
 		}
-		syncOneMcpToolset(pi, server, next, branch, defaultsSnapshot);
+		syncOneMcpToolset(pi, server, next, branch, defaultsSnapshot, notify);
 	}
 }
