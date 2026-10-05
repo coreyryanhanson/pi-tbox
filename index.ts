@@ -126,8 +126,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 			// pass through before_agent_start, so a user who starts a session,
 			// waits for servers to connect, and runs /tbox would otherwise see
 			// the pre-MCP world until they submit a prompt. Idempotent.
-			syncMcpToolsets(pi, ctx.sessionManager.getBranch(), ctx.ui.notify);
+			// One branch read per command: the MCP re-scan and the describe
+			// surfaces below read the same branch — nothing between the reads
+			// appends a SessionEntry (defineToolset is registration-only), so
+			// re-reading would return the same state.
 			const branch = ctx.sessionManager.getBranch();
+			syncMcpToolsets(pi, branch, ctx.ui.notify);
 
 			const trimmed = args.trim();
 			if (!trimmed) {
@@ -358,7 +362,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		// after /reload, connected servers' toolsets are synced here, and the
 		// unconditional defineToolset inside reinstalls masking's restore/re-
 		// assert handlers on a fresh pi for a registry holding only MCP toolsets.
-		syncMcpToolsets(pi, ctx.sessionManager.getBranch(), ctx.ui.notify);
+		syncMcpToolsets(pi, branch, ctx.ui.notify);
 		// SAFETY: SlotCtx is a structural subset of ExtensionContext (ui + sessionManager);
 		// every field SlotCtx reads exists on the real context.
 		lastCtx = ctx as unknown as SlotCtx;
