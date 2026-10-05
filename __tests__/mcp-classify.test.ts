@@ -14,7 +14,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockPI, branchOf } from "./mock-pi.js";
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { syncMcpToolsets } from "../src/registry.js";
 import {
 	computeCharCount,
