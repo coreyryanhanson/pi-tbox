@@ -260,8 +260,10 @@ Known edges (accepted residuals, not bugs):
   lag on the status bar; command surfaces (`/tbox list` etc.) re-scan on
   every invocation and are not prompt-timing dependent.
 - A tool whose exposure changes in place `direct` → `codemode`/`deferred` is
-  dropped from its toolset but not deactivated — it stays declared while
-  tbox no longer lists or counts it, until the session reloads.
+  dropped from its toolset but not deactivated — it stays callable (declared
+  only once `tool_search` loads it) until the session reloads. While active
+  it renders read-only under `pi-managed` and its chars are booked to
+  `core`, not the extension budget.
 - `focus off` and `/tbox defaults restore` turn MCP toolsets ON at their
   packaged default when no branch entry or settings pin exists — the same
   behavior as any other toolset added after those were captured.

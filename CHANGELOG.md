@@ -60,6 +60,18 @@
   connected) shows the state the user toggled instead of freezing a
   temporary divergence as a pin.
 
+- **Deferring subagent children get no tbox surface.** When a parent session
+  spawns a deferring child (pi-tool-masking's default `childPolicy:
+  "defer"`), both of tbox's entry points gate on the library's shared
+  `isDeferredChild()`: the `/tbox` command answers with "tbox is governed
+  by the parent session" and performs nothing — this is also the only
+  protection for the settings-writer flows (`defaults save`/`clear`/
+  `restore`), which the library's defer rule deliberately leaves live —
+  and the session-start path silently skips registration, actuation, MCP
+  sync, focus restore, and slot rendering. Sessions spawned by subagent
+  plugins configure their own tools; see "Subagent integration" in the
+  README.
+
 - **Orphan toolsets from version-pinned npm plugins no longer carry the
   version in their name.** When a plugin is pinned by version in settings
   (e.g. `npm:pi-foo@1.2.3`), the raw source string previously became the
