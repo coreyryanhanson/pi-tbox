@@ -30,6 +30,27 @@ describe("MockPI", () => {
 		});
 	});
 
+	describe("registerTool activation (mirrors pi)", () => {
+		it("activates direct and model-only tools at registration; others are not", () => {
+			for (const [name, exposure] of [
+				["direct-tool", "direct"],
+				["model-only-tool", "model-only"],
+				["codemode-tool", "codemode"],
+				["deferred-tool", "deferred"],
+				["hidden-tool", "hidden"],
+			] as const) {
+				mock.registerTool({ name, description: name, exposure });
+			}
+
+			const active = mock.getActiveTools();
+			expect(active).toContain("direct-tool");
+			expect(active).toContain("model-only-tool");
+			expect(active).not.toContain("codemode-tool");
+			expect(active).not.toContain("deferred-tool");
+			expect(active).not.toContain("hidden-tool");
+		});
+	});
+
 	describe("defineFakeToolset", () => {
 		it("registers a toolset in the global registry", () => {
 			const entry = mock.defineFakeToolset({

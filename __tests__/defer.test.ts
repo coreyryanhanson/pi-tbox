@@ -141,12 +141,14 @@ function setupToolsets(mock: MockPI, withToolset = true): void {
 	mock.registerTool({
 		name: "new-tool",
 		description: "Newly installed tool",
+		exposure: "codemode",
 		sourceInfo: { path: "new.ts", source: "new-ext", scope: "user", origin: "top-level" },
 	});
 	if (!withToolset) return;
 	mock.registerTool({
 		name: "web-fetch",
 		description: "Fetch",
+		exposure: "codemode",
 		sourceInfo: { path: "p.ts", source: "p", scope: "user", origin: "top-level" },
 	});
 	mock.defineFakeToolset({

@@ -172,6 +172,7 @@ describe("formatGroupedList", () => {
 			mock.registerTool({
 				name,
 				description: `Tool ${name}`,
+				exposure: "codemode",
 				sourceInfo: {
 					path: "ext.ts",
 					source: "extension",
@@ -279,6 +280,7 @@ describe("formatGroupedList", () => {
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphan",
+			exposure: "codemode",
 			sourceInfo: {
 				path: "ext.ts",
 				source: "extension",

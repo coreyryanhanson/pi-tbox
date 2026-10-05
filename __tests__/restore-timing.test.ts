@@ -88,7 +88,12 @@ describe("restore-timing: actuateNewToolsets", () => {
 		// managed by the platform and are not actuated by tbox.
 	});
 
-	it("without actuateNewToolsets, orphans stay inactive (reproduces the bug)", () => {
+	it("without actuateNewToolsets, an intent-off orphan leaks active", () => {
+		// Resumed session: the user disabled this source in a prior session,
+		// leaving an intent-off branch entry under the toolset's persistKey.
+		mock.appendEntry(`toolset-state:${orphanToolsetId("my-ext")}`, {
+			enabled: false,
+		});
 		for (let i = 0; i < 3; i++) {
 			mock.registerTool({
 				name: `ext-tool-${i}`,
@@ -102,14 +107,15 @@ describe("restore-timing: actuateNewToolsets", () => {
 			});
 		}
 
-		// Only register — do NOT actuate
-		autoRegisterBuiltinAndOrphans(pi);
+		// pi activates direct tools at registration, and the library's
+		// restore already fired — nothing corrects them. This is the
+		// one-prompt leak actuateNewToolsets exists to close.
+		expect(mock.getActiveTools()).toContain("ext-tool-0");
 
-		// Without actuation, the tools are NOT in getActiveTools
-		const active = mock.getActiveTools();
-		expect(active).not.toContain("ext-tool-0");
-		expect(active).not.toContain("ext-tool-1");
-		expect(active).not.toContain("ext-tool-2");
+		// actuateNewToolsets resolves the persisted intent (off) and applies it.
+		const newIds = autoRegisterBuiltinAndOrphans(pi);
+		actuateNewToolsets(pi, newIds, branchOf(mock));
+		expect(mock.getActiveTools()).not.toContain("ext-tool-0");
 	});
 
 	it("slot count reflects reality after actuation (no 'one off' bug)", () => {

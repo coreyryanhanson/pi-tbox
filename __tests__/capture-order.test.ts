@@ -99,6 +99,7 @@ describe("capture-order — render ordering", () => {
 		mock.registerTool({
 			name: "tool-a",
 			description: "Tool A",
+			exposure: "codemode",
 			sourceInfo: {
 				path: "a.ts",
 				source: "extension",
