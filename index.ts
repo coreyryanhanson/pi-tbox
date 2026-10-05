@@ -262,10 +262,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "focus": {
 					const sub = rest[1];
 					if (sub === "off") {
-						ctx.ui.notify(
-							focusOff(pi, ctx.sessionManager.getBranch()),
-							"info",
-						);
+						ctx.ui.notify(focusOff(pi, branch), "info");
 					} else if (sub === "release") {
 						ctx.ui.notify(
 							focusRelease(pi, ctx.sessionManager),
