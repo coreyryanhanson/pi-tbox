@@ -227,8 +227,13 @@ export class MockPI implements Partial<ExtensionAPI> {
 		};
 		this._tools.push(tool);
 		// Mirror pi: direct and model-only tools are activated when they are
-		// registered; the others are not (pi extensions/types.ts).
-		if (tool.exposure === "direct" || tool.exposure === "model-only") {
+		// registered; the others are not. Re-registration does not re-activate
+		// (pi agent-session._isActivatedOnRegistration guards on the previous
+		// set, so a duplicate never lands twice).
+		if (
+			(tool.exposure === "direct" || tool.exposure === "model-only") &&
+			!this._activeTools.includes(tool.name)
+		) {
 			this._activeTools.push(tool.name);
 		}
 	}

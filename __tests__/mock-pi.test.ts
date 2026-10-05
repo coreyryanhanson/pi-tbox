@@ -41,9 +41,12 @@ describe("MockPI", () => {
 			] as const) {
 				mock.registerTool({ name, description: name, exposure });
 			}
+			// Re-registration does not re-activate (no duplicate entry).
+			mock.registerTool({ name: "direct-tool", description: "again" });
 
 			const active = mock.getActiveTools();
 			expect(active).toContain("direct-tool");
+			expect(active.filter((n) => n === "direct-tool")).toHaveLength(1);
 			expect(active).toContain("model-only-tool");
 			expect(active).not.toContain("codemode-tool");
 			expect(active).not.toContain("deferred-tool");

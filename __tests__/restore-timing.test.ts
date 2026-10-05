@@ -115,7 +115,10 @@ describe("restore-timing: actuateNewToolsets", () => {
 		// actuateNewToolsets resolves the persisted intent (off) and applies it.
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		actuateNewToolsets(pi, newIds, branchOf(mock));
-		expect(mock.getActiveTools()).not.toContain("ext-tool-0");
+		const active = mock.getActiveTools();
+		expect(active).not.toContain("ext-tool-0");
+		expect(active).not.toContain("ext-tool-1");
+		expect(active).not.toContain("ext-tool-2");
 	});
 
 	it("slot count reflects reality after actuation (no 'one off' bug)", () => {
