@@ -609,10 +609,8 @@ export function formatList(pi: ExtensionAPI, args: string): string {
  * members cell (`N (M active)`) since they are non-togglable. Trailing
  * User Groups / Focus / Char-count lines are unaffected.
  *
- * The toolset glyph reads persisted **intent** (`effectiveEnabled`), not
- * `isEnabled()`: an inert toolset (members hidden or an MCP server not
- * yet connected) shows the state the user toggled, not the empty
- * observation. Hoists the defaults snapshot — one settings read per
+ * The toolset glyph reads intent, not the live observation (see
+ * AGENTS.md). Hoists the defaults snapshot — one settings read per
  * command, not per toolset.
  *
  * @param pi - The extension API

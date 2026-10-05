@@ -239,10 +239,9 @@ export function describeGroup(name: string): string {
  * Describe a toolset by id (for `/tbox +<toolset>` with no action).
  * Returns an error line if the toolset is not registered.
  *
- * State is the persisted **intent** (`effectiveEnabled`), not the live
- * `isEnabled()` observation — an inert toolset (members hidden or an MCP
- * server not yet connected) shows its persisted state, which is what the
- * user toggled. Intent reads never touch the live toolset, so no `pi`.
+ * State is intent, not the live observation (see AGENTS.md) — an inert
+ * toolset shows what the user toggled. Intent reads never touch the live
+ * toolset, so no `pi`.
  */
 export function describeToolset(
 	id: string,

@@ -168,17 +168,14 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 
 /**
  * Actuate a set of toolset ids to their desired state, without appending
- * persist entries. Branch-aware via `effectiveEnabled` — the same resolution
- * masking's own restore uses (chat-branch entry, allowlist-aware, → settings
- * pin → packaged default), so orphan actuation and restore cannot disagree,
- * and an orphan whose chat-branch entry says off resolves off on a resumed
- * session (a branch-blind settings-only fallback would resolve it ON — the
- * one-prompt leak). During focus (allowlist mode) the allowlist array is the
- * authority: a toolset registered after focus was entered is in the array →
- * on, else → off. Used after autoRegisterBuiltinAndOrphans when the library's
- * restore handler already fired before these orphans were registered. The
- * apply itself is the library's `forceToolsetEnabled` (no persist, no
- * cascade, no intent gate) — the same non-toggle apply path focus.ts uses.
+ * persist entries. Intent, not observation (see AGENTS.md) — an orphan whose
+ * chat-branch entry says off resolves off on a resumed session (a branch-blind
+ * settings-only fallback would resolve it ON — the one-prompt leak); during
+ * focus the allowlist array is the authority. Used after
+ * autoRegisterBuiltinAndOrphans when the library's restore handler already
+ * fired before these orphans were registered. The apply itself is the
+ * library's `forceToolsetEnabled` (no persist, no cascade, no intent gate) —
+ * the same non-toggle apply path focus.ts uses.
  *
  * @param pi - The extension API
  * @param ids - Toolset ids to actuate (typically the return of

@@ -120,10 +120,9 @@ function withMalformed(fn: () => DefaultsResult): DefaultsResult {
  * `writeToolsetDefaults` merges — stale pins from a prior save are
  * `clear`'s job to remove.
  *
- * Pins read persisted **intent** (`effectiveEnabled`), never the live
- * `isEnabled()` snapshot: capturing while a toolset is inert (members
- * hidden or an MCP server not yet connected) would pin a temporary
- * divergence as a permanent misconfiguration.
+ * Pins read intent, not the live snapshot (see AGENTS.md): capturing
+ * while a toolset is inert would pin a temporary divergence as a permanent
+ * misconfiguration.
  */
 function defaultsSave(
 	flags: Set<string>,

@@ -97,6 +97,15 @@ point — justified where needed, not preemptively scattered.
 
 ## Actuation: unconditional calls, one seam, one reader
 
+- **Intent, not observation.** State shown or acted on outside a toggle call
+  reads persisted **intent** (`effectiveEnabled` — chat-branch entry,
+  allowlist-aware → settings pin → packaged default; the same resolution
+  masking's own restore uses), never the live `isEnabled()` observation: an
+  inert toolset (members hidden or an MCP server not yet connected) has an
+  empty observation, which would corrupt pins, describe output, the status
+  glyph, and orphan restore. Used by `actuateNewToolsets`, `defaultsSave`,
+  `describeToolset`, and `formatStatus`; site comments stay one-liners
+  pointing here.
 - **No intent pre-gates.** tbox runs no "already enabled/disabled" guards —
   no toggle path reads intent before calling. Masking's delta gate no-ops
   redundant toggles (returns `[]`), repairs clobbered loadouts, and persists
