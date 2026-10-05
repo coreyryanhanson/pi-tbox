@@ -8,9 +8,8 @@
  *
  * Capture ctx at the top of the handler, but call render() at
  * the END — so the first paint always lands on post-restore state regardless
- * of handler registration order. The remaining rows pin the two regimes that
- * survive that fix: repeated restored emissions, and post-restore (not
- * pre-restore) slot state.
+ * of handler registration order. The remaining rows pin repeated restored
+ * emissions and the post-restore (not pre-restore) first paint.
  *
  * @module
  */
@@ -75,7 +74,7 @@ describe("capture-order — render ordering", () => {
 		});
 	}
 
-	it("slot reflects post-restore state, not a stale pre-restore snapshot", () => {
+	it("multiple TOOLSET_EVENTS.restored emissions don't crash", () => {
 		addSiblingThatEmitsRestored();
 
 		// Both handlers emit restored
