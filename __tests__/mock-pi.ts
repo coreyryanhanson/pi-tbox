@@ -77,17 +77,6 @@ export interface NotifyRecord {
 	level: string;
 }
 
-export interface SelectRecord {
-	message: string;
-	options: string[];
-	selected: string;
-}
-
-export interface ConfirmRecord {
-	message: string;
-	result: boolean;
-}
-
 export interface ExtensionCommandContext {
 	ui: {
 		setStatus: (slot: string, text: string) => void;
@@ -126,7 +115,7 @@ export interface ExtensionCommandContext {
  * Supports:
  *   - Everything the library's MockPI supports
  *   - registerCommand / dispatchCommand
- *   - ui.setStatus / ui.notify / ui.select / ui.confirm
+ *   - ui.setStatus / ui.notify
  *   - ui.theme.fg (returns markers for assertable color)
  *   - getAllTools with all five sourceInfo.source flavors
  *   - defineFakeToolset (test-only helper)
@@ -146,12 +135,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 	// UI recording
 	private _statusRecords: StatusRecord[] = [];
 	private _notifyRecords: NotifyRecord[] = [];
-	private _selectRecords: SelectRecord[] = [];
-	private _confirmRecords: ConfirmRecord[] = [];
-
-	// Select/confirm return values (set by tests)
-	private _selectReturnValues: string[] = [];
-	private _confirmReturnValues: boolean[] = [];
 
 	// Component mount (for ctx.ui.custom)
 	private _mountStates = new Map<string, MountState>();
@@ -295,10 +278,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 		return this._eventBus;
 	}
 
-	hasHandler(event: string): boolean {
-		return (this._handlers.get(event)?.length ?? 0) > 0;
-	}
-
 	handlerCount(event: string): number {
 		return this._handlers.get(event)?.length ?? 0;
 	}
@@ -439,16 +418,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 			notify: (message: string, level?: string) => {
 				this._notifyRecords.push({ message, level: level ?? "info" });
 			},
-			select: async (message: string, options: string[]): Promise<string> => {
-				const value = this._selectReturnValues.shift() ?? options[0]!;
-				this._selectRecords.push({ message, options, selected: value });
-				return value;
-			},
-			confirm: async (message: string): Promise<boolean> => {
-				const value = this._confirmReturnValues.shift() ?? true;
-				this._confirmRecords.push({ message, result: value });
-				return value;
-			},
 			custom: <T>(
 				factory: (
 					tui: unknown,
@@ -490,34 +459,10 @@ export class MockPI implements Partial<ExtensionAPI> {
 		return this._notifyRecords[this._notifyRecords.length - 1];
 	}
 
-	/** Get all select records (for assertions). */
-	getSelectRecords(): SelectRecord[] {
-		return [...this._selectRecords];
-	}
-
-	/** Set the next N values to return from ui.select. */
-	setSelectReturnValues(values: string[]): void {
-		this._selectReturnValues = [...values];
-	}
-
-	/** Get all confirm records (for assertions). */
-	getConfirmRecords(): ConfirmRecord[] {
-		return [...this._confirmRecords];
-	}
-
-	/** Set the next N values to return from ui.confirm. */
-	setConfirmReturnValues(values: boolean[]): void {
-		this._confirmReturnValues = [...values];
-	}
-
 	/** Clear all UI records (for test isolation). */
 	clearUiRecords(): void {
 		this._statusRecords = [];
 		this._notifyRecords = [];
-		this._selectRecords = [];
-		this._confirmRecords = [];
-		this._selectReturnValues = [];
-		this._confirmReturnValues = [];
 		this._customKeySequence = [];
 		this._mountStates.clear();
 	}
