@@ -31,8 +31,8 @@ import { focusUnit } from "../src/focus.js";
 import { computeSlotState } from "../src/status-slot.js";
 import {
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import { setFocusUnit } from "../src/status-slot.js";
 
 describe("restore-timing: actuateNewToolsets", () => {
@@ -48,7 +48,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
 	});
 
 	it("actuates newly-registered orphans to defaultEnabled so they appear in getActiveTools", () => {

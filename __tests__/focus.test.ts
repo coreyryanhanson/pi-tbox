@@ -13,8 +13,8 @@ import {
 	getRegisteredToolsets,
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import { focusUnit, focusOff, focusRelease } from "../src/focus.js";
 import {
 	autoRegisterBuiltinAndOrphans,
@@ -182,7 +182,7 @@ describe("/tbox focus", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
 	});
 
 	describe("guards", () => {

@@ -10,8 +10,8 @@ import {
 	readBranchModeState,
 	type BranchReader,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import { soloUnit, focusUnit } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { computeSlotState, setFocusUnit } from "../src/status-slot.js";
@@ -87,7 +87,7 @@ describe("/tbox solo", () => {
 
 	afterEach(() => {
 		setGroupsOverrideForTests(null);
-		setSettingsOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
 	});
 
 	it("toolset: enables target + deps, disables everything else", () => {

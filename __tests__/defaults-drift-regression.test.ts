@@ -3,9 +3,8 @@ import { MockPI, branchOf, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
-	setSettingsWriterOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import { handleDefaults } from "../src/defaults.js";
 import { focusUnit, focusOff } from "../src/focus.js";
 import { toggleAll } from "../src/groups.js";
@@ -91,8 +90,8 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
+		__internal.setSettingsWriterOverrideForTests(null);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -122,8 +121,8 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 		else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
 		rmSync(tmpHome, { recursive: true, force: true });
 		setGroupsOverrideForTests(null);
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
+		__internal.setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {

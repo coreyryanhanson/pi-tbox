@@ -10,8 +10,8 @@ import type {
 import {
 	defineToolset,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 
 type ToolsetDefaultsMap = ReturnType<
@@ -20,14 +20,14 @@ type ToolsetDefaultsMap = ReturnType<
 
 /**
  * Test seam for settings-pinned toolset defaults. Wraps pi-tool-masking's
- * `setSettingsOverrideForTests`, whose signature is full parsed settings
+ * `__internal.setSettingsOverrideForTests`, whose signature is full parsed settings
  * objects per scope — this accepts just the flat `toolsetDefaults` map.
  * Pass no argument for an empty settings state.
  */
 export function pinSettingsDefaultsForTests(
 	defaults?: ToolsetDefaultsMap,
 ): void {
-	setSettingsOverrideForTests({
+	__internal.setSettingsOverrideForTests({
 		global: defaults ? { toolsetDefaults: defaults } : undefined,
 		project: undefined,
 	});

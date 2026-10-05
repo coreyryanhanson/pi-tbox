@@ -26,8 +26,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
@@ -267,7 +267,7 @@ describe("integration — multi-extension registry", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
 		setGroupsOverrideForTests(null);
 	});
 

@@ -8,9 +8,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
 	getRegisteredToolsets,
-	setSettingsOverrideForTests,
-	setSettingsWriterOverrideForTests,
 } from "pi-tool-masking";
+import { __internal } from "pi-tool-masking";
 import { handleDefaults } from "../src/defaults.js";
 import { focusUnit } from "../src/focus.js";
 import { setFocusUnit, getFocusUnit } from "../src/status-slot.js";
@@ -117,7 +116,7 @@ describe("/tbox defaults (seams)", () => {
 		MockPI.cleanRegistry();
 		pinSettingsDefaultsForTests();
 		writer = { global: {}, project: {} };
-		setSettingsWriterOverrideForTests(writer);
+		__internal.setSettingsWriterOverrideForTests(writer);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -125,8 +124,8 @@ describe("/tbox defaults (seams)", () => {
 	});
 
 	afterEach(() => {
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
+		__internal.setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
@@ -395,8 +394,8 @@ describe("/tbox defaults (disk round-trips)", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
+		__internal.setSettingsWriterOverrideForTests(null);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -416,8 +415,8 @@ describe("/tbox defaults (disk round-trips)", () => {
 		if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
 		rmSync(tmpHome, { recursive: true, force: true });
-		setSettingsOverrideForTests(null);
-		setSettingsWriterOverrideForTests(null);
+		__internal.setSettingsOverrideForTests(null);
+		__internal.setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
