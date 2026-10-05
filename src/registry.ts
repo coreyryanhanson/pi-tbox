@@ -30,7 +30,6 @@ import {
 	getRegisteredToolsets,
 	readMergedToolsetDefaults,
 	PersistKeyCollisionError,
-	TOOLSET_EVENTS,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 import { isExtensionTool } from "./chars.js";
@@ -172,18 +171,17 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 
 /**
  * Actuate a set of toolset ids to their desired state, without appending
- * persist entries or emitting events.
- *
- * Branch-aware via `effectiveEnabled` — the same resolution masking's own
- * restore uses (chat-branch entry, allowlist-aware, → settings pin →
- * packaged default), so orphan actuation and restore cannot disagree, and
- * an orphan whose chat-branch entry says off resolves off on a resumed
- * session (a branch-blind settings-only fallback would resolve it ON —
- * the one-prompt leak). During focus (allowlist mode) the allowlist array
- * is the authority: a toolset registered after focus was entered is in
- * the array → on, else → off. Used after autoRegisterBuiltinAndOrphans
- * when the library's restore handler already fired before these orphans
- * were registered.
+ * persist entries. Branch-aware via `effectiveEnabled` — the same resolution
+ * masking's own restore uses (chat-branch entry, allowlist-aware, → settings
+ * pin → packaged default), so orphan actuation and restore cannot disagree,
+ * and an orphan whose chat-branch entry says off resolves off on a resumed
+ * session (a branch-blind settings-only fallback would resolve it ON — the
+ * one-prompt leak). During focus (allowlist mode) the allowlist array is the
+ * authority: a toolset registered after focus was entered is in the array →
+ * on, else → off. Used after autoRegisterBuiltinAndOrphans when the library's
+ * restore handler already fired before these orphans were registered. The
+ * apply itself is the library's `forceToolsetEnabled` (no persist, no
+ * cascade, no intent gate) — the same non-toggle apply path focus.ts uses.
  *
  * @param pi - The extension API
  * @param ids - Toolset ids to actuate (typically the return of
@@ -201,50 +199,15 @@ export function actuateNewToolsets(
 
 	const defaultsSnapshot = readMergedToolsetDefaults();
 	const registry = getRegisteredToolsets();
-	const allToolNames = new Set(pi.getAllTools().map((t) => t.name));
-	const activeSet = new Set(pi.getActiveTools());
-	let changed = false;
-
-	const wantEnabled = (spec: ToolsetSpec): boolean =>
-		effectiveEnabled(spec, branch, defaultsSnapshot).enabled;
 
 	for (const id of ids) {
 		const entry = registry.find((e: RegistryEntry) => e.spec.id === id);
 		if (!entry) continue;
-
-		const enabled = wantEnabled(entry.spec);
-		const registeredNames = [...entry.spec.names].filter((n) =>
-			allToolNames.has(n),
+		forceToolsetEnabled(
+			pi,
+			entry.spec,
+			effectiveEnabled(entry.spec, branch, defaultsSnapshot).enabled,
 		);
-
-		if (enabled) {
-			for (const name of registeredNames) {
-				if (!activeSet.has(name)) {
-					activeSet.add(name);
-					changed = true;
-				}
-			}
-		} else {
-			for (const name of registeredNames) {
-				if (activeSet.has(name)) {
-					activeSet.delete(name);
-					changed = true;
-				}
-			}
-		}
-	}
-
-	if (changed) {
-		pi.setActiveTools([...activeSet]);
-		// Emit so wireSlot's listener re-renders the status bar
-		// ponytail: payload satisfies ToolsetChangedEvent's shape, but this is a
-		// re-render tick for wireSlot — id matches no sibling filter and enabled is
-		// not truthful (pass can enable and disable). Per-toolset emits only if a
-		// listener ever needs tbox restore states.
-		pi.events.emit(TOOLSET_EVENTS.changed, {
-			id: "tbox.restore-timing",
-			enabled: true,
-		});
 	}
 }
 

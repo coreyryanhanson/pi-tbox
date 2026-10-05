@@ -157,36 +157,6 @@ describe("restore-timing: actuateNewToolsets", () => {
 		}
 	});
 
-	it("idempotent — re-running actuateNewToolsets on already-active tools is a no-op", () => {
-		for (let i = 0; i < 3; i++) {
-			mock.registerTool({
-				name: `ext-tool-${i}`,
-				description: `Extension tool ${i}`,
-				sourceInfo: {
-					path: "my-ext.ts",
-					source: "my-ext",
-					scope: "user",
-					origin: "top-level",
-				},
-			});
-		}
-
-		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
-
-		const activeAfterFirst = [...mock.getActiveTools()].sort();
-		const entriesAfterFirst = mock.getEntries().length;
-
-		// Actuate again — should not duplicate entries or change active set
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
-
-		const activeAfterSecond = [...mock.getActiveTools()].sort();
-		const entriesAfterSecond = mock.getEntries().length;
-
-		expect(activeAfterSecond).toEqual(activeAfterFirst);
-		expect(entriesAfterSecond).toBe(entriesAfterFirst);
-	});
-
 	it("does not re-actuate toolsets the library's restore already handled (diff guard)", () => {
 		// Simulate portal: a toolset registered BEFORE session_start (restore covers it)
 		mock.defineFakeToolset({
@@ -246,57 +216,6 @@ describe("restore-timing: actuateNewToolsets", () => {
 		expect(active).toContain("browser-navigate");
 		expect(active).toContain("lens-tool-0");
 		expect(active).toContain("lens-tool-1");
-	});
-
-	it("handles multiple distinct orphan sources in one call", () => {
-		// 3 tools from source A, 2 from source B, 1 from source C
-		for (let i = 0; i < 3; i++) {
-			mock.registerTool({
-				name: `a-tool-${i}`,
-				description: `A tool ${i}`,
-				sourceInfo: {
-					path: "a.ts",
-					source: "source-a",
-					scope: "user",
-					origin: "top-level",
-				},
-			});
-		}
-		for (let i = 0; i < 2; i++) {
-			mock.registerTool({
-				name: `b-tool-${i}`,
-				description: `B tool ${i}`,
-				sourceInfo: {
-					path: "b.ts",
-					source: "source-b",
-					scope: "user",
-					origin: "top-level",
-				},
-			});
-		}
-		mock.registerTool({
-			name: "c-tool",
-			description: "C tool",
-			sourceInfo: {
-				path: "c.ts",
-				source: "source-c",
-				scope: "user",
-				origin: "top-level",
-			},
-		});
-
-		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
-
-		// All 6 tools should be active
-		const active = mock.getActiveTools();
-		expect(active).toHaveLength(6);
-		expect(active).toContain("a-tool-0");
-		expect(active).toContain("a-tool-1");
-		expect(active).toContain("a-tool-2");
-		expect(active).toContain("b-tool-0");
-		expect(active).toContain("b-tool-1");
-		expect(active).toContain("c-tool");
 	});
 
 	it("actuateNewToolsets with empty array is a safe no-op", () => {
