@@ -77,9 +77,11 @@ export function orphanToolsetId(source: string): string {
 	return `${ORPHAN_TOOLSET_PREFIX}${source}`;
 }
 
-/** Build a persist key for a given orphan source. */
-function orphanPersistKey(source: string): string {
-	return `toolset-state:${orphanToolsetId(source)}`;
+/** The persistKey format every tbox toolset spec shares, so the spec
+ * builders and the MCP squat guard derive their keys from one function
+ * and can never disagree. */
+function persistKeyFor(id: string): string {
+	return `toolset-state:${id}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +152,7 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 			label: source,
 			...(description === undefined ? {} : { description }),
 			names: new Set(names),
-			persistKey: orphanPersistKey(source),
+			persistKey: persistKeyFor(orphanToolsetId(source)),
 			defaultEnabled: true,
 		};
 		const existing = existingToolsets.find(
@@ -232,16 +234,9 @@ function buildMcpToolsetSpec(server: string, names: Set<string>): ToolsetSpec {
 		id,
 		label: `${MCP_NAMESPACE_PREFIX}${server}`,
 		names: new Set(names),
-		persistKey: mcpToolsetPersistKey(id),
+		persistKey: persistKeyFor(id),
 		defaultEnabled: true,
 	};
-}
-
-/** The persistKey an id owns — the squat guard's authority. One format,
- * two readers (spec builder + guard), so the guard can never disagree
- * with what buildMcpToolsetSpec actually writes. */
-function mcpToolsetPersistKey(id: string): string {
-	return `toolset-state:${id}`;
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {
@@ -296,7 +291,7 @@ function syncOneMcpToolset(
 		// a re-scan kills the whole pass, isolating the damage to this server
 		// instead. Collision heuristic, not a lock: a squatter copying tbox's
 		// hardcoded persistKey constant passes this check.
-		if (entry.spec.persistKey !== mcpToolsetPersistKey(id)) {
+		if (entry.spec.persistKey !== persistKeyFor(id)) {
 			const owner = ownerSourcePath(pi, entry.spec.names);
 			notify(
 				`tbox: toolset id "${id}" is owned by another extension` +
