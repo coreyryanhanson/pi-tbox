@@ -335,6 +335,15 @@ export function formatGroupedList(
 		lines.push("");
 	}
 
+	// Active sdk tools are kept out of the rows but not out of the core
+	// bucket: computeCharCount (/tbox status, /tbox chars) books every
+	// active non-togglable tool into core, and sdk is non-togglable, so
+	// the footer's core: must include them to agree with status.
+	for (const t of allTools) {
+		if (t.sourceInfo.source === "sdk" && activeSet.has(t.name))
+			totalCoreChars += serializeToolDef(t).length;
+	}
+
 	// Footer summary line
 	if (lines.length > 1) {
 		lines.push(

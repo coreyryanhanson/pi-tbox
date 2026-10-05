@@ -273,6 +273,18 @@ describe("formatGroupedList with MCP tools", () => {
 		registerBuiltinTool(mock, "bash");
 		registerMcpTool(mock, "srv", "mcp__srv__a");
 		registerResourceTool(mock, "list_mcp_resources");
+		// Active sdk tools render no row but are booked to core by
+		// computeCharCount — the footer must include them too.
+		mock.registerTool({
+			name: "sdk-x",
+			description: "host custom tool",
+			sourceInfo: {
+				path: "host.ts",
+				source: "sdk",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
 		activateAll(mock);
 		syncMcpToolsets(asPi(mock), []);
 
