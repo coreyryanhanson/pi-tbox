@@ -7,7 +7,8 @@
  *   - Idempotence — second call no-ops
  *   - Single-tool description pass-through
  *   - Tools from defineToolset plugins not claimed by tbox.tool@*
- *   - SDK tools still excluded
+ *   - SDK tools still excluded; builtins never registered
+ *   - Empty and mixed populations
  *
  * @module
  */
@@ -197,6 +198,94 @@ describe("per-source orphan registration", () => {
 		// No toolsets at all since only an SDK tool was registered
 		const toolsets = getRegisteredToolsets();
 		expect(toolsets).toHaveLength(0);
+	});
+
+	it("handles empty tool population", () => {
+		autoRegisterBuiltinAndOrphans(pi);
+
+		const toolsets = getRegisteredToolsets();
+		// No toolsets should be registered if there are no tools
+		expect(toolsets).toHaveLength(0);
+	});
+
+	it("handles mixed tool population correctly", () => {
+		// Builtin tool (should not become an orphan toolset)
+		mock.registerTool({
+			name: "read",
+			description: "Read files",
+			sourceInfo: {
+				path: "builtin.ts",
+				source: "builtin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		// SDK tool (should be ignored)
+		mock.registerTool({
+			name: "custom-x",
+			description: "Custom SDK tool",
+			sourceInfo: {
+				path: "sdk.ts",
+				source: "sdk",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		// Extension tools — some claimed, some orphaned from different sources
+		mock.defineFakeToolset({
+			id: "portal.web",
+			names: new Set(["web-fetch"]),
+			persistKey: "toolset-state:portal.web",
+		});
+
+		mock.registerTool({
+			name: "web-fetch",
+			description: "Web fetch tool",
+			sourceInfo: {
+				path: "portal.ts",
+				source: "portal",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.registerTool({
+			name: "orphan-tool",
+			description: "Orphaned tool",
+			sourceInfo: {
+				path: "ext.ts",
+				source: "pi-other",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		autoRegisterBuiltinAndOrphans(pi);
+
+		const toolsets = getRegisteredToolsets();
+		// Builtins are not registered as a toolset
+		const builtin = toolsets.find(
+			(e) => e.spec.id === "pi.builtin",
+		);
+		expect(builtin).toBeUndefined();
+
+		const orphanEntry = toolsets.find(
+			(e) => e.spec.id === orphanToolsetId("pi-other"),
+		);
+
+		expect(orphanEntry).toBeDefined();
+		expect(orphanEntry!.spec.names).toEqual(new Set(["orphan-tool"]));
+
+		// sdk tool should not be in any toolset
+		const allNames = toolsets.flatMap((e) => [...e.spec.names]);
+		expect(allNames).not.toContain("custom-x");
+
+		// No catch-all
+		const catchAll = toolsets.find(
+			(e) => e.spec.id === "tbox.orphans",
+		);
+		expect(catchAll).toBeUndefined();
 	});
 });
 
