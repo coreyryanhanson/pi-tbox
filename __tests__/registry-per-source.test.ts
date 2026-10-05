@@ -5,7 +5,6 @@
  *   - Multi-source population → per-source toolsets, not a catch-all
  *   - Focus granularity (pre-pinning allowlist rule)
  *   - Idempotence — second call no-ops
- *   - Single-tool description pass-through
  *   - Tools from defineToolset plugins not claimed by tbox.tool@*
  *   - SDK tools still excluded; builtins never registered
  *   - Empty and mixed populations
@@ -96,16 +95,10 @@ describe("per-source orphan registration", () => {
 		expect(lensToolset).toBeDefined();
 		expect(lensToolset!.spec.names.size).toBe(3);
 		expect(lensToolset!.spec.defaultEnabled).toBe(true);
-		// Multi-tool source: no description
-		expect(lensToolset!.spec.description).toBeUndefined();
 
 		expect(myPluginToolset).toBeDefined();
 		expect(myPluginToolset!.spec.names.size).toBe(1);
 		expect(myPluginToolset!.spec.defaultEnabled).toBe(true);
-		// Single-tool source: description passed through
-		expect(myPluginToolset!.spec.description).toBe(
-			"A single tool from my-plugin",
-		);
 
 		// No catch-all tbox.orphans or tbox.tool
 		const catchAll = toolsets.find(
@@ -576,74 +569,5 @@ describe("idempotence", () => {
 		expect(lensToolset!.spec.names).toEqual(
 			new Set(["lens-search", "lens-grep"]),
 		);
-		// Multi-tool now → no description
-		expect(lensToolset!.spec.description).toBeUndefined();
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Single-tool description pass-through
-// ---------------------------------------------------------------------------
-
-describe("single-tool description pass-through", () => {
-	let mock: MockPI;
-	let pi: ExtensionAPI;
-
-	beforeEach(() => {
-		MockPI.cleanRegistry();
-		mock = new MockPI();
-		pi = mock as unknown as ExtensionAPI;
-	});
-
-	it("passes description for single-tool sources", () => {
-		mock.registerTool({
-			name: "my-unique-tool",
-			description: "This is my unique tool",
-			sourceInfo: {
-				path: "my-plugin.ts",
-				source: "my-plugin",
-				scope: "user",
-				origin: "top-level",
-			},
-		});
-
-		autoRegisterBuiltinAndOrphans(pi);
-
-		const entry = getRegisteredToolsets().find(
-			(e) => e.spec.id === orphanToolsetId("my-plugin"),
-		);
-		expect(entry).toBeDefined();
-		expect(entry!.spec.description).toBe("This is my unique tool");
-	});
-
-	it("omits description for multi-tool sources", () => {
-		mock.registerTool({
-			name: "tool-a",
-			description: "Tool A description",
-			sourceInfo: {
-				path: "multi.ts",
-				source: "multi-plugin",
-				scope: "user",
-				origin: "top-level",
-			},
-		});
-		mock.registerTool({
-			name: "tool-b",
-			description: "Tool B description",
-			sourceInfo: {
-				path: "multi.ts",
-				source: "multi-plugin",
-				scope: "user",
-				origin: "top-level",
-			},
-		});
-
-		autoRegisterBuiltinAndOrphans(pi);
-
-		const entry = getRegisteredToolsets().find(
-			(e) => e.spec.id === orphanToolsetId("multi-plugin"),
-		);
-		expect(entry).toBeDefined();
-		expect(entry!.spec.description).toBeUndefined();
 	});
 });

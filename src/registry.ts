@@ -143,14 +143,9 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 	// --- Register per-source orphan toolsets ---
 	for (const [source, tools] of toolsBySource) {
 		const names = tools.map((t) => t.name);
-		// Pass description only when the source contributes exactly one tool.
-		// Multi-tool sources omit description rather than misrepresent one
-		// tool's description as the group's.
-		const description = tools.length === 1 ? tools[0]!.description : undefined;
 		const spec: ToolsetSpec = {
 			id: orphanToolsetId(source),
 			label: source,
-			...(description === undefined ? {} : { description }),
 			names: new Set(names),
 			persistKey: persistKeyFor(orphanToolsetId(source)),
 			defaultEnabled: true,
