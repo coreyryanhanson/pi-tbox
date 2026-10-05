@@ -233,7 +233,8 @@ export class MockPI implements Partial<ExtensionAPI> {
 	}
 
 	setActiveTools(toolNames: string[]): void {
-		this._activeTools = [...toolNames];
+		// Dedupe like pi's _applyToolLoadout.
+		this._activeTools = [...new Set(toolNames)];
 	}
 
 	getActiveTools(): string[] {
@@ -616,7 +617,6 @@ export class MockPI implements Partial<ExtensionAPI> {
 	 */
 	static cleanRegistry(): void {
 		delete (globalThis as any)["__piToolMaskingRegistry"];
-		delete (globalThis as any)["__piToolMaskingLastRestoreEvent"];
 	}
 }
 
