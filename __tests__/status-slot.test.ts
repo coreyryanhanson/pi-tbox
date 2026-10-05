@@ -166,27 +166,8 @@ describe("status-slot", () => {
 	});
 
 	describe("renderSlotText", () => {
-		it("renders pristine state", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText({ kind: "pristine" }, fg);
-			expect(text).toBe("<dim>○</dim> tbox");
-		});
-
-		it("renders count state with masked suffix", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText({ kind: "count", n: 3 }, fg);
-			expect(text).toBe("<accent>●</accent> tbox 3 masked");
-		});
-
-		it("renders focus state with count in parens", () => {
-			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
-			const text = renderSlotText(
-				{ kind: "focus", unit: "portal.web", count: 12 },
-				fg,
-			);
-			expect(text).toBe("<success>●</success> focus:portal.web (12)");
-		});
-
+		// pristine/count/focus glyph forms are asserted end-to-end via the real
+		// render path in the "render" and "focus management" describes.
 		it("renders focus-empty state", () => {
 			const fg = (color: string, text: string) => `<${color}>${text}</${color}>`;
 			const text = renderSlotText({ kind: "focus-empty" }, fg);
