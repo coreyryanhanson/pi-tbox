@@ -1,28 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
 	MockPI,
 	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
 	getRegisteredToolsets,
+	readToolsetDefaults,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import { handleDefaults } from "../src/defaults.js";
 import { focusUnit } from "../src/focus.js";
 import { setFocusUnit, getFocusUnit } from "../src/status-slot.js";
 import {
 	existsSync,
-	mkdirSync,
-	mkdtempSync,
 	readFileSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Fixture: three explicit toolsets, no orphan auto-registration
@@ -101,31 +97,22 @@ const KEY = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Seam tests — reader + writer overrides, never touch disk
+// Settings tests — real temp settings.json files (see useTempAgentDir)
 // ---------------------------------------------------------------------------
 
-describe("/tbox defaults (seams)", () => {
+// File-wide temp agent dir + cwd: never touches the developer's ~/.pi.
+const settings = useTempAgentDir();
+
+describe("/tbox defaults (settings)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
-	let writer: {
-		global: Record<string, { enabled: boolean }>;
-		project: Record<string, { enabled: boolean }>;
-	};
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
-		writer = { global: {}, project: {} };
-		__internal.setSettingsWriterOverrideForTests(writer);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
 		setupFixture(mock, pi);
-	});
-
-	afterEach(() => {
-		__internal.setSettingsOverrideForTests(null);
-		__internal.setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
@@ -139,7 +126,7 @@ describe("/tbox defaults (seams)", () => {
 			let result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Saved 3 toolset defaults");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: true },
 				[KEY.gamma]: { enabled: false },
@@ -154,7 +141,7 @@ describe("/tbox defaults (seams)", () => {
 			result = handleDefaults(pi, ctx(), "defaults save");
 			expect(result.message).toContain("Saved 3 toolset defaults");
 			expect(result.message).toContain(".pi/settings.json");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: false },
 				[KEY.gamma]: { enabled: false },
@@ -162,7 +149,7 @@ describe("/tbox defaults (seams)", () => {
 
 			result = handleDefaults(pi, ctx(), "defaults save --global");
 			expect(result.message).toContain("Saved 1 toolset default");
-			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(readToolsetDefaults("global")).toEqual({ [KEY.beta]: { enabled: false } });
 		});
 
 		it("scope: bare → project, --global → global, --project → usage error, no write", () => {
@@ -171,23 +158,29 @@ describe("/tbox defaults (seams)", () => {
 				.toolset.disable(pi, ctx().sessionManager);
 
 			handleDefaults(pi, ctx(), "defaults save");
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.alpha]: { enabled: true },
 				[KEY.beta]: { enabled: false },
 				[KEY.gamma]: { enabled: false },
 			});
-			expect(writer.global).toEqual({});
+			expect(readToolsetDefaults("global")).toEqual({});
 
 			const globalResult = handleDefaults(pi, ctx(), "defaults save --global");
 			expect(globalResult.level).toBe("info");
-			expect(writer.global).toEqual({ [KEY.beta]: { enabled: false } });
+			expect(readToolsetDefaults("global")).toEqual({ [KEY.beta]: { enabled: false } });
 
-			const before = JSON.parse(JSON.stringify(writer)) as typeof writer;
+			const before = {
+				global: readToolsetDefaults("global"),
+				project: readToolsetDefaults("project"),
+			};
 			const projectResult = handleDefaults(pi, ctx(), "defaults save --project");
 			expect(projectResult.level).toBe("error");
 			expect(projectResult.message).toContain("unknown flag --project");
 			expect(projectResult.message).toContain("/tbox defaults --help");
-			expect(writer).toEqual(before);
+			expect({
+				global: readToolsetDefaults("global"),
+				project: readToolsetDefaults("project"),
+			}).toEqual(before);
 		});
 
 		it("during focus captures the allowlist selection as pins (not refused)", () => {
@@ -199,7 +192,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(result.level).toBe("info"); // no focus-guard refusal
 			expect(result.message).toContain("Saved 3 toolset defaults");
 			// Full snapshot of the allowlist selection: gamma on, alpha/beta off.
-			expect(writer.project).toEqual({
+			expect(readToolsetDefaults("project")).toEqual({
 				[KEY.gamma]: { enabled: true },
 				[KEY.alpha]: { enabled: false },
 				[KEY.beta]: { enabled: false },
@@ -215,12 +208,12 @@ describe("/tbox defaults (seams)", () => {
 
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Saved 3 toolset defaults");
-			expect(writer.global).toEqual({
+			expect(readToolsetDefaults("global")).toEqual({
 				[KEY.gamma]: { enabled: true },
 				[KEY.alpha]: { enabled: false },
 				[KEY.beta]: { enabled: false },
 			});
-			expect(writer.project).toEqual({});
+			expect(readToolsetDefaults("project")).toEqual({});
 		});
 	});
 
@@ -255,12 +248,14 @@ describe("/tbox defaults (seams)", () => {
 
 	describe("clear", () => {
 		it("removes the block with true/false wording, honoring --global", () => {
-			writer.global[KEY.alpha] = { enabled: false };
+			settings.writeJson(settings.globalSettings, {
+				toolsetDefaults: { [KEY.alpha]: { enabled: false } },
+			});
 
 			let result = handleDefaults(pi, ctx(), "defaults clear --global");
 			expect(result.level).toBe("info");
 			expect(result.message).toContain("Cleared toolset defaults from");
-			expect(writer.global).toEqual({});
+			expect(readToolsetDefaults("global")).toEqual({});
 
 			result = handleDefaults(pi, ctx(), "defaults clear");
 			expect(result.message).toContain("No toolsetDefaults block in");
@@ -314,7 +309,7 @@ describe("/tbox defaults (seams)", () => {
 			expect(result.message).toContain("/tbox defaults");
 			expect(result.message).toContain("restore");
 			// --help wins over the would-be save write: nothing was written.
-			expect(writer.project).toEqual({});
+			expect(readToolsetDefaults("project")).toEqual({});
 		});
 
 		it("an unknown -- flag is rejected with the pointed error", () => {
@@ -346,7 +341,7 @@ describe("/tbox defaults (seams)", () => {
 		});
 	});
 
-	describe("command dispatch (seams)", () => {
+	describe("command dispatch", () => {
 		beforeEach(async () => {
 			const mod = await import("../index.js");
 			mod.default(pi);
@@ -381,50 +376,27 @@ describe("/tbox defaults (seams)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Disk round-trips — neither seam; mkdtemp + env + chdir (attribution
-// needs per-scope reads the reader override collapses)
+// Disk round-trips — attribution needs per-scope reads the merged reader collapses
 // ---------------------------------------------------------------------------
 
 describe("/tbox defaults (disk round-trips)", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
-	let tmpHome: string;
-	let oldCwd: string;
-	let oldAgentDir: string | undefined;
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		__internal.setSettingsOverrideForTests(null);
-		__internal.setSettingsWriterOverrideForTests(null);
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
 		setupFixture(mock, pi);
-
-		tmpHome = mkdtempSync(join(tmpdir(), "tbox-defaults-"));
-		oldCwd = process.cwd();
-		oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = join(tmpHome, ".pi", "agent");
-		process.chdir(tmpHome);
-		mkdirSync(join(tmpHome, ".pi", "agent"), { recursive: true });
-		mkdirSync(join(tmpHome, ".pi"), { recursive: true });
-	});
-
-	afterEach(() => {
-		process.chdir(oldCwd);
-		if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-		else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-		rmSync(tmpHome, { recursive: true, force: true });
-		__internal.setSettingsOverrideForTests(null);
-		__internal.setSettingsWriterOverrideForTests(null);
 	});
 
 	function ctx() {
 		return mock.createCommandContext();
 	}
 
-	const globalPath = () => join(tmpHome, ".pi", "agent", "settings.json");
-	const projectPath = () => join(tmpHome, ".pi", "settings.json");
+	const globalPath = () => settings.globalSettings;
+	const projectPath = () => settings.projectSettings;
 
 	it("show attributes a global-only pin as [global]", () => {
 		writeFileSync(

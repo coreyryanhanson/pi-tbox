@@ -14,8 +14,8 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
 	MockPI,
-	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
@@ -23,6 +23,9 @@ import { asPi, BUILTIN_SOURCE, registerMcpTool } from "./fixtures.js";
 import { syncMcpToolsets } from "../src/registry.js";
 import tboxFactory from "../index.js";
 import { actuateToolset } from "../src/groups.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,7 +57,6 @@ function pinIntent(mock: MockPI, id: string, enabled: boolean): void {
 
 beforeEach(() => {
 	MockPI.cleanRegistry();
-	pinSettingsDefaultsForTests();
 });
 
 afterEach(() => {

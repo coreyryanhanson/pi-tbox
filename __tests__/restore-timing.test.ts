@@ -14,12 +14,12 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
 	MockPI,
 	branchOf,
-	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -32,8 +32,10 @@ import { computeSlotState } from "../src/status-slot.js";
 import {
 	getRegisteredToolsets,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import { setFocusUnit } from "../src/status-slot.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 describe("restore-timing: actuateNewToolsets", () => {
 	let mock: MockPI;
@@ -41,14 +43,9 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
-	});
-
-	afterEach(() => {
-		__internal.setSettingsOverrideForTests(null);
 	});
 
 	it("actuates newly-registered orphans to defaultEnabled so they appear in getActiveTools", () => {

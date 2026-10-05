@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
 	MockPI,
 	branchOf,
 	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -14,7 +15,6 @@ import {
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import { focusUnit, focusOff, focusRelease } from "../src/focus.js";
 import {
 	autoRegisterBuiltinAndOrphans,
@@ -30,6 +30,9 @@ import {
 } from "../src/status-slot.js";
 import { formatStatus } from "../src/list.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -174,15 +177,10 @@ describe("/tbox focus", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setGroupsOverrideForTests(null);
 		setFocusUnit(null);
-	});
-
-	afterEach(() => {
-		__internal.setSettingsOverrideForTests(null);
 	});
 
 	describe("guards", () => {
@@ -515,7 +513,7 @@ describe("/tbox focus", () => {
 			entry.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("pin-off-test");
 
-			// Pin it off via settings override
+			// Pin it off via a settings pin
 			pinSettingsDefaultsForTests({ [key]: { enabled: false } });
 			expect(getEffectiveDefault(entry.spec, readMergedToolsetDefaults())).toBe(
 				false,
@@ -557,7 +555,7 @@ describe("/tbox focus", () => {
 			entry!.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("test-pin-on");
 
-			// Pin it on via settings override
+			// Pin it on via a settings pin
 			pinSettingsDefaultsForTests({ [key]: { enabled: true } });
 
 			const result = focusOff(pi, branchOf(mock));

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
 	MockPI,
 	branchOf,
-	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -11,7 +11,6 @@ import {
 	type BranchReader,
 	getRegisteredToolsets,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import { soloUnit, focusUnit } from "../src/focus.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { computeSlotState, setFocusUnit } from "../src/status-slot.js";
@@ -19,6 +18,9 @@ import {
 	setGroupsOverrideForTests,
 	writeGroup,
 } from "../config/settings-reader.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // Reuse focus.test.ts's fixture shape: two toolsets, one requiring the other.
 function registerTools(mock: MockPI): void {
@@ -76,7 +78,6 @@ describe("/tbox solo", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		// Keep writeGroup() off the real ~/.pi/agent/pi-tbox/groups.json —
@@ -87,7 +88,6 @@ describe("/tbox solo", () => {
 
 	afterEach(() => {
 		setGroupsOverrideForTests(null);
-		__internal.setSettingsOverrideForTests(null);
 	});
 
 	it("toolset: enables target + deps, disables everything else", () => {

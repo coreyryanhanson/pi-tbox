@@ -18,14 +18,18 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+	MockPI,
+	useTempAgentDir,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets } from "pi-tool-masking";
 import { orphanToolsetId } from "../src/registry.js";
 import { getFocusUnit, setFocusUnit } from "../src/status-slot.js";
+
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+const settings = useTempAgentDir();
 
 const DEFER_ENV = "PI_TOOLMASKING_DEFER";
 /** A pid that cannot be this process's — the foreign-pid shape. */
@@ -37,7 +41,6 @@ describe("defer child: /tbox dispatch gate", () => {
 
 	beforeEach(async () => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -72,26 +75,16 @@ describe("defer child: /tbox dispatch gate", () => {
 	it("/tbox defaults save notifies the refusal and leaves settings byte-identical", async () => {
 		// The settings tier is outside the library's defer traceability rule,
 		// so this dispatch gate is the only protection for it.
-		const tmpHome = mkdtempSync(join(tmpdir(), "tbox-defer-"));
-		const oldAgentDir = process.env.PI_CODING_AGENT_DIR;
-		process.env.PI_CODING_AGENT_DIR = join(tmpHome, ".pi", "agent");
-		mkdirSync(join(tmpHome, ".pi", "agent"), { recursive: true });
-		const settingsPath = join(tmpHome, ".pi", "agent", "settings.json");
+		const settingsPath = settings.globalSettings;
 		writeFileSync(settingsPath, '{"toolsetDefaults":{}}\n');
 		mock.clearUiRecords();
 
-		try {
-			await mock.dispatchCommand("defaults save");
+		await mock.dispatchCommand("defaults save");
 
-			expect(mock.getLastNotify()!.message).toBe(
-				"tbox is governed by the parent session",
-			);
-			expect(readFileSync(settingsPath, "utf8")).toBe('{"toolsetDefaults":{}}\n');
-		} finally {
-			if (oldAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-			else process.env.PI_CODING_AGENT_DIR = oldAgentDir;
-			rmSync(tmpHome, { recursive: true, force: true });
-		}
+		expect(mock.getLastNotify()!.message).toBe(
+			"tbox is governed by the parent session",
+		);
+		expect(readFileSync(settingsPath, "utf8")).toBe('{"toolsetDefaults":{}}\n');
 	});
 });
 
@@ -101,7 +94,6 @@ describe("defer child: capture handler gate", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);

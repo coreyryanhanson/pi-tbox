@@ -19,15 +19,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
 	MockPI,
 	branchOf,
-	pinSettingsDefaultsForTests,
 	readerOf,
+	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
 	getRegisteredToolsets,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
@@ -43,6 +42,8 @@ import {
 	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
+// File-wide temp settings dirs — never touches the developer's ~/.pi.
+useTempAgentDir();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -248,7 +249,6 @@ describe("integration — multi-extension registry", () => {
 
 	beforeEach(() => {
 		MockPI.cleanRegistry();
-		pinSettingsDefaultsForTests();
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
@@ -267,7 +267,6 @@ describe("integration — multi-extension registry", () => {
 	});
 
 	afterEach(() => {
-		__internal.setSettingsOverrideForTests(null);
 		setGroupsOverrideForTests(null);
 	});
 

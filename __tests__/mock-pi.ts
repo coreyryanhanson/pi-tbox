@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach } from "vitest";
 import type {
 	ExtensionAPI,
 	ToolInfo,
@@ -11,26 +15,85 @@ import {
 	defineToolset,
 	getRegisteredToolsets,
 } from "pi-tool-masking";
-import { __internal } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
 
 type ToolsetDefaultsMap = ReturnType<
 	typeof import("pi-tool-masking").readMergedToolsetDefaults
 >;
 
+// ---------------------------------------------------------------------------
+// Temp settings dir — real settings.json files, never the developer's ~/.pi
+// ---------------------------------------------------------------------------
+
+let tmpCurrent: {
+	tmp: string;
+	origCwd: string;
+	origAgentDir: string | undefined;
+} | null = null;
+
 /**
- * Test seam for settings-pinned toolset defaults. Wraps pi-tool-masking's
- * `__internal.setSettingsOverrideForTests`, whose signature is full parsed settings
- * objects per scope — this accepts just the flat `toolsetDefaults` map.
- * Pass no argument for an empty settings state.
+ * Call once at file scope (module level): isolates `PI_CODING_AGENT_DIR` and the
+ * process cwd into a fresh mkdtemp dir per test, so global settings live at
+ * `<tmp>/.pi/agent/settings.json` and project settings at
+ * `<tmp>/.pi/settings.json`. Missing files read as empty settings.
+ */
+export function useTempAgentDir(): {
+	globalSettings: string;
+	projectSettings: string;
+	writeJson(path: string, data: unknown): void;
+} {
+	beforeEach(() => {
+		const tmp = mkdtempSync(join(tmpdir(), "tbox-settings-"));
+		mkdirSync(join(tmp, ".pi", "agent"), { recursive: true });
+		mkdirSync(join(tmp, ".pi"), { recursive: true });
+		tmpCurrent = {
+			tmp,
+			origCwd: process.cwd(),
+			origAgentDir: process.env.PI_CODING_AGENT_DIR,
+		};
+		process.env.PI_CODING_AGENT_DIR = join(tmp, ".pi", "agent");
+		process.chdir(tmp);
+	});
+	afterEach(() => {
+		if (tmpCurrent === null) return;
+		process.chdir(tmpCurrent.origCwd);
+		if (tmpCurrent.origAgentDir === undefined) {
+			delete process.env.PI_CODING_AGENT_DIR;
+		} else {
+			process.env.PI_CODING_AGENT_DIR = tmpCurrent.origAgentDir;
+		}
+		rmSync(tmpCurrent.tmp, { recursive: true, force: true });
+		tmpCurrent = null;
+	});
+	return {
+		get globalSettings() {
+			if (tmpCurrent === null) throw new Error("useTempAgentDir not active");
+			return join(tmpCurrent.tmp, ".pi", "agent", "settings.json");
+		},
+		get projectSettings() {
+			if (tmpCurrent === null) throw new Error("useTempAgentDir not active");
+			return join(tmpCurrent.tmp, ".pi", "settings.json");
+		},
+		writeJson(path, data) {
+			writeFileSync(path, JSON.stringify(data, null, 2));
+		},
+	};
+}
+
+/**
+ * Seed toolset-defaults pins into the temp global settings file (real disk —
+ * requires `useTempAgentDir()`).
  */
 export function pinSettingsDefaultsForTests(
-	defaults?: ToolsetDefaultsMap,
+	defaults: ToolsetDefaultsMap,
 ): void {
-	__internal.setSettingsOverrideForTests({
-		global: defaults ? { toolsetDefaults: defaults } : undefined,
-		project: undefined,
-	});
+	if (tmpCurrent === null) {
+		throw new Error("pinSettingsDefaultsForTests requires useTempAgentDir()");
+	}
+	writeFileSync(
+		join(tmpCurrent.tmp, ".pi", "agent", "settings.json"),
+		JSON.stringify({ toolsetDefaults: defaults }, null, 2),
+	);
 }
 
 /** Snapshot of the mock's session branch (for intent reads). */
