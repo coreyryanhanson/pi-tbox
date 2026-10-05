@@ -20,7 +20,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRegisteredToolsets,
@@ -170,7 +170,7 @@ describe("capture-order — render ordering", () => {
 				(e: RegistryEntry) => e.spec.id === "other.set",
 			);
 			if (entry) {
-				entry.toolset.enable(mock as unknown as ExtensionAPI, mock.createCommandContext().sessionManager);
+				entry.toolset.enable(mock as unknown as ExtensionAPI, readerOf(mock));
 			}
 			// Then emit restored
 			mock.emit(TOOLSET_EVENTS.restored, {
@@ -205,7 +205,7 @@ describe("capture-order — render ordering", () => {
 				(e: RegistryEntry) => e.spec.id === "sibling.ext",
 			);
 			if (entry) {
-				entry.toolset.enable(mock as unknown as ExtensionAPI, mock.createCommandContext().sessionManager);
+				entry.toolset.enable(mock as unknown as ExtensionAPI, readerOf(mock));
 			}
 			mock.emit(TOOLSET_EVENTS.restored, {
 				id: "sibling.restore",

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets } from "pi-tool-masking";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
@@ -174,7 +174,7 @@ function setupRichRegistry(mock: MockPI, pi: ExtensionAPI): void {
 
 	autoRegisterBuiltinAndOrphans(pi);
 	for (const entry of getRegisteredToolsets())
-		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+		entry.toolset.enable(pi, readerOf(mock));
 }
 
 // ---------------------------------------------------------------------------

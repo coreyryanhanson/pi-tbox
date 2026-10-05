@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
@@ -84,10 +88,10 @@ function setupFixture(mock: MockPI, pi: ExtensionAPI): void {
 	registerFixtureTools(mock);
 	defineFixtureToolsets(mock);
 	for (const entry of getRegisteredToolsets())
-		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+		entry.toolset.enable(pi, readerOf(mock));
 	getRegisteredToolsets()
 		.find((e) => e.spec.id === "gamma.tool")!
-		.toolset.disable(pi, mock.createCommandContext().sessionManager);
+		.toolset.disable(pi, readerOf(mock));
 	mock.clearEntries();
 }
 

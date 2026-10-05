@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, branchOf } from "./mock-pi.js";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { syncMcpToolsets } from "../src/registry.js";
 import {
@@ -28,11 +28,6 @@ import {
 	formatStatus,
 } from "../src/list.js";
 
-
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -17,7 +17,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, branchOf, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readToolsetDefaults } from "pi-tool-masking";
 import { actuateToolset, describeToolset, toggleAll } from "../src/groups.js";
@@ -59,16 +59,6 @@ function setupInertToolset(
 	// starts from the packaged default.
 	mock.fireLifecycleEvent("session_start");
 	mock.clearEntries();
-}
-
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
-
-/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
-function readerOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager;
 }
 
 /** Replace the mock's whole active list (what a clobbering caller does). */

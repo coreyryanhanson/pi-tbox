@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isReserved } from "../src/reserved.js";
 import {
@@ -93,7 +93,7 @@ describe("reserved-word dispatch via /tbox", () => {
 		});
 		autoRegisterBuiltinAndOrphans(pi);
 		for (const entry of getRegisteredToolsets())
-			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+			entry.toolset.enable(pi, readerOf(mock));
 
 		const mod = await import("../index.js");
 		mod.default(pi);

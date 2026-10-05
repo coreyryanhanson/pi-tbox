@@ -1,15 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { toggleAll } from "../src/groups.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { getRegisteredToolsets } from "pi-tool-masking";
 
-
-/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
-function readerOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -103,7 +98,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 
 	// Enable all registered toolsets
 	for (const entry of getRegisteredToolsets()) {
-		entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+		entry.toolset.enable(pi, readerOf(mock));
 	}
 
 	// Simulate the real Pi platform: builtins are always active.

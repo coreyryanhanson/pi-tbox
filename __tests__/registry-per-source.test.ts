@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
@@ -374,7 +374,7 @@ describe("focus granularity with per-source toolsets", () => {
 
 		// Enable all registered toolsets so focus can disable
 		for (const entry of getRegisteredToolsets()) {
-			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+			entry.toolset.enable(pi, readerOf(mock));
 		}
 		mock.clearUiRecords();
 
@@ -386,9 +386,9 @@ describe("focus granularity with per-source toolsets", () => {
 
 		for (const entry of getRegisteredToolsets()) {
 			if (allowlist.has(entry.spec.id)) {
-				entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+				entry.toolset.enable(pi, readerOf(mock));
 			} else {
-				entry.toolset.disable(pi, mock.createCommandContext().sessionManager);
+				entry.toolset.disable(pi, readerOf(mock));
 			}
 		}
 

@@ -11,7 +11,11 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
 import { syncMcpToolsets } from "../src/registry.js";
@@ -326,7 +330,7 @@ describe("syncMcpToolsets — idempotency", () => {
 			asPi(mock),
 			"tbox.mcp@siyuan",
 			false,
-			mock.createCommandContext().sessionManager,
+			readerOf(mock),
 		);
 		expect(output).toContain("tbox.mcp@siyuan");
 	});

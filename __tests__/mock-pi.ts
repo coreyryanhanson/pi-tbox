@@ -33,6 +33,16 @@ export function pinSettingsDefaultsForTests(
 	});
 }
 
+/** Snapshot of the mock's session branch (for intent reads). */
+export function branchOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager.getBranch();
+}
+
+/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
+export function readerOf(mock: MockPI) {
+	return mock.createCommandContext().sessionManager;
+}
+
 // -------------------------------------------------------------------------
 // Component mount state (for ctx.ui.custom)
 // -------------------------------------------------------------------------

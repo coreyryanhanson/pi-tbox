@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, branchOf, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	formatList,
@@ -18,11 +18,6 @@ import {
 	type RegistryEntry,
 } from "pi-tool-masking";
 
-
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,7 +147,7 @@ function setupRichMock(mock: MockPI, pi: ExtensionAPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAllToolsets(pi, mock.createCommandContext().sessionManager);
+	enableAllToolsets(pi, readerOf(mock));
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +691,7 @@ describe("formatStatus", () => {
 		const learnEntry = registry.find(
 			(e: RegistryEntry) => e.spec.id === "portal.learn",
 		)!;
-		learnEntry.toolset.disable(pi, mock.createCommandContext().sessionManager);
+		learnEntry.toolset.disable(pi, readerOf(mock));
 
 		const output = formatStatus(pi, branchOf(mock));
 		expect(output).toContain("\u2717");

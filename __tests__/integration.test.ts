@@ -14,7 +14,12 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
@@ -38,16 +43,6 @@ import {
 	setGroupsOverrideForTests,
 } from "../config/settings-reader.js";
 
-
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
-
-/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
-function readerOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -543,7 +538,7 @@ describe("integration — multi-extension registry", () => {
 		// Exit focus
 		const msg = focusOff(
 			pi,
-			mock.createCommandContext().sessionManager.getBranch(),
+			branchOf(mock),
 		);
 		expect(msg).toContain("Focus off");
 

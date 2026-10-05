@@ -15,7 +15,12 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	autoRegisterBuiltinAndOrphans,
@@ -75,7 +80,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		//   1. autoRegisterBuiltinAndOrphans (registers orphan toolsets)
 		//   2. actuateNewToolsets (applies defaultEnabled since restore missed them)
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, newIds, branchOf(mock));
 
 		// All 3 extension tools should now be active (defaultEnabled: true)
 		const active = mock.getActiveTools();
@@ -136,7 +141,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, newIds, branchOf(mock));
 
 		// All 5 extension tools are active → slot should be pristine (n=0)
 		const state = computeSlotState(pi);
@@ -146,7 +151,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		const entry = getRegisteredToolsets().find(
 			(e) => e.spec.id === orphanToolsetId("my-ext"),
 		)!;
-		entry.toolset.disable(pi, mock.createCommandContext().sessionManager);
+		entry.toolset.disable(pi, readerOf(mock));
 
 		const stateAfter = computeSlotState(pi);
 		expect(stateAfter).toEqual({ kind: "count", n: 5 });
@@ -208,7 +213,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		expect(newIds).not.toContain("portal.web");
 		expect(newIds).toContain(orphanToolsetId("pi-lens"));
 
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, newIds, branchOf(mock));
 
 		// Portal tools stay active (restore handled them), lens tools now active too
 		const active = mock.getActiveTools();
@@ -220,7 +225,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 	it("actuateNewToolsets with empty array is a safe no-op", () => {
 		const activeBefore = mock.getActiveTools();
-		actuateNewToolsets(pi, [], mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, [], branchOf(mock));
 		expect(mock.getActiveTools()).toEqual(activeBefore);
 	});
 
@@ -279,7 +284,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		expect(newIds).toContain(orphanToolsetId("my-ext"));
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, newIds, branchOf(mock));
 
 		// Applied off in the SAME pass — not the next restore.
 		expect(mock.getActiveTools()).not.toContain("off-tool");
@@ -321,7 +326,7 @@ describe("restore-timing: actuateNewToolsets", () => {
 		});
 		const newIds = autoRegisterBuiltinAndOrphans(pi);
 		expect(newIds).toContain(orphanToolsetId("new-ext"));
-		actuateNewToolsets(pi, newIds, mock.createCommandContext().sessionManager.getBranch());
+		actuateNewToolsets(pi, newIds, branchOf(mock));
 
 		expect(pi.getActiveTools()).not.toContain("new-tool");
 		expect(pi.getActiveTools()).toContain("web-fetch");

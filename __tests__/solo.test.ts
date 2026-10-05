@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
@@ -59,16 +64,11 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAll(pi, mock.createCommandContext().sessionManager);
+	enableAll(pi, readerOf(mock));
 	mock.clearEntries();
 	mock.clearUiRecords();
 }
 
-
-/** Snapshot of the mock's session branch (for intent reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
 
 describe("/tbox solo", () => {
 	let mock: MockPI;
@@ -93,7 +93,7 @@ describe("/tbox solo", () => {
 	it("toolset: enables target + deps, disables everything else", () => {
 		setup(pi, mock);
 
-		const result = soloUnit(pi, "+portal.web", mock.createCommandContext().sessionManager);
+		const result = soloUnit(pi, "+portal.web", readerOf(mock));
 
 		expect(result).toContain('Solo on "portal.web"');
 		const active = new Set(pi.getActiveTools());
@@ -108,17 +108,17 @@ describe("/tbox solo", () => {
 	it("stays in exclusion mode — no allowlist, no lock", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web", mock.createCommandContext().sessionManager);
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
-		expect(readBranchModeState(mock.createCommandContext().sessionManager.getBranch()).mode).toBe("exclusion");
-		expect(readBranchModeState(mock.createCommandContext().sessionManager.getBranch()).mode).toBe("exclusion");
+		expect(readBranchModeState(branchOf(mock)).mode).toBe("exclusion");
+		expect(readBranchModeState(branchOf(mock)).mode).toBe("exclusion");
 	});
 
 	it("group: enables group toolsets (+ deps) only, others off", () => {
 		setup(pi, mock);
 		writeGroup("web", { toolsets: ["portal.web"] }); // goes to the override, not disk
 
-		const result = soloUnit(pi, "web", mock.createCommandContext().sessionManager);
+		const result = soloUnit(pi, "web", readerOf(mock));
 
 		expect(result).toContain("group:web");
 		const active = new Set(pi.getActiveTools());
@@ -150,7 +150,7 @@ describe("/tbox solo", () => {
 		});
 		writeGroup("pair", { toolsets: ["portal.web", "portal.chat"] }); // no requires between them
 
-		soloUnit(pi, "pair", mock.createCommandContext().sessionManager);
+		soloUnit(pi, "pair", readerOf(mock));
 
 		const active = new Set(pi.getActiveTools());
 		expect(active.has("web-fetch")).toBe(true);
@@ -167,7 +167,7 @@ describe("/tbox solo", () => {
 		setup(pi, mock);
 		writeGroup("mixed", { toolsets: ["portal.web", "ghost.tool"] });
 
-		const result = soloUnit(pi, "mixed", mock.createCommandContext().sessionManager);
+		const result = soloUnit(pi, "mixed", readerOf(mock));
 
 		expect(result).toContain("group:mixed");
 		expect(mock.getActiveTools()).toContain("web-fetch");
@@ -180,9 +180,9 @@ describe("/tbox solo", () => {
 		// a toggle matching the resolved default is a silent no-op now.
 		getRegisteredToolsets()
 			.find((e) => e.spec.id === "portal.web")!
-			.toolset.disable(pi, mock.createCommandContext().sessionManager);
+			.toolset.disable(pi, readerOf(mock));
 
-		soloUnit(pi, "+portal.web", mock.createCommandContext().sessionManager);
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
 		const lastFor = (key: string) => {
 			const entries = mock.getEntries().filter((e) => e.customType === key);
@@ -201,23 +201,23 @@ describe("/tbox solo", () => {
 		setup(pi, mock);
 		focusUnit(pi, "+portal.web");
 
-		const result = soloUnit(pi, "+portal.web", mock.createCommandContext().sessionManager);
+		const result = soloUnit(pi, "+portal.web", readerOf(mock));
 
 		expect(result).toContain("focus mode");
 		// focus untouched
-		expect(readBranchModeState(mock.createCommandContext().sessionManager.getBranch()).mode).toBe("allowlist");
+		expect(readBranchModeState(branchOf(mock)).mode).toBe("allowlist");
 	});
 
 	it("errors on unknown input and rejects pi.builtin", () => {
 		setup(pi, mock);
-		expect(soloUnit(pi, "nope", mock.createCommandContext().sessionManager)).toContain("No group matching");
-		expect(soloUnit(pi, "pi.builtin", mock.createCommandContext().sessionManager)).toContain("out of tbox's scope");
+		expect(soloUnit(pi, "nope", readerOf(mock))).toContain("No group matching");
+		expect(soloUnit(pi, "pi.builtin", readerOf(mock))).toContain("out of tbox's scope");
 	});
 
 	it("sets no focus glyph in the status slot", () => {
 		setup(pi, mock);
 
-		soloUnit(pi, "+portal.web", mock.createCommandContext().sessionManager);
+		soloUnit(pi, "+portal.web", readerOf(mock));
 
 		const state = computeSlotState(pi);
 		// no focus glyph — solo sets no focus unit, slot shows the plain count

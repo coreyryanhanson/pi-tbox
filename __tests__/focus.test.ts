@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI, pinSettingsDefaultsForTests } from "./mock-pi.js";
+import {
+	MockPI,
+	branchOf,
+	pinSettingsDefaultsForTests,
+	readerOf,
+} from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	readBranchModeState,
@@ -153,20 +158,10 @@ function setup(pi: ExtensionAPI, mock: MockPI): void {
 	registerTools(mock);
 	defineFakeToolsets(mock);
 	autoRegisterBuiltinAndOrphans(pi);
-	enableAll(pi, mock.createCommandContext().sessionManager);
+	enableAll(pi, readerOf(mock));
 	// Reset entries written during setup so tests see only focus writes
 	mock.clearEntries();
 	mock.clearUiRecords();
-}
-
-/** Snapshot of the mock's session branch (for tombstone reads). */
-function branchOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager.getBranch();
-}
-
-/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
-function readerOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,7 +441,7 @@ describe("/tbox focus", () => {
 			const orphanEntry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "tbox.tool@pi-lens",
 			)!;
-			orphanEntry.toolset.disable(pi, mock.createCommandContext().sessionManager);
+			orphanEntry.toolset.disable(pi, readerOf(mock));
 
 			focusUnit(pi, "+portal.web");
 			expect(orphanEntry.toolset.isEnabled(pi)).toBe(false);
@@ -518,7 +513,7 @@ describe("/tbox focus", () => {
 			const entry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "pin-off-test",
 			)!;
-			entry.toolset.enable(pi, mock.createCommandContext().sessionManager);
+			entry.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("pin-off-test");
 
 			// Pin it off via settings override
@@ -560,7 +555,7 @@ describe("/tbox focus", () => {
 			const entry = getRegisteredToolsets().find(
 				(e) => e.spec.id === "test-pin-on",
 			);
-			entry!.toolset.enable(pi, mock.createCommandContext().sessionManager);
+			entry!.toolset.enable(pi, readerOf(mock));
 			expect(pi.getActiveTools()).toContain("test-pin-on");
 
 			// Pin it on via settings override
@@ -642,7 +637,7 @@ describe("/tbox focus", () => {
 			// Activate the new toolset (simulating what happens at registration)
 			const registry = getRegisteredToolsets();
 			const newEntry = registry.find((e) => e.spec.id === "new-plugin");
-			newEntry!.toolset.enable(pi, mock.createCommandContext().sessionManager);
+			newEntry!.toolset.enable(pi, readerOf(mock));
 			mock.clearEntries();
 
 			// Fire a restore — under exclusion mode, defaultEnabled wins

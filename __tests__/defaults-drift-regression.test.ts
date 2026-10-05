@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, branchOf, readerOf } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	getRegisteredToolsets,
@@ -82,11 +82,6 @@ function defineToolsets(mock: MockPI): void {
 }
 
 
-/** The mock's branch reader — masking 2.0.0's required toggle parameter. */
-function readerOf(mock: MockPI) {
-	return mock.createCommandContext().sessionManager;
-}
-
 describe("drift repro: focus web → save → off → restore → all off → save --global → restore", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
@@ -157,7 +152,7 @@ describe("drift repro: focus web → save → off → restore → all off → sa
 		handleDefaults(pi, ctx(), "defaults save");
 
 		// 3. /tbox focus off
-		focusOff(pi, mock.createCommandContext().sessionManager.getBranch());
+		focusOff(pi, branchOf(mock));
 
 		// 4. /tbox defaults restore
 		handleDefaults(pi, ctx(), "defaults restore");
