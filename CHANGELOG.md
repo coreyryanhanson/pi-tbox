@@ -42,6 +42,15 @@
 
 ### Changed
 
+- **`pi-tool-masking` dependency updated for the pi 1.0.3 adaptation.** tbox
+  now consumes the library's batch actuation (`toggleBatch`, one branch read
+  per command), branch-aware intent reads (`effectiveEnabled`), the
+  `forceToolsetEnabled` no-cascade apply path, and name-matched toggle
+  refusals (`AllowlistModeError`/`CycleError`, resolved at tbox's dispatch
+  seam). Multi-op flows no longer loop over per-toolset toggles, and
+  tbox's hand-rolled cascade and branch-snapshot logic is deleted in favor
+  of the library.
+
 - **Togglability classification now covers MCP tools.** A new shared
   predicate (`isTogglableTool` = extension tools + declarable MCP tools) is
   applied at every classification site: the `core`/`extension` char-count
