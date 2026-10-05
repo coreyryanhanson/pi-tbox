@@ -102,7 +102,7 @@ describe("intent vs observation (inert toolset)", () => {
 		expect(lastEntryData(mock, KEY)).toEqual({ enabled: false });
 	});
 
-	it("actuateToolset guard still refuses redundant toggles by intent", () => {
+	it("renders 'already enabled/disabled' from the empty delta", () => {
 		setupInertToolset(mock, true);
 
 		expect(actuateToolset(pi, ID, true, readerOf(mock))).toContain(

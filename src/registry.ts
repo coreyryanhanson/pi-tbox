@@ -266,10 +266,9 @@ function ownerSourcePath(pi: ExtensionAPI, names: Set<string>): string | undefin
  * ensureRestoreHandler, keeping masking's restore/re-assert installed after
  * /reload even in a registry holding only MCP toolsets.
  *
- * A scan finding zero declarable members for an existing toolset never
- * empties it: the write is skipped and the (now hidden) members stay in
- * spec.names, which keeps masking's witness gate making a toggle issued
- * while the server is disconnected a persisting off.
+ * The scan loop only visits servers with at least one declarable tool, so
+ * an existing toolset is never drained by a scan: a disconnected server
+ * (zero declarable members) is simply absent from byServer and skipped.
  */
 function syncOneMcpToolset(
 	pi: ExtensionAPI,
@@ -301,7 +300,7 @@ function syncOneMcpToolset(
 			);
 			return; // before any spec mutation or defineToolset
 		}
-		if (nextNames.size > 0 && !setsEqual(entry.spec.names, nextNames)) {
+		if (!setsEqual(entry.spec.names, nextNames)) {
 			entry.spec.names = nextNames;
 		}
 		spec = buildMcpToolsetSpec(server, entry.spec.names);

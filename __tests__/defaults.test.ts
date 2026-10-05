@@ -284,7 +284,6 @@ describe("/tbox defaults (seams)", () => {
 			expect(result.level).toBe("info");
 			expect(result.message).toBe("Restored 3 toolsets to settings defaults.");
 			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
-			expect(readBranchModeState(ctx().sessionManager.getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// Live state back to effective defaults: alpha on, beta on, gamma off.

@@ -362,7 +362,7 @@ describe("integration — multi-extension registry", () => {
 	// Group management via dispatchCommand (end-to-end through the handler)
 	// -----------------------------------------------------------------------
 
-	it("bikeshed: dispatchCommand routes bare /tbox to formatBareHelp", async () => {
+	it("dispatchCommand routes bare /tbox to formatBareHelp", async () => {
 		// Load the factory (which registers the command) on top of our fixture
 		const mod = await import("../index.js");
 		mod.default(pi);
@@ -376,7 +376,7 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toContain("Subcommands");
 	});
 
-	it("bikeshed: dispatchCommand group list shows groups", async () => {
+	it("dispatchCommand group list shows groups", async () => {
 		writeGroup("test-group", { toolsets: ["portal.web"] });
 
 		const mod = await import("../index.js");
@@ -409,7 +409,7 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).not.toContain('No group named "list"');
 	});
 
-	it("bikeshed: dispatchCommand /tbox chars renders budget view", async () => {
+	it("dispatchCommand /tbox chars renders budget view", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);
 		mock.fireLifecycleEvent("session_start");
@@ -424,7 +424,7 @@ describe("integration — multi-extension registry", () => {
 		);
 	});
 
-	it("bikeshed: bare /tbox restore is reserved, not a group lookup", async () => {
+	it("bare /tbox restore is reserved, not a group lookup", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);
 		mock.fireLifecycleEvent("session_start");

@@ -111,7 +111,6 @@ describe("/tbox solo", () => {
 		soloUnit(pi, "+portal.web", readerOf(mock));
 
 		expect(readBranchModeState(branchOf(mock)).mode).toBe("exclusion");
-		expect(readBranchModeState(branchOf(mock)).mode).toBe("exclusion");
 	});
 
 	it("group: enables group toolsets (+ deps) only, others off", () => {

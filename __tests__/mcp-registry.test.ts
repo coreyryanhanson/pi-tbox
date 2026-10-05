@@ -3,9 +3,10 @@
  *
  * Covers: per-server declared-only toolset creation, codemode-only servers
  * producing no toolset, namespace collapse, in-place membership mutation
- * with the branch-aware intent reconcile, drain-to-zero persistence,
- * idempotency from both hook sites, foreign-toolset name subtraction, and
- * the /reload ensureRestoreHandler path.
+ * with the branch-aware intent reconcile, off-intent survival across a
+ * disconnect/reconnect cycle, idempotency from both hook sites,
+ * foreign-toolset name subtraction, and the /reload ensureRestoreHandler
+ * path.
  *
  * @module
  */
@@ -235,8 +236,9 @@ describe("syncMcpToolsets — membership changes", () => {
 		registerMcpTool(mock, "siyuan", "mcp__siyuan__t2", "hidden");
 		syncMcpToolsets(asPi(mock), []);
 
-		// Entry stays live with its (hidden) members — the witness gate keeps
-		// a toggle issued while disconnected a persisting off.
+		// Entry stays live with its (hidden) members: a scan never visits a
+		// server with zero declarable tools, so membership is never drained.
+		// A toggle issued while disconnected persists off via the delta gate.
 		expect(findEntry("tbox.mcp@siyuan")!.spec.names).toEqual(
 			new Set(["mcp__siyuan__t1", "mcp__siyuan__t2"]),
 		);

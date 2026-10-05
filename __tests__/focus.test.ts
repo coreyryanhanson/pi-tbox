@@ -420,7 +420,6 @@ describe("/tbox focus", () => {
 
 			expect(result).toContain("Focus off");
 			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
-			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
 			expect(getFocusUnit()).toBeNull();
 
 			// All extension toolsets back to defaultEnabled

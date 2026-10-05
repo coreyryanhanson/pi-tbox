@@ -76,23 +76,31 @@ function smallestToolsetMap(
 /** Render-group id for MCP tools tbox cannot toggle. */
 const PI_MANAGED_GID = "pi-managed";
 
-/** Count active togglable tools and their serialized char total. */
+/** Count active togglable tools and their serialized char total. Active
+ * non-togglable members (e.g. an inert member lingering in spec.names after
+ * an exposure change) are counted and returned separately so callers can
+ * book them to the core bucket — computeCharCount books them to core, so
+ * the grouped list's footer must too or the two surfaces disagree. */
 function activeTogglableChars(
 	names: Iterable<string>,
 	activeSet: Set<string>,
 	allToolsMap: Map<string, ToolInfo>,
-): { activeCount: number; charCount: number } {
+): { activeCount: number; charCount: number; coreCharCount: number } {
 	let activeCount = 0;
 	let charCount = 0;
+	let coreCharCount = 0;
 	for (const name of names) {
 		if (!activeSet.has(name)) continue;
 		activeCount++;
 		const tool = allToolsMap.get(name);
 		if (!tool) continue;
-		if (!isTogglableTool(tool)) continue;
+		if (!isTogglableTool(tool)) {
+			coreCharCount += serializeToolDef(tool).length;
+			continue;
+		}
 		charCount += serializeToolDef(tool).length;
 	}
-	return { activeCount, charCount };
+	return { activeCount, charCount, coreCharCount };
 }
 
 /** Glyphs for the enabled/active table column (✓ = on, ✗ = off). */
@@ -315,7 +323,7 @@ export function formatGroupedList(
 		}
 
 		// header reflects full toolset state; filter controls row visibility only
-		const { activeCount, charCount } = activeTogglableChars(
+		const { activeCount, charCount, coreCharCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,
@@ -324,6 +332,7 @@ export function formatGroupedList(
 		totalActive += activeCount;
 		totalInactive += inactiveCount;
 		totalExtChars += charCount;
+		totalCoreChars += coreCharCount;
 
 		lines.push(
 			`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
@@ -387,6 +396,8 @@ export function formatByChars(pi: ExtensionAPI): string {
 	const stats: ToolsetStats[] = [];
 
 	for (const entry of toolsets) {
+		// coreCharCount deliberately ignored: this view measures the togglable
+		// budget only; /tbox status's core: covers non-togglable members.
 		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
