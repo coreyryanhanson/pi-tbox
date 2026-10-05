@@ -12,8 +12,9 @@
   is context hygiene, not a security boundary (non-declarable MCP tools
   stay script-callable while off). MCP servers connect asynchronously after
   `session_start`, so toolsets are kept in sync by a re-scan on every prompt
-  submission *and* at the top of every `/tbox` command, making command
-  surfaces deterministic instead of prompt-timing dependent. Membership
+  submission, at the top of every `/tbox` command, and on
+  `session_start`/`session_tree`, making command surfaces deterministic
+  instead of prompt-timing dependent. Membership
   changes sync the live registry entry in place; a server draining to zero
   declarable members (disabled or disconnected) keeps its hidden members so
   toggles recorded while it's away still hold when it returns. Known
@@ -26,8 +27,10 @@
   resource tools (`list_mcp_resources`, `list_mcp_resource_templates`,
   `read_mcp_resource`; no namespace, no per-server owner) and active
   per-server MCP tools no toolset claims (loaded mid-session by
-  `tool_search`). Their chars are booked to `core`; an inactive resource
-  tool renders as `name (inactive)` at zero chars. The group renders only
+  `tool_search`). The resource tools' chars are booked to `core`;
+  a freshly loaded declarable per-server tool books to `extension` until
+  the next re-scan claims it. An inactive resource tool renders as
+  `name (inactive)` at zero chars. The group renders only
   when it has members. Persistent control for these is the server's
   `toolExposure` config.
 
@@ -42,14 +45,17 @@
 
 ### Changed
 
-- **`pi-tool-masking` dependency updated for the pi 1.0.3 adaptation.** tbox
-  now consumes the library's batch actuation (`toggleBatch`, one branch read
-  per command), branch-aware intent reads (`effectiveEnabled`), the
-  `forceToolsetEnabled` no-cascade apply path, and name-matched toggle
-  refusals (`AllowlistModeError`/`CycleError`, resolved at tbox's dispatch
-  seam). Multi-op flows no longer loop over per-toolset toggles, and
-  tbox's hand-rolled cascade and branch-snapshot logic is deleted in favor
-  of the library.
+- **`pi-tool-masking` dependency updated from 1.3.0 to 2.0.1 for the
+  pi 1.0.3 adaptation.** tbox now consumes the library's batch actuation
+  (`toggleBatch`, one branch read per command), branch-aware intent reads
+  (`effectiveEnabled`), the `forceToolsetEnabled` no-cascade apply path,
+  and name-matched toggle refusals (`AllowlistModeError`/`CycleError`,
+  resolved at tbox's dispatch seam). Multi-op flows no longer loop over
+  per-toolset toggles, and tbox's hand-rolled cascade and branch-snapshot
+  logic is deleted in favor of the library. Toggle paths also dropped
+  their live "already enabled/disabled" pre-checks: the library's delta
+  gate no-ops redundant toggles, repairs a clobbered loadout, and
+  persists intent-off toggles on inert toolsets.
 
 - **Togglability classification now covers MCP tools.** A new shared
   predicate (`isTogglableTool` = extension tools + declarable MCP tools) is
