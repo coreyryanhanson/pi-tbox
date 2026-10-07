@@ -4,6 +4,7 @@ import {
 	branchOf,
 	pinSettingsDefaultsForTests,
 	readerOf,
+	setupCycle,
 	useTempAgentDir,
 } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,7 +16,11 @@ import {
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
 } from "pi-tool-masking";
-import { focusUnit, focusOff, focusRelease } from "../src/focus.js";
+import {
+	focusUnit,
+	focusOff,
+	focusRelease,
+} from "../src/focus.js";
 import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
@@ -27,6 +32,7 @@ import {
 	setFocusUnit,
 	wireSlot,
 	SLOT_NAME,
+	FOCUS_PERSIST_KEY,
 } from "../src/status-slot.js";
 import { formatStatus } from "../src/list.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
@@ -643,93 +649,358 @@ describe("/tbox focus", () => {
 			const active = new Set(pi.getActiveTools());
 			expect(active.has("new-tool")).toBe(true);
 		});
+	});
 
-		describe("focus release (retain live set)", () => {
-			it("flushes the selection to per-toolset entries and keeps live state", () => {
-				setup(pi, mock);
-
-				focusUnit(pi, "+portal.web");
-
-				const result = focusRelease(pi, readerOf(mock));
-
-				expect(result).toContain("Focus released");
-				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
-				expect(getFocusUnit()).toBeNull();
-
-				// Live state unchanged from the focus era
-				const active = new Set(pi.getActiveTools());
-				expect(active.has("web-fetch")).toBe(true);
-				expect(active.has("web-learn")).toBe(false);
-				expect(active.has("lens-tool-0")).toBe(false);
-
-				// Selection flushed: allowlist members → {enabled:true},
-				// everyone else → {enabled:false}
-				const entries = mock.getEntries();
-				for (const entry of getRegisteredToolsets()) {
-					const last = entries
-						.filter((e) => e.customType === entry.spec.persistKey)
-						.at(-1);
+	describe("focus release (retain live set)", () => {
+		/** Release's delta shape: the tier-consistent member writes no
+		 *  entry; every drifting non-member gets {enabled:false}. */
+		function expectReleaseEntries(memberId: string): void {
+			// Delta gate: entries exist only where the pre-release tier
+			// resolution disagreed with the selection. The member's tier
+			// (portal.web: default on) already resolves on → no entry
+			// (no stale pin — a later settings pin applies); every
+			// non-member defaults on → drifts to off → {enabled:false}.
+			// A /reload re-resolves the same selection either way.
+			const entries = mock.getEntries();
+			for (const entry of getRegisteredToolsets()) {
+				const last = entries
+					.filter((e) => e.customType === entry.spec.persistKey)
+					.at(-1);
+				if (entry.spec.id === memberId) {
+					expect(last).toBeUndefined();
+				} else {
 					expect(last).toBeDefined();
 					const enabled = (last!.data as Record<string, unknown> | null)?.enabled;
-					expect(enabled).toBe(entry.spec.id === "portal.web");
+					expect(enabled).toBe(false);
 				}
+			}
+		}
 
-				// /reload replays the flushed entries — the selection survives
-				mock.fireLifecycleEvent("session_start");
-				const reloaded = new Set(pi.getActiveTools());
-				expect(reloaded.has("web-fetch")).toBe(true);
-				expect(reloaded.has("web-learn")).toBe(false);
-				expect(reloaded.has("lens-tool-0")).toBe(false);
+		it("writes drifted ids to per-toolset entries and keeps live state", () => {
+			setup(pi, mock);
+
+			focusUnit(pi, "+portal.web");
+
+			const result = focusRelease(pi, readerOf(mock));
+
+			expect(result).toContain("Focus released");
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
+			expect(getFocusUnit()).toBeNull();
+
+			// Live state unchanged from the focus era
+			const active = new Set(pi.getActiveTools());
+			expect(active.has("web-fetch")).toBe(true);
+			expect(active.has("web-learn")).toBe(false);
+			expect(active.has("lens-tool-0")).toBe(false);
+
+			expectReleaseEntries("portal.web");
+
+			// /reload replays the flushed entries — the selection survives
+			mock.fireLifecycleEvent("session_start");
+			const reloaded = new Set(pi.getActiveTools());
+			expect(reloaded.has("web-fetch")).toBe(true);
+			expect(reloaded.has("web-learn")).toBe(false);
+			expect(reloaded.has("lens-tool-0")).toBe(false);
+		});
+
+		it("foreign allowlist governance is released deliberately (teardown, not no-op)", () => {
+			// A foreign extension enters allowlist mode mid-session via
+			// setDefaultResolutionMode — never touching tbox's focus mirror.
+			// The old restore-time mirror would no-op the release by
+			// staleness; the live branch read sees the mode and release
+			// proceeds: an explicitly commanded teardown ends the foreign
+			// governance and flushes a clean slate.
+			setup(pi, mock);
+			setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
+			expect(getFocusUnit()).toBeNull(); // foreign — tbox's mirror untouched
+
+			const result = focusRelease(pi, readerOf(mock));
+
+			expect(result).toContain("Focus released");
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe(
+				"exclusion",
+			);
+			expectReleaseEntries("portal.web");
+			// A /reload lands at the flushed selection.
+			mock.fireLifecycleEvent("session_start");
+			const reloaded = new Set(pi.getActiveTools());
+			expect(reloaded.has("web-fetch")).toBe(true);
+			expect(reloaded.has("web-learn")).toBe(false);
+		});
+
+		it("without active focus returns the hint and mutates nothing", () => {
+			setup(pi, mock);
+			mock.clearEntries();
+
+			const result = focusRelease(pi, readerOf(mock));
+
+			expect(result).toBe(
+				"Focus is not active. Nothing to release.",
+			);
+			// No per-toolset entries written, mode unchanged, nothing disabled
+			expect(mock.getEntries()).toHaveLength(0);
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
+			expect(pi.getActiveTools()).toContain("web-fetch");
+			expect(pi.getActiveTools()).toContain("web-learn");
+		});
+	});
+
+	// The planner-path release contract: refusals compensate (resolved state
+	// is exactly the pre-release state), the corrupt-entry class refuses
+	// up-front before any mutation, and release carries the planner's
+	// delta/repair/emit semantics instead of the old raw full-partition
+	// appendEntry flush.
+	describe("focus release via the planner — refusals and compensation", () => {
+		function lastEntryFor(key: string) {
+			return mock.getEntries().filter((e) => e.customType === key).at(-1);
+		}
+
+		/** Refusal compensation contract: the pre-release allowlist mode
+		 *  entry is re-appended and no per-toolset entries were written. */
+		function expectCompensatedTo(allowlist: string[]): void {
+			expect(lastEntryFor("toolset-resolution-mode")?.data).toEqual({
+				mode: "allowlist",
+				allowlist,
 			});
+			expect(
+				mock
+					.getEntries()
+					.filter((e) => e.customType.startsWith("toolset-state:")),
+			).toHaveLength(0);
+		}
 
-			it("foreign allowlist governance is released deliberately (teardown, not no-op)", () => {
-				// A foreign extension enters allowlist mode mid-session via
-				// setDefaultResolutionMode — never touching tbox's focus mirror.
-				// The old restore-time mirror would no-op the release by
-				// staleness; the live branch read sees the mode and release
-				// proceeds: an explicitly commanded teardown ends the foreign
-				// governance and flushes a clean slate.
+		function collectChanged(): { id: string; enabled: boolean }[] {
+			const changed: { id: string; enabled: boolean }[] = [];
+			mock.events.on("toolset:changed", (data: unknown) =>
+				changed.push(data as { id: string; enabled: boolean }),
+			);
+			return changed;
+		}
+
+		/** Catch and return the thrown error's name (seam-matching shape). */
+		function catchName(flow: () => unknown): string | undefined {
+			try {
+				flow();
+			} catch (err) {
+				return (err as { name?: string })?.name;
+			}
+			return undefined;
+		}
+
+		it("strips tools force-added to non-member toolsets within the turn", () => {
+			setup(pi, mock);
+			focusUnit(pi, "+portal.web");
+
+			// A foreign extension force-adds one tool per non-member toolset
+			// within the turn — the release batch must strip them all.
+			mock.setActiveTools([
+				...pi.getActiveTools(),
+				"web-learn",
+				"lens-tool-0",
+				"my-tool",
+			]);
+
+			focusRelease(pi, readerOf(mock));
+
+			// Every force-added tool gone, the member untouched.
+			const final = new Set(pi.getActiveTools());
+			expect(final.has("web-learn")).toBe(false);
+			expect(final.has("lens-tool-0")).toBe(false);
+			expect(final.has("my-tool")).toBe(false);
+			expect(final.has("web-fetch")).toBe(true);
+		});
+
+		it("repair arm: a tier-consistent id whose tools were force-removed still gets its entry", () => {
+			setup(pi, mock);
+			focusUnit(pi, "+portal.web");
+
+			// Force-remove the member's own tool within the turn. portal.web's
+			// tier already resolves on (no drift), but the loadout writes — so
+			// the batch persists {enabled:true}, making the correction durable
+			// (a later settings pin cannot silently un-retain the selection).
+			mock.setActiveTools(pi.getActiveTools().filter((n) => n !== "web-fetch"));
+			expect(pi.getActiveTools()).not.toContain("web-fetch");
+
+			focusRelease(pi, readerOf(mock));
+
+			const last = lastEntryFor("toolset-state:portal.web");
+			expect(last).toBeDefined();
+			expect((last!.data as Record<string, unknown>).enabled).toBe(true);
+
+			// /reload replays the repair-arm entry — the member comes back on.
+			mock.fireLifecycleEvent("session_start");
+			expect(pi.getActiveTools()).toContain("web-fetch");
+		});
+
+		it("emits toolset:changed per drifted toolset and stays silent for already-correct ones", () => {
+			setup(pi, mock);
+			focusUnit(pi, "+portal.web");
+			const changed = collectChanged();
+
+			focusRelease(pi, readerOf(mock));
+
+			// portal.web is tier-consistent → silent; every drifting non-member
+			// emits once, in the planner's write order.
+			expect(changed.map((e) => e.id)).toEqual([
+				"portal.learn",
+				"tbox.tool@pi-lens",
+				"tbox.tool@my-plugin",
+			]);
+			for (const e of changed) expect(e.enabled).toBe(false);
+		});
+
+		it("a non-closure-complete foreign allowlist refuses with ContradictionError and compensates", () => {
+			setup(pi, mock);
+			// portal.learn requires portal.web, which is not in the list — the
+			// resolved intent is incoherent, so the planner refuses pre-write.
+			setDefaultResolutionMode(pi, "allowlist", ["portal.learn"]);
+			const changed = collectChanged();
+
+			expect(
+				catchName(() => focusRelease(pi, readerOf(mock))),
+			).toBe("ContradictionError");
+
+			// Compensated at resolved-state level (the branch is append-only,
+			// so entry-count identity is not the contract).
+			expectCompensatedTo(["portal.learn"]);
+			// Live tools untouched — release actuates only on success.
+			const active = pi.getActiveTools();
+			expect(active).toContain("web-fetch");
+			expect(active).toContain("web-learn");
+			expect(active).toContain("lens-tool-0");
+			// No changed fanout during the failed release.
+			expect(changed).toHaveLength(0);
+			// Foreign focus: tbox's unit is null at resolved-state level (the
+			// uncompensated persistFocusUnit(pi, null) append remains — the
+			// branch is append-only, a null unit cannot be un-written).
+			expect(getFocusUnit()).toBeNull();
+		});
+
+		it("a dependency registered after focus-enter makes release refuse (late-registration arm)", () => {
+			setup(pi, mock);
+			focusUnit(pi, "+portal.learn");
+			expect(getFocusUnit()).toBe("portal.learn");
+
+			// portal.learn's dependency registers after focus-enter and is
+			// therefore not in the allowlist — same contradiction class as a
+			// hand-edited non-closure-complete list.
+			mock.registerTool({
+				name: "late-base",
+				description: "Late base",
+				sourceInfo: {
+					path: "late.ts",
+					source: "late",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.defineFakeToolset({
+				id: "late.base",
+				names: new Set(["late-base"]),
+				persistKey: "toolset-state:late.base",
+				defaultEnabled: true,
+			});
+			const learnEntry = getRegisteredToolsets().find(
+				(e) => e.spec.id === "portal.learn",
+			)!;
+			learnEntry.spec.requires = ["late.base"];
+
+			expect(
+				catchName(() => focusRelease(pi, readerOf(mock))),
+			).toBe("ContradictionError");
+
+			// tbox-owned focus: the unit is restored too (entry-level, since a
+			// non-null unit is representable through persistFocusUnit).
+			expect(getFocusUnit()).toBe("portal.learn");
+			expect(lastEntryFor(FOCUS_PERSIST_KEY)?.data).toEqual({
+				unit: "portal.learn",
+			});
+			expectCompensatedTo(["portal.learn", "portal.web"]);
+		});
+
+		it("a dormant requires cycle among registered non-members refuses with CycleError", () => {
+			setup(pi, mock);
+			setupCycle(mock);
+			// focus-enter refuses only cycles inside the unit's closure — an
+			// unrelated cycle stays dormant until a toggle traverses it.
+			focusUnit(pi, "+portal.web");
+			const changed = collectChanged();
+
+			// The disable branch walks dependents of every non-member, so the
+			// dormant cycle surfaces even though the allowlist is unrelated.
+			expect(catchName(() => focusRelease(pi, readerOf(mock)))).toBe(
+				"CycleError",
+			);
+
+			// Same compensated-state pinning as the contradiction case.
+			expectCompensatedTo(["portal.web"]);
+			expect(changed).toHaveLength(0);
+		});
+
+		// Hand-edited corruption, both shapes: an empty array and a missing
+		// array (the branch read fails closed to {allowlist: []}). No
+		// sanctioned writer can produce an empty allowlist
+		// (setDefaultResolutionMode refuses empty at write time), so this
+		// state could never be compensated — that is why release refuses
+		// instead. The literal key is masking's private MODE_PERSIST_KEY
+		// (pi-tool-masking index.ts; unexported), hardcoded here — a rename
+		// stops reading as the mode entry, release sees exclusion mode, and
+		// these tests fail rather than passing vacuously.
+		it.each([
+			["an empty allowlist array", { mode: "allowlist", allowlist: [] }],
+			["a missing allowlist array", { mode: "allowlist" }],
+		])(
+			"a corrupt mode entry (%s) refuses up-front — before any mutation",
+			(_name, data) => {
 				setup(pi, mock);
-				setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
-				expect(getFocusUnit()).toBeNull(); // foreign — tbox's mirror untouched
+				setFocusUnit("portal.web");
+				pi.appendEntry("toolset-resolution-mode", data);
+				const entriesBefore = mock.getEntries().length;
+				const changed = collectChanged();
 
-				const result = focusRelease(pi, readerOf(mock));
-
-				expect(result).toContain("Focus released");
-				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe(
-					"exclusion",
+				expect(catchName(() => focusRelease(pi, readerOf(mock)))).toBe(
+					"CorruptModeStateError",
 				);
-				// {enabled} entries flushed for the registered toolsets — what a
-				// /reload replays.
-				const entries = mock.getEntries();
-				for (const entry of getRegisteredToolsets()) {
-					const last = entries
-						.filter((e) => e.customType === entry.spec.persistKey)
-						.at(-1);
-					expect(last).toBeDefined();
-					const enabled = (last!.data as Record<string, unknown> | null)?.enabled;
-					expect(enabled).toBe(entry.spec.id === "portal.web");
-				}
-				// A /reload lands at the flushed selection.
-				mock.fireLifecycleEvent("session_start");
-				const reloaded = new Set(pi.getActiveTools());
-				expect(reloaded.has("web-fetch")).toBe(true);
-				expect(reloaded.has("web-learn")).toBe(false);
-			});
 
-			it("without active focus returns the hint and mutates nothing", () => {
-				setup(pi, mock);
-				mock.clearEntries();
-
-				const result = focusRelease(pi, readerOf(mock));
-
-				expect(result).toContain("Focus is not active");
-				// No per-toolset entries written, mode unchanged, nothing disabled
-				expect(mock.getEntries()).toHaveLength(0);
-				expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe("exclusion");
+				// Nothing to compensate: zero entries appended, focus unit not
+				// cleared, live tools untouched, no changed fanout.
+				expect(mock.getEntries().length).toBe(entriesBefore);
+				expect(getFocusUnit()).toBe("portal.web");
+				expect(changed).toHaveLength(0);
 				expect(pi.getActiveTools()).toContain("web-fetch");
-				expect(pi.getActiveTools()).toContain("web-learn");
+			},
+		);
+
+		it("an unregistered dependency is lenient — release succeeds without an op for it", () => {
+			setup(pi, mock);
+			mock.registerTool({
+				name: "lonely-tool",
+				description: "Lonely",
+				sourceInfo: {
+					path: "lonely.ts",
+					source: "lonely",
+					scope: "user",
+					origin: "top-level",
+				},
 			});
+			mock.defineFakeToolset({
+				id: "lonely",
+				names: new Set(["lonely-tool"]),
+				persistKey: "toolset-state:lonely",
+				defaultEnabled: true,
+				requires: ["ghost.base"], // never registered
+			});
+			setDefaultResolutionMode(pi, "allowlist", ["lonely"]);
+
+			const result = focusRelease(pi, readerOf(mock));
+
+			expect(result).toContain("Focus released");
+			expect(readBranchModeState(readerOf(mock).getBranch()).mode).toBe(
+				"exclusion",
+			);
+			// lonely is tier-consistent → no entry, no loadout write; it stays on.
+			expect(pi.getActiveTools()).toContain("lonely-tool");
+			expect(lastEntryFor("toolset-state:lonely")).toBeUndefined();
 		});
 	});
 

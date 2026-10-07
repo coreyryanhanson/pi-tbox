@@ -47,7 +47,11 @@ have the one before it:
    *persists in chat state* — it survives reloads and resume, and survives
    installing new extensions without drifting. `focus off` restores
    defaults; `focus release` exits focus but keeps the live selection,
-   flushing it to per-toolset state so a `/reload` replays what you see.
+   routing it through the library's planner — only drifted toolsets get
+   per-toolset entries, so a `/reload` replays what you see. Release can
+   refuse (a non-closure-complete allowlist or a `requires` cycle is
+   rejected by the planner, leaving your tool state untouched), unlike
+   `focus off`.
    Want focus's shape without its lock? `/tbox solo <group>` (or
    `solo +<toolset>`) is equivalent to `all off` + the unit `on` — plain
    per-toolset state, no allowlist, nothing refused afterward.
@@ -116,7 +120,7 @@ group even if they share a name. Reserved words (`status`, `focus`, `solo`,
 | `/tbox group list` | list every group with its toolsets |
 | `/tbox focus <group>` / `focus +<toolset>` | enter focus on a group or toolset |
 | `/tbox focus off` | exit focus → restore effective defaults |
-| `/tbox focus release` | exit focus → keep the live selection (flush to per-toolset state) |
+| `/tbox focus release` | exit focus → keep the live selection (planner flush; refuses on an inconsistent allowlist) |
 | `/tbox solo <group>` / `solo +<toolset>` | everything off, one unit on (focus without the lock) |
 | `/tbox defaults [show]` | list settings-tier pins, annotated by scope |
 | `/tbox defaults save [--global]` | snapshot live state into settings (project: full; `--global`: diff vs packaged default) |
@@ -210,7 +214,10 @@ new-extension installs without re-applying. While focus is active, the
 actuation commands (`all on|off`, `<group> on|off`, `+<toolset> on|off`)
 are refused — the slot advertises a known working set, and toggling
 underneath it would make that promise a lie. Use `focus off` (restore
-effective defaults) or `focus release` (keep the live selection) first.
+effective defaults), `focus release` (keep the live selection), or
+`defaults restore` first; `focus release` is the one escape that routes
+through the planner and can refuse (see above), while the other two
+bypass the planner and always work.
 `focus off` also tombstones stale per-toolset branch entries from before
 the focus, so a `/reload` after `off` falls through to settings →
 exclusion floor → `defaultEnabled` matching the live state `off` just

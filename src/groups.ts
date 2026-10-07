@@ -239,7 +239,7 @@ export function describeGroup(name: string): string {
  * Describe a toolset by id (for `/tbox +<toolset>` with no action).
  * Returns an error line if the toolset is not registered.
  *
- * State is intent, not the live observation (see AGENTS.md) — an inert
+ * State is intent, not the live observation — an inert
  * toolset shows what the user toggled. Intent reads never touch the live
  * toolset, so no `pi`.
  */

@@ -101,6 +101,34 @@ export function branchOf(mock: MockPI) {
 	return mock.createCommandContext().sessionManager.getBranch();
 }
 
+/** A registrable requires cycle — nothing validates it at defineToolset. */
+export function setupCycle(mock: MockPI): void {
+	mock.registerTool({
+		name: "a-tool",
+		description: "A",
+		sourceInfo: { path: "a.ts", source: "a", scope: "user", origin: "top-level" },
+	});
+	mock.registerTool({
+		name: "b-tool",
+		description: "B",
+		sourceInfo: { path: "b.ts", source: "b", scope: "user", origin: "top-level" },
+	});
+	mock.defineFakeToolset({
+		id: "cycle.a",
+		names: new Set(["a-tool"]),
+		persistKey: "toolset-state:cycle.a",
+		defaultEnabled: true,
+		requires: ["cycle.b"],
+	});
+	mock.defineFakeToolset({
+		id: "cycle.b",
+		names: new Set(["b-tool"]),
+		persistKey: "toolset-state:cycle.b",
+		defaultEnabled: true,
+		requires: ["cycle.a"],
+	});
+}
+
 /** The mock's branch reader — masking 2.0.0's required toggle parameter. */
 export function readerOf(mock: MockPI) {
 	return mock.createCommandContext().sessionManager;

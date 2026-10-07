@@ -20,6 +20,12 @@
  *     defineToolset time) refuses atomically — the same cycle copy renders
  *     from all three sources (planBatch via `/tbox all`, forwardClosure via
  *     `/tbox solo`, forwardClosure via `/tbox focus`).
+ *   - Focus release refusal at the seam: a corrupt/empty allowlist mode
+ *     entry (CorruptModeStateError, tbox-owned, refused up-front) renders
+ *     its fixed copy through the real dispatch, and a duck-typed
+ *     ContradictionError pins the release-specific copy by name alone.
+ *     The real planner-refusal scenarios and the compensation contract
+ *     are pinned at domain level in focus.test.ts.
  *   - Seam rethrow contract: a plain Error surfaces raw rather than being
  *     rendered as a refusal.
  *
@@ -27,7 +33,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { MockPI } from "./mock-pi.js";
+import { MockPI, setupCycle } from "./mock-pi.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setDefaultResolutionMode } from "pi-tool-masking";
 import { setGroupsOverrideForTests, writeGroup } from "../config/settings-reader.js";
@@ -35,6 +41,8 @@ import { setFocusUnit } from "../src/status-slot.js";
 
 const ALLOWLIST_COPY = "refused — toolset toggles do not operate while allowlist governance is active";
 const CYCLE_COPY = "refused — a requires cycle was detected before any write; nothing changed";
+const RELEASE_CONTRADICTION_COPY = "refused — a requires dependency conflict was detected; nothing changed";
+const RELEASE_CORRUPT_COPY = "refused — the allowlist mode entry is corrupt or empty; use /tbox focus off or /tbox defaults restore to exit focus";
 
 async function setupDispatch(mock: MockPI, pi: ExtensionAPI): Promise<void> {
 	const mod = await import("../index.js");
@@ -67,34 +75,6 @@ function setupToolsets(mock: MockPI): void {
 		names: new Set(["host-call"]),
 		persistKey: "toolset-state:host.api",
 		defaultEnabled: true,
-	});
-}
-
-/** A registrable requires cycle — nothing validates it at defineToolset. */
-function setupCycle(mock: MockPI): void {
-	mock.registerTool({
-		name: "a-tool",
-		description: "A",
-		sourceInfo: { path: "a.ts", source: "a", scope: "user", origin: "top-level" },
-	});
-	mock.registerTool({
-		name: "b-tool",
-		description: "B",
-		sourceInfo: { path: "b.ts", source: "b", scope: "user", origin: "top-level" },
-	});
-	mock.defineFakeToolset({
-		id: "cycle.a",
-		names: new Set(["a-tool"]),
-		persistKey: "toolset-state:cycle.a",
-		defaultEnabled: true,
-		requires: ["cycle.b"],
-	});
-	mock.defineFakeToolset({
-		id: "cycle.b",
-		names: new Set(["b-tool"]),
-		persistKey: "toolset-state:cycle.b",
-		defaultEnabled: true,
-		requires: ["cycle.a"],
 	});
 }
 
@@ -232,5 +212,62 @@ describe("cycle refusal at the dispatch seam", () => {
 
 		expect(mock.getLastNotify()!.message).toBe(`/tbox focus ${CYCLE_COPY}`);
 		expect(mock.getEntries()).toHaveLength(0);
+	});
+});
+
+describe("focus release refusals at the dispatch seam", () => {
+	let mock: MockPI;
+	let pi: ExtensionAPI;
+
+	beforeEach(async () => {
+		MockPI.cleanRegistry();
+		mock = new MockPI();
+		pi = mock as unknown as ExtensionAPI;
+		setFocusUnit(null);
+		setGroupsOverrideForTests({});
+		setupToolsets(mock);
+		await setupDispatch(mock, pi);
+	});
+
+	afterEach(() => setGroupsOverrideForTests(null));
+
+	it("a corrupt empty-allowlist mode entry renders the corrupt-entry copy", async () => {
+		// Fixture: hand-append the literal mode key — masking keeps
+		// MODE_PERSIST_KEY private (pi-tool-masking index.ts), so the literal
+		// is the shipped answer; a rename stops reading as the mode entry and
+		// this test fails rather than passing vacuously.
+		pi.appendEntry("toolset-resolution-mode", {
+			mode: "allowlist",
+			allowlist: [],
+		});
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("focus release");
+
+		expect(mock.getLastNotify()!.message).toBe(
+			`/tbox focus release ${RELEASE_CORRUPT_COPY}`,
+		);
+	});
+
+	it("the seam renders the contradiction copy for a duck-typed ContradictionError", async () => {
+		// Real release flow, duck-typed throw: the mode entry is written
+		// before appendEntry is stubbed, so the flip to exclusion inside
+		// focusRelease is what throws — the seam must render the copy by
+		// name alone, with no error-class instance anywhere in play. The
+		// real planner refusals and the compensation contract live in
+		// focus.test.ts.
+		setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
+		(
+			mock as unknown as { appendEntry: (t: string, d: unknown) => never }
+		).appendEntry = (() => {
+			throw { name: "ContradictionError" };
+		}) as (t: string, d: unknown) => never;
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("focus release");
+
+		expect(mock.getLastNotify()!.message).toBe(
+			`/tbox focus release ${RELEASE_CONTRADICTION_COPY}`,
+		);
 	});
 });

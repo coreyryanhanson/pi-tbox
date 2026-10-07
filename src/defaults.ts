@@ -120,7 +120,7 @@ function withMalformed(fn: () => DefaultsResult): DefaultsResult {
  * `writeToolsetDefaults` merges — stale pins from a prior save are
  * `clear`'s job to remove.
  *
- * Pins read intent, not the live snapshot (see AGENTS.md): capturing
+ * Pins read intent, not the live snapshot: capturing
  * while a toolset is inert would pin a temporary divergence as a permanent
  * misconfiguration.
  */

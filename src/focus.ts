@@ -31,7 +31,12 @@ import {
 } from "pi-tool-masking";
 import { forwardClosure } from "./requires-graph.js";
 import { resolveGroup, checkFocusGuard } from "./groups.js";
-import { setFocusUnit, rerenderSlot, persistFocusUnit } from "./status-slot.js";
+import {
+	setFocusUnit,
+	getFocusUnit,
+	rerenderSlot,
+	persistFocusUnit,
+} from "./status-slot.js";
 
 // ---------------------------------------------------------------------------
 // Resolution
@@ -259,12 +264,56 @@ export function focusOff(
 }
 
 /**
+ * Thrown by {@link focusRelease} — see its doc for why a corrupt or empty
+ * allowlist mode entry refuses up-front.
+ *
+ * Name-matched by the dispatch seam (`err?.name`, never `instanceof` —
+ * throwers may come from another physical copy of this module), so the
+ * constructor sets `name` explicitly. The message is diagnostic payload
+ * only — the seam renders its own fixed refusal copy.
+ */
+class CorruptModeStateError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "CorruptModeStateError";
+	}
+}
+
+/**
  * Exit focus by **retaining the live selection**.
  *
- * Flushes the allowlist selection to per-toolset branch entries
- * (`{enabled: true}` for allowlist members, `{enabled: false}` for the
- * rest), then switches to exclusion mode. Live state is untouched — what
- * you see is what you keep; a later /reload replays the flushed entries.
+ * Switches to exclusion mode first, then flushes the allowlist selection
+ * through the library's planner (`toggleBatch`): enable ops for allowlist
+ * members, disable ops for every other registered id — the same partition
+ * as `soloUnit`. The batch is delta-based: only ids whose pre-call tier
+ * resolution disagreed with the desired value (or whose tools were
+ * force-added within the turn — the repair arm) get per-toolset branch
+ * entries; tier-consistent ids keep falling through the tier chain, so a
+ * later settings pin applies instead of being silently overridden by a
+ * stale entry. Every registered id is actuated (a no-op when its loadout
+ * already matches), so what you see is what you keep — a later /reload
+ * re-resolves the same selection.
+ *
+ * Refusal contract (canonical statement; the AGENTS.md focus bullets are
+ * summaries pointing here). The mode flip and focus-unit clear precede
+ * the batch because `toggleBatch` refuses under allowlist governance, so
+ * a planner refusal — `ContradictionError` for a non-closure-complete
+ * allowlist, `CycleError` for a dormant `requires` cycle — is caught and
+ * compensated: best-effort restore of the pre-release mode entry and
+ * unit (only when non-null), original error rethrown raw, refusal copy
+ * at the dispatch seam. Planner refusals are pre-write throws, so
+ * resolved state is exactly the pre-release state; a mid-execute write
+ * failure is not rewound — the catch is deliberately name-agnostic.
+ * Either way the append-only branch holds more entries than before. A
+ * corrupt or empty allowlist mode entry refuses up-front with
+ * {@link CorruptModeStateError}, before any mutation: an empty allowlist
+ * is unrepresentable through any sanctioned writer
+ * (`setDefaultResolutionMode` refuses an empty array at write time), so
+ * a release over one could never be compensated — and the fail-fast is
+ * what keeps the seam's "nothing changed" copy honest (without it the
+ * flip succeeds, the batch can refuse, and the compensation itself is
+ * refused). The check sits after the mode guard because exclusion mode
+ * reports `allowlist: []` too.
  *
  * Guarded on the branch mode state — the same shared branch read the
  * library's restore and resolver use — never on an in-memory mirror: a
@@ -273,8 +322,8 @@ export function focusOff(
  * teardown; a user who types it while any allowlist is active wants the
  * clean slate it performs).
  *
- * Note: unlike `focusOff`, this writes no tombstone, so no stale-entry
- * clearing (see `applyEffectiveDefaults`).
+ * Note: unlike `focusOff`, this writes no tombstone (see
+ * `applyEffectiveDefaults` for the stale-entry clearing it does).
  */
 export function focusRelease(
 	pi: ExtensionAPI,
@@ -282,20 +331,46 @@ export function focusRelease(
 ): string {
 	const { mode, allowlist } = readBranchModeState(sessionManager.getBranch());
 	if (mode !== "allowlist") {
-		return `Focus is not active — nothing to release. Use /tbox focus <group>|+<toolset> first.`;
+		return `Focus is not active. Nothing to release.`;
+	}
+	// Corrupt/empty allowlist — refuse up-front (see doc for why this
+	// can't be compensated and sits after the mode guard).
+	if (allowlist.length === 0) {
+		throw new CorruptModeStateError(
+			"allowlist mode entry is corrupt or empty",
+		);
 	}
 
+	// Flip the mode BEFORE the flush — toggleBatch refuses under allowlist
+	// governance; compensate on throw below (see doc).
+	setDefaultResolutionMode(pi, "exclusion");
+	const priorUnit = getFocusUnit(); // captured before the clear
+	const allowSet = new Set(allowlist);
 	setFocusUnit(null);
 	persistFocusUnit(pi, null);
-
-	// ponytail: each release flushes N per-toolset entries; focus cycles
-	// accumulate branch entries over a long session. Upgrade path: a
-	// pi-core compact-toolset-entries op, out of scope.
-	const allowSet = new Set(allowlist);
-	for (const { spec } of getRegisteredToolsets()) {
-		pi.appendEntry(spec.persistKey, { enabled: allowSet.has(spec.id) });
+	try {
+		toggleBatch(
+			pi,
+			sessionManager,
+			getRegisteredToolsets().map(({ spec }) => ({
+				id: spec.id,
+				desired: allowSet.has(spec.id),
+			})),
+		);
+	} catch (err) {
+		// Compensate to net-zero, rethrow original (contract in doc);
+		// best-effort — the refusal must win, never a compensation error.
+		try {
+			setDefaultResolutionMode(pi, "allowlist", allowlist);
+			if (priorUnit !== null) {
+				setFocusUnit(priorUnit);
+				persistFocusUnit(pi, priorUnit);
+			}
+		} catch {
+			// compensation failure is subordinate to the original refusal
+		}
+		throw err;
 	}
-	setDefaultResolutionMode(pi, "exclusion");
 	rerenderSlot(pi);
 
 	return `Focus released — selection retained, focus guard lifted.`;

@@ -168,7 +168,7 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 
 /**
  * Actuate a set of toolset ids to their desired state, without appending
- * persist entries. Intent, not observation (see AGENTS.md) — an orphan whose
+ * persist entries. Intent, not observation — an orphan whose
  * chat-branch entry says off resolves off on a resumed session (a branch-blind
  * settings-only fallback would resolve it ON — the one-prompt leak); during
  * focus the allowlist array is the authority. Used after

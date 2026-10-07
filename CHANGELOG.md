@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`focus release` now routes through the masking planner** instead of
+  raw-appending one `{enabled}` entry per toolset. Release immediately
+  reconciles the live tool set (no more waiting for `/reload`), writes
+  branch entries only for drifted toolsets so settings pins still apply
+  afterward, and emits per-toolset `changed` events. It refuses — with the
+  pre-release mode entry and focus unit restored — on a non-closure-complete
+  allowlist (`ContradictionError`) or a dormant `requires` cycle
+  (`CycleError`); a corrupt/empty allowlist entry refuses up-front with
+  `CorruptModeStateError` before any mutation (recover with `focus off` or
+  `/tbox defaults restore`).
+
 ## [0.9.0] - 2026-10-05
 
 ### Added

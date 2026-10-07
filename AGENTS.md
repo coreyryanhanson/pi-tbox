@@ -116,21 +116,42 @@ point — justified where needed, not preemptively scattered.
   `forceToolsetEnabled` — that apply path always emits, so an ungated call
   fires a spurious `changed` + slot repaint on every unchanged scan of an
   intent-off toolset. It is a re-scan reconcile, not a toggle path.)
+  (Second documented exception: `focusRelease`'s corrupt/empty-allowlist
+  fail-fast in `src/focus.ts` is a *corrupt-state refusal*, not a
+  desired-state pre-gate — the input is unrepresentable through any
+  sanctioned writer (`setDefaultResolutionMode` refuses an empty
+  allowlist), so a refused release over one could never be compensated.
+  It reads no intent, skips no delta gate, and forfeits no repair arm:
+  every non-corrupt release proceeds ungated into the same `toggleBatch`.)
 - **One batch per command.** Multi-op flows (`all`, `<group> on|off`,
-  `solo <unit>`) go through masking's `toggleBatch` over `ctx.sessionManager`,
+  `solo <unit>`, `focus release`) go through masking's `toggleBatch` over
+  `ctx.sessionManager`,
   not wrapper loops — one branch read, one settings read, atomic pre-write
   plan. Only `actuateToolset` keeps the single-op wrapper.
 - **Refusal architecture:** domain functions (`toggleAll`, `actuateToolset`,
-  `actuateGroup`, `soloUnit`, `focusUnit`) throw raw and catch nothing. The
+  `actuateGroup`, `soloUnit`, `focusUnit`, `focusRelease`) throw raw and
+  catch nothing — with one named exception: `focusRelease` catches solely
+  to compensate (restore the pre-release mode entry and focus unit,
+  best-effort, wrapped so a restore failure never supersedes the original)
+  and rethrows — catch for compensation, never for copy. The
   dispatch seam (`runToggle`/`toggleRefusalMessage` in `index.ts`) owns all
   toggle-refusal copy, matched by `err?.name` (`AllowlistModeError`,
-  `CycleError`) — never `instanceof`, because handles may come from another
+  `CycleError`, `ContradictionError` — masking — and tbox-owned
+  `CorruptModeStateError`, defined in `src/focus.ts`) — never
+  `instanceof`, because handles may come from another
   physical copy of the library off the shared `globalThis` registry. A
   refusal message added inside a domain function is a bug, not robustness.
   Under allowlist governance every toggle throws an `AllowlistModeError`
   (mode-global on the `toggleBatch` path; the `actuateToolset` wrapper sets
-  `specId`) — atomic, nothing written; `focusRelease` deliberately tears
-  down a foreign allowlist — accepted behavior, not a bug to guard against.
+  `specId`) — atomic in the throw-before-write sense: the planner refuses
+  before any entry is appended. A refused `focusRelease` is compensated
+  to net-zero resolved state (pre-release mode entry and focus unit
+  restored; a null unit has nothing to restore); the branch is
+  append-only, so it only gains entries. A corrupt/empty allowlist mode
+  entry refuses before any mutation (`CorruptModeStateError`), nothing
+  to compensate.
+  `focusRelease` deliberately tears down a foreign allowlist — accepted
+  behavior, not a bug to guard against.
 - **Branch reader, not branch value.** Actuation and release paths receive
   `ctx.sessionManager` (the reader object — never a `getBranch()` array or
   the bare `getBranch` method reference, which the reader type makes a
@@ -167,11 +188,17 @@ point — justified where needed, not preemptively scattered.
 - While focus is active, actuation commands (`all on|off`, `<group> on|off`,
   `+<toolset> on|off`, `solo <unit>`) must be refused. Enforced via
   `checkFocusGuard` in `src/groups.ts` (every actuation path calls it) —
-  don't bypass it.
+  don't bypass it. (Exempt by design: `focusRelease` is an actuation path —
+  it calls `toggleBatch` — and the third focus exit, but deliberately does
+  not call the guard; releasing is the commanded teardown itself.)
 - Focus exits three ways: `focus off` and `/tbox defaults restore` share
-  `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` has a
-  separate flush path — it writes the live selection to per-toolset `{enabled}`
-  entries, no tombstone, no re-actuation. Don't reinvent a fourth.
+  `applyEffectiveDefaults` (tombstone + re-actuate); `focus release` routes
+  the live selection through masking's planner — it flips to exclusion
+  mode first, then runs one `toggleBatch` over the registry (delta-based:
+  only drifted ids get per-toolset entries, no tombstone, no
+  full-registry re-actuation). It can refuse (`ContradictionError`, `CycleError`,
+  `CorruptModeStateError`) and compensates to net-zero on refusal. Don't
+  reinvent a fourth.
 - **MCP tools are togglable; the rule is *non-declarable ⇒ read-only*.**
   MCP tools carry builtin `sourceInfo` but are ordinary declarable tools with
   a real `exposure` — `src/registry.ts`'s `syncMcpToolsets` gives each server

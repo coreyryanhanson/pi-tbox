@@ -55,11 +55,13 @@ import { handleDefaults } from "./src/defaults.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Map a masking toggle refusal to its user-facing copy, by error name.
+ * Map a toggle refusal to its user-facing copy, by error name.
  *
  * Name-based, never instanceof: throwers may come from another physical
  * copy of the library off the shared globalThis registry. Returns
  * undefined for anything that is not a toggle refusal — callers rethrow.
+ * Every copy is a fixed literal — the error's message is diagnostic
+ * payload, never rendered or matched.
  */
 function toggleRefusalMessage(
 	err: unknown,
@@ -70,6 +72,10 @@ function toggleRefusalMessage(
 		return `${context} refused — toolset toggles do not operate while allowlist governance is active`;
 	if (name === "CycleError")
 		return `${context} refused — a requires cycle was detected before any write; nothing changed`;
+	if (name === "ContradictionError")
+		return `${context} refused — a requires dependency conflict was detected; nothing changed`;
+	if (name === "CorruptModeStateError")
+		return `${context} refused — the allowlist mode entry is corrupt or empty; use /tbox focus off or /tbox defaults restore to exit focus`;
 	return undefined; // not a toggle refusal
 }
 
@@ -265,7 +271,9 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						ctx.ui.notify(focusOff(pi, branch), "info");
 					} else if (sub === "release") {
 						ctx.ui.notify(
-							focusRelease(pi, ctx.sessionManager),
+							runToggle("/tbox focus release", () =>
+								focusRelease(pi, ctx.sessionManager),
+							),
 							"info",
 						);
 					} else if (sub) {
