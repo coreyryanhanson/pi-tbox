@@ -135,15 +135,18 @@ describe("defer child: capture handler gate", () => {
 // ---------------------------------------------------------------------------
 
 function setupToolsets(mock: MockPI, withToolset = true): void {
-	// One live extension tool from a dedicated source — if the capture
-	// handler ran, autoRegisterBuiltinAndOrphans would register it as an
-	// orphan toolset and actuate it.
+	// One live (declarable) extension tool from a dedicated source — if the
+	// capture handler ran, autoRegisterBuiltinAndOrphans would register it
+	// as an orphan toolset and actuate it. registerTool auto-activates a
+	// declarable tool (mirroring pi), so clear the set afterwards: the
+	// capture-gate tests must observe the gate's no-actuation guarantee,
+	// not the registration default.
 	mock.registerTool({
 		name: "new-tool",
 		description: "Newly installed tool",
-		exposure: "codemode",
 		sourceInfo: { path: "new.ts", source: "new-ext", scope: "user", origin: "top-level" },
 	});
+	mock.setActiveTools([]);
 	if (!withToolset) return;
 	mock.registerTool({
 		name: "web-fetch",

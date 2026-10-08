@@ -2,8 +2,9 @@
  * Auto-register orphan toolsets at load time.
  *
  * Scans pi.getAllTools() after all extensions have loaded (in session_start)
- * and registers per-source orphan toolsets for extension tools not
- * claimed by any other toolset.
+ * and registers per-source orphan toolsets for declarable extension tools
+ * (direct/model-only exposure) not claimed by any other toolset — claiming
+ * a non-declarable one would override the author's exposure choice.
  *
  * Builtin tools (source === "builtin") and SDK tools are never registered
  * as tbox toolsets — they're outside tbox's domain.
@@ -32,7 +33,7 @@ import {
 	PersistKeyCollisionError,
 } from "pi-tool-masking";
 import type { ToolsetSpec, RegistryEntry } from "pi-tool-masking";
-import { isExtensionTool } from "./chars.js";
+import { isDeclarableTool, isExtensionTool } from "./chars.js";
 import { isDeclarableMcpTool, isMcpTool } from "./mcp.js";
 
 // ---------------------------------------------------------------------------
@@ -106,12 +107,11 @@ export function autoRegisterBuiltinAndOrphans(pi: ExtensionAPI): string[] {
 	const allTools = pi.getAllTools();
 	const existingToolsets = getRegisteredToolsets();
 
-	// --- Collect extension tools (not builtin, not sdk, not MCP) ---
-	// MCP tools are builtin-source so isExtensionTool already excludes them;
-	// the explicit !isMcpTool arm keeps that true if isExtensionTool ever
-	// widens — a stray MCP tool must not become a tbox.tool@builtin orphan.
+	// --- Collect declarable extension tools (not builtin, not sdk, not MCP) ---
+	// The !isMcpTool arm keeps a stray MCP tool from becoming a
+	// tbox.tool@builtin orphan if isExtensionTool ever widens.
 	const extensionTools = allTools.filter(
-		(t) => isExtensionTool(t) && !isMcpTool(t),
+		(t) => isExtensionTool(t) && !isMcpTool(t) && isDeclarableTool(t),
 	);
 
 	// --- Find which extension tools are already claimed by a toolset ---

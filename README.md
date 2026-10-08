@@ -64,7 +64,7 @@ have the one before it:
 6. **Glance at the cost.** A status-bar slot shows masking and focus state
    at a glance; `/tbox status` reports a serialized character count split
    into a `core` floor (pi-core builtins, host `sdk` tools, and non-declarable
-   MCP tools — the overhead you can't move with `/tbox`) and an `extension`
+   tools — the overhead you can't move with `/tbox`) and an `extension`
    budget (declarable MCP tools plus everything else you can actually move).
    When codemode is active, the count carries a static note instead, since
    that overhead isn't measured.
@@ -256,10 +256,14 @@ that holds across machines and checkouts, pin it with
 (`customTools`) stay read-only: pi doesn't expose their activation. MCP
 tools are the exception: tbox manages them (see below). Everything else
 without a toggle address (the three shared MCP resource tools,
-`codemode`/`deferred` MCP tools that `tool_search` loads mid-session)
+`codemode`/`deferred` MCP tools that `tool_search` loads mid-session,
+and extension tools registered with a non-declarable exposure:
+`codemode`, `deferred`, or `hidden` when something activates them)
 appears read-only under the `pi-managed` group in `/tbox list` and
-`/tbox status`, its chars booked to `core`: visible, not togglable. Persistent control for those is the server's
-`toolExposure` config, not a runtime toggle.
+`/tbox status`, its chars booked to `core`: visible, not togglable.
+Persistent control is upstream of tbox: the server's `toolExposure`
+config for MCP tools, the extension's `exposure` choice for its own
+tools.
 
 ### Picker keyboard shortcuts
 

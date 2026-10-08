@@ -11,8 +11,8 @@
  * per tool, summed. This is the contract — the shape is an impl detail.
  *
  * Returns a split: `core` (non-togglable floor: builtin + sdk tools and
- * non-declarable MCP tools) and `extension` (togglable budget: extension
- * tools and declarable MCP tools).
+ * non-declarable tools on either axis) and `extension` (togglable budget:
+ * declarable extension and MCP tools).
  *
  * @module
  */
@@ -32,17 +32,28 @@ export function isExtensionTool(tool: ToolInfo): boolean {
 }
 
 /**
- * True for tools tbox can toggle: extension tools and declarable MCP tools.
- * The single togglability predicate for every classification site (char
- * counts, masked counts, list char totals). MCP tools are ordinary
- * declarable tools despite their builtin source; non-declarable MCP tools
- * (`codemode`/`deferred`/`hidden`) are never togglable — counting them
- * would inflate `n masked` and the char buckets with tools tbox did not
- * mask. Not used by the registry scan: `isExtensionTool` keeps its narrow
- * meaning there so MCP tools don't become bogus orphan toolsets.
+ * True for exposures whose activation declares the tool to the model —
+ * pi core's own `_isDeclarable` rule (`direct`/`model-only`; `codemode`/
+ * `deferred` reach the model only via explicit activation or tool_search,
+ * `hidden` never). Missing exposure reads as `direct`, pi's default, so
+ * pre-0.99 pi degrades to declarable.
+ */
+export function isDeclarableTool(tool: ToolInfo): boolean {
+	const exposure = (tool as { exposure?: string }).exposure ?? "direct";
+	return exposure === "direct" || exposure === "model-only";
+}
+
+/**
+ * True for tools tbox can toggle: declarable extension tools and declarable
+ * MCP tools. The single togglability predicate for every classification site
+ * (char counts, masked counts, list char totals) — non-declarable tools on
+ * either axis are never togglable. See AGENTS.md for the full rule.
  */
 export function isTogglableTool(tool: ToolInfo): boolean {
-	return isExtensionTool(tool) || isDeclarableMcpTool(tool);
+	return (
+		(isExtensionTool(tool) && isDeclarableTool(tool)) ||
+		isDeclarableMcpTool(tool)
+	);
 }
 
 /**
@@ -120,7 +131,7 @@ export function serializeToolDef(tool: ToolInfo): string {
 /** Result of computeCharCount: core (untoggleable) vs extension (togglable). */
 export interface CharCountSplit {
 	/** Active non-togglable tool char count — non-togglable floor (builtin
-	 * + sdk, and non-declarable MCP tools). */
+	 * + sdk, and non-declarable tools). */
 	core: number;
 	/** Active togglable tool char count — togglable budget. */
 	extension: number;
@@ -135,7 +146,7 @@ export interface CharCountSplit {
  *
  * @param pi - The extension API
  * @returns `{ core, extension }` where core is the non-togglable floor
- * (builtin + sdk, non-declarable MCP) and extension is the togglable set
+ * (builtin + sdk, non-declarable tools) and extension is the togglable set
  */
 export function computeCharCount(pi: ExtensionAPI): CharCountSplit {
 	const activeNames = new Set(pi.getActiveTools());

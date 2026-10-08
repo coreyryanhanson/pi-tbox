@@ -135,6 +135,25 @@ describe("isTogglableTool", () => {
 			expect(isTogglableTool(tools.get(name)!)).toBe(false);
 		}
 	});
+
+	it("rejects non-declarable extension tools; accepts model-only", () => {
+		const mock = new MockPI();
+		const sourceInfo = {
+			path: "ext.ts",
+			source: "extension",
+			scope: "user" as const,
+			origin: "top-level" as const,
+		};
+		for (const exposure of ["codemode", "deferred", "hidden"] as const) {
+			mock.registerTool({ name: `ext-${exposure}`, description: "", exposure, sourceInfo });
+		}
+		mock.registerTool({ name: "ext-model-only", description: "", exposure: "model-only", sourceInfo });
+		const tools = new Map(mock.getAllTools().map((t) => [t.name, t]));
+		for (const exposure of ["codemode", "deferred", "hidden"] as const) {
+			expect(isTogglableTool(tools.get(`ext-${exposure}`)!)).toBe(false);
+		}
+		expect(isTogglableTool(tools.get("ext-model-only")!)).toBe(true);
+	});
 });
 
 // ---------------------------------------------------------------------------

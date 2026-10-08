@@ -41,6 +41,20 @@
 - **`pi-tool-masking` dependency updated from 2.0.1 to 2.1.0** for the
   drift predicate (`computeDrift`, `getActuatableNames`).
 
+### Fixed
+
+- **Orphan toolsets no longer claim non-declarable extension tools.**
+  The orphan scan swept every unclaimed extension tool into a
+  `tbox.tool@<source>` toolset and actuated it at session start — for
+  a tool its author registered `codemode`/`deferred`, activation then
+  declared it to the model anyway, overriding the exposure choice, and
+  `hidden` tools got a bogus togglable toolset with inflated counts. The
+  scan now claims only declarable (`direct`/`model-only`) tools. An
+  active non-declarable extension tool — explicit activation or
+  `tool_search` loading — renders read-only under `pi-managed` with its
+  chars booked to `core`; inactive ones show nowhere. Persistent control
+  remains the extension's exposure choice.
+
 ## [0.9.1] - 2026-10-07
 
 ### Fixed

@@ -276,7 +276,7 @@ describe("formatGroupedList", () => {
 		expect(output).toContain("web-learn");
 	});
 
-	it("routes orphan extension tools under their toolset id", () => {
+	it("never claims a non-declarable orphan; active one renders under pi-managed", () => {
 		mock.registerTool({
 			name: "orphan-tool",
 			description: "Orphan",
@@ -291,13 +291,22 @@ describe("formatGroupedList", () => {
 
 		autoRegisterBuiltinAndOrphans(pi);
 
-		const output = formatGroupedList(pi);
+		// The orphan scan must not claim it — declaring it would override the
+		// author's exposure choice.
+		const ids = getRegisteredToolsets().map((e) => e.spec.id);
+		expect(ids).not.toContain("tbox.tool@extension");
 
-		// The label from registry.ts is the source string ("extension")
-		expect(output).toContain(
-			"tbox.tool@extension (0 active, 1 inactive, +0 chars)",
-		);
-		expect(output).toContain("orphan-tool");
+		// Inactive, it costs no context and shows nowhere.
+		const inactive = formatGroupedList(pi);
+		expect(inactive).not.toContain("orphan-tool");
+
+		// Active (the user named it in defaultTools), it renders read-only
+		// under pi-managed with its chars booked to core.
+		mock.setActiveTools(["orphan-tool"]);
+		const active = formatGroupedList(pi);
+		expect(active).toContain("pi-managed (1 active");
+		expect(active).toContain("orphan-tool");
+		expect(active).toMatch(/core: [1-9]/);
 	});
 
 	it("excludes sdk tools from grouped view entirely", () => {

@@ -201,23 +201,35 @@ entry point must sit beneath one of them rather than grow its own predicate.
   registry (only drifted ids get entries, no tombstone, no full re-actuation).
   It can refuse (`ContradictionError`, `CycleError`, `CorruptModeStateError`)
   and compensates to net-zero. Don't reinvent a fourth.
-- **MCP tools are togglable; the rule is *non-declarable ⇒ read-only*.**
-  MCP tools carry builtin `sourceInfo` but are ordinary declarable tools with
-  a real `exposure`. `src/registry.ts`'s `syncMcpToolsets` gives each server
-  one `tbox.mcp@<server>` toolset over its `direct`-exposure tools, re-scanned
-  from the per-prompt `before_agent_start` hook, `/tbox` dispatch, and the
-  bounded post-start connect poll (`scheduleMcpConnectRescan` in `index.ts`;
-  a name-set diff, not a toggle flow). Membership and classification go
-  through `isDeclarableMcpTool` (`src/mcp.ts`) — never bare `isMcpTool` for
-  those decisions; the togglability predicate `isTogglableTool`
-  (`src/chars.ts`) wraps it with `isExtensionTool` for every count site. Bare
-  `isMcpTool` is correct where the broader set is the point: the
-  orphan-exclusion filter (`src/registry.ts`, so non-declarable MCP tools
-  never become `tbox.tool@builtin` orphans) and pi-managed routing
-  (`src/list.ts`). The three shared resource tools and tool_search-loaded
-  `codemode`/`deferred` tools render read-only under `pi-managed`
-  (presentation only — no ledger bucket). Toggling is context hygiene, not a
-  security boundary: non-declarable MCP tools stay script-callable.
+- **Non-declarable tools are read-only; declarable extension and MCP tools
+  are togglable.**
+  The declaration predicate is `isDeclarableTool` (`src/chars.ts`): exposure
+  `direct`/`model-only`, missing exposure degrading to `direct` — pi core's
+  own `_isDeclarable` rule. It applies on both axes: extension tools (the
+  orphan scan claims only declarable ones, so a codemode/deferred/hidden
+  extension tool is never claimed and actuated at session start) and
+  MCP tools (ordinary declarable tools despite their builtin `sourceInfo`;
+  `syncMcpToolsets` gives each server one `tbox.mcp@<server>` toolset over
+  its `direct`-exposure tools, re-scanned from the per-prompt
+  `before_agent_start` hook, `/tbox` dispatch, and the bounded post-start
+  connect poll (`scheduleMcpConnectRescan` in `index.ts`; a name-set diff,
+  not a toggle flow)). Membership/classification for MCP goes through
+  `isDeclarableMcpTool` (`src/mcp.ts`) — never bare `isMcpTool` for those
+  decisions; `isTogglableTool` (`src/chars.ts`) wraps both axes for every
+  count site. Bare `isMcpTool` is correct where the broader set is the
+  point: the orphan-exclusion filter (`src/registry.ts`, so non-declarable
+  MCP tools never become `tbox.tool@builtin` orphans) and pi-managed
+  routing (`src/list.ts`). The three shared resource tools, tool_search-
+  loaded `codemode`/`deferred` MCP tools, and active non-declarable
+  extension tools render read-only under `pi-managed` (presentation only —
+  no ledger bucket); of the latter two classes, inactive ones show nowhere
+  (zero declared context). Toggling is context hygiene, not a security
+  boundary: non-declarable tools stay script-callable. `isTogglableTool`
+  deliberately answers "does activation cost declared context", not "can a
+  toolset mask it": a third-party toolset explicitly claiming a
+  non-declarable extension tool can mask it, but the tool still drops out
+  of `n masked` and books to `core` — no in-tree caller creates that shape,
+  and claim-awareness would fork the predicate's meaning.
 - Builtin tools and `sdk`-source (host `customTools`) tools are out of scope:
   read-only in `--flat` listings, never togglable (MCP is the exception; see
   above). `isExtensionTool` keeps its narrow meaning so the orphan scan never
