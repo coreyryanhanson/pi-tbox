@@ -34,6 +34,12 @@
 
 ### Changed
 
+- **Uniform invocation rules for every `/tbox` subcommand.** `--help`
+  now serves a usage reply on every surface (toggle commands previously
+  ignored it), and unknown flags or trailing words are rejected with an
+  error notify instead of being silently ignored. Bare `/tbox` remains a
+  help surface; well-formed commands are unaffected.
+
 - **`/tbox status --help` and `/tbox chars --help` now print a one-line
   usage reply** instead of falling through to the full output, like
   `list --help` and `sync --help` do.

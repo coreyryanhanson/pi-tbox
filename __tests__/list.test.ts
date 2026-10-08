@@ -595,7 +595,7 @@ describe("formatByChars", () => {
 	});
 });
 
-describe("formatList (dispatch)", () => {
+describe("formatList", () => {
 	let mock: MockPI;
 	let pi: ExtensionAPI;
 
@@ -607,17 +607,18 @@ describe("formatList (dispatch)", () => {
 	});
 
 	it("returns grouped view by default", () => {
-		const output = formatList(pi, "list");
+		const { message: output } = formatList(pi, "list");
 		expect(output).toContain("Tools by group");
 	});
 
 	it("returns flat view with --flat flag", () => {
-		const output = formatList(pi, "list --flat");
+		const { message: output } = formatList(pi, "list --flat");
 		expect(output).toContain("All tools");
 	});
 
 	it("errors when --active and --inactive are combined", () => {
-		const output = formatList(pi, "list --active --inactive");
+		const { message: output, level } = formatList(pi, "list --active --inactive");
+		expect(level).toBe("error");
 		expect(output).toContain("Error");
 		expect(output).toContain("--active");
 		expect(output).toContain("--inactive");
@@ -641,42 +642,15 @@ describe("formatList (dispatch)", () => {
 		autoRegisterBuiltinAndOrphans(pi);
 		mock.setActiveTools(["tool-a"]);
 
-		const output = formatList(pi, "list --flat --inactive");
+		const { message: output } = formatList(pi, "list --flat --inactive");
 		expect(output).toContain("All tools");
 		expect(output).toContain("tool-b");
 		expect(output).not.toContain("tool-a");
 	});
 
-	it("errors when unknown flag --grouped is used", () => {
-		const output = formatList(pi, "list --grouped");
-		expect(output).toContain("Error");
-		expect(output).toContain("unknown flag");
-		expect(output).toContain("--grouped");
-		expect(output).toContain("See: /tbox list --help.");
-	});
-
-	it("--help returns the help text", () => {
-		const output = formatList(pi, "list --help");
-		expect(output).toContain("/tbox list [view] [filter]");
-		expect(output).toContain("--flat");
-		expect(output).toContain("--active");
-		expect(output).toContain("--inactive");
-	});
-
-	it("unknown flag returns error with --help pointer", () => {
-		const output = formatList(pi, "list --foo");
-		expect(output).toContain("Error");
-		expect(output).toContain("--foo");
-		expect(output).toContain("See: /tbox list --help.");
-	});
-
-	it("multiple unknown flags uses plural", () => {
-		const output = formatList(pi, "list --foo --bar");
-		expect(output).toContain("Error");
-		expect(output).toContain("unknown flags");
-		expect(output).toContain("--foo, --bar");
-		expect(output).toContain("See: /tbox list --help.");
-	});
+	// Unknown-flag and --help rejections run at the dispatch seam; they are
+	// pinned in cli-consistency.test.ts. The --active/--inactive conflict is
+	// formatList's own logic, so it stays here.
 });
 
 describe("formatBareHelp", () => {

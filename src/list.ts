@@ -519,8 +519,8 @@ export function formatFlatList(
 // Help
 // ---------------------------------------------------------------------------
 
-const LIST_HELP = `\
-/tbox list [view] [filter]
+export const LIST_HELP = `\
+/tbox list [--flat] [--active|--inactive]
 
 Views (mutually exclusive):
   (default)   grouped by toolset
@@ -530,23 +530,49 @@ Filters (mutually exclusive):
   --active    show only active tools
   --inactive  show only inactive tools`;
 
-const KNOWN_LIST_FLAGS = new Set(["flat", "active", "inactive", "help"]);
+export const KNOWN_LIST_FLAGS = new Set(["flat", "active", "inactive"]);
+
+export interface InvocationResult {
+	message: string;
+	level: "info" | "error";
+}
 
 /**
- * Return an "unknown flag" error line, or null when every flag is known.
- * Shared by /tbox list and /tbox defaults — help handling stays at the
- * call site (each surface returns its own output type).
+ * Shared invocation guard: one rule for every /tbox subcommand. `--help`
+ * returns the command's help text at info, unknown flags are rejected, and
+ * positional words beyond the subcommand's fixed grammar are rejected at
+ * error. Returns null when the invocation is well-formed. `known` never
+ * needs to list "help" — the help check runs before unknown-flag rejection.
+ * `rest` must include the command word at rest[0]; `maxWords` counts it
+ * (e.g. `/tbox all on` → maxWords 2).
  */
-export function unknownFlagsError(
+export function invocationError(
 	flags: ReadonlySet<string>,
 	known: ReadonlySet<string>,
+	rest: readonly string[],
+	maxWords: number,
 	cmd: string,
-): string | null {
+	help: string,
+): InvocationResult | null {
+	if (flags.has("help")) return { message: help, level: "info" };
 	const unknown = [...flags].filter((f) => !known.has(f));
-	if (unknown.length === 0) return null;
-	return `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown
-		.map((f) => `--${f}`)
-		.join(", ")}. See: /tbox ${cmd} --help.`;
+	if (unknown.length > 0) {
+		return {
+			message: `Error: unknown flag${unknown.length > 1 ? "s" : ""} ${unknown
+				.map((f) => `--${f}`)
+				.join(", ")}. See: /tbox ${cmd} --help.`,
+			level: "error",
+		};
+	}
+	if (rest.length > maxWords) {
+		return {
+			message: `Error: unexpected argument "${rest
+				.slice(maxWords)
+				.join(" ")}". See: /tbox ${cmd} --help.`,
+			level: "error",
+		};
+	}
+	return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,23 +609,19 @@ export function parseArgs(input: string): ParsedArgs {
 }
 
 /**
- * Format output for `/tbox list [args]`.
+ * Format output for `/tbox list [args]`. Assumes a validated invocation —
+ * the dispatch seam runs the shared invocation guard before calling.
  */
-export function formatList(pi: ExtensionAPI, args: string): string {
+export function formatList(pi: ExtensionAPI, args: string): InvocationResult {
 	const { flags } = parseArgs(args);
-
-	// --help before any other checks
-	if (flags.has("help")) {
-		return LIST_HELP;
-	}
-
-	// Reject unknown flags
-	const unknownErr = unknownFlagsError(flags, KNOWN_LIST_FLAGS, "list");
-	if (unknownErr !== null) return unknownErr;
 
 	// Error if both --active and --inactive
 	if (flags.has("active") && flags.has("inactive")) {
-		return "Error: --active and --inactive cannot be used together. See: /tbox list --help.";
+		return {
+			message:
+				"Error: --active and --inactive cannot be used together. See: /tbox list --help.",
+			level: "error",
+		};
 	}
 
 	const options: ListOptions = {
@@ -607,9 +629,9 @@ export function formatList(pi: ExtensionAPI, args: string): string {
 		inactive: flags.has("inactive"),
 	};
 	if (flags.has("flat")) {
-		return formatFlatList(pi, options);
+		return { message: formatFlatList(pi, options), level: "info" };
 	}
-	return formatGroupedList(pi, options);
+	return { message: formatGroupedList(pi, options), level: "info" };
 }
 
 // ---------------------------------------------------------------------------
@@ -720,7 +742,7 @@ export function formatBareHelp(): string {
 	return (
 		"Subcommands: list, status, all, focus, solo, group, chars, defaults, sync\n" +
 		"  /tbox solo <group>|+<toolset> \u2014 everything off, one unit on (focus without the lock)\n" +
-		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters\n" +
+		"  /tbox list [--flat] [--active|--inactive] \u2014 run /tbox list --help for views and filters\n" +
 		"  /tbox defaults [save|show|clear|restore] \u2014 run /tbox defaults --help for details\n" +
 		"  /tbox sync \u2014 align the live tool set with declared toolset state (repair drift)"
 	);

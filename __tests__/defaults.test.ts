@@ -312,6 +312,18 @@ describe("/tbox defaults (settings)", () => {
 			expect(readToolsetDefaults("project")).toEqual({});
 		});
 
+		it("--help stays info-level, ahead of trailing-word rejection", () => {
+			const result = handleDefaults(pi, ctx(), "defaults save extra --help");
+			expect(result.level).toBe("info");
+			expect(result.message).toContain("/tbox defaults");
+		});
+
+		it("a trailing word is rejected at error (maxWords 2)", () => {
+			const result = handleDefaults(pi, ctx(), "defaults save extra");
+			expect(result.level).toBe("error");
+			expect(result.message).toContain('unexpected argument "extra"');
+		});
+
 		it("an unknown -- flag is rejected with the pointed error", () => {
 			const result = handleDefaults(pi, ctx(), "defaults save --gloal");
 			expect(result.level).toBe("error");

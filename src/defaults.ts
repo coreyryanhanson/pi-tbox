@@ -30,7 +30,7 @@ import {
 	readToolsetDefaults,
 	writeToolsetDefaults,
 } from "pi-tool-masking";
-import { parseArgs, unknownFlagsError } from "./list.js";
+import { parseArgs, invocationError } from "./list.js";
 import { applyEffectiveDefaults } from "./focus.js";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ Flags:
              of the project's .pi/settings.json (save/clear only)
   --help     this help`;
 
-const KNOWN_DEFAULTS_FLAGS = new Set(["global", "help"]);
+const KNOWN_DEFAULTS_FLAGS = new Set(["global"]);
 
 /**
  * Resolve the write scope from flags. `--project` is NOT a known flag —
@@ -231,10 +231,8 @@ function defaultsRestore(
 // ---------------------------------------------------------------------------
 
 /**
- * Dispatch /tbox defaults.
- *
- * Mirrors /tbox list's flag handling: --help first, then unknown-flag
- * rejection. Bare `/tbox defaults` shows the pins.
+ * Dispatch /tbox defaults. Bare `/tbox defaults` shows the pins; the
+ * invocation guard's levels are owned by `invocationError` itself.
  */
 export function handleDefaults(
 	pi: ExtensionAPI,
@@ -243,14 +241,15 @@ export function handleDefaults(
 ): DefaultsResult {
 	const { flags, rest } = parseArgs(args);
 
-	if (flags.has("help")) {
-		return { message: DEFAULTS_HELP, level: "info" };
-	}
-
-	const unknownErr = unknownFlagsError(flags, KNOWN_DEFAULTS_FLAGS, "defaults");
-	if (unknownErr !== null) {
-		return { message: unknownErr, level: "error" };
-	}
+	const invocationErr = invocationError(
+		flags,
+		KNOWN_DEFAULTS_FLAGS,
+		rest,
+		2,
+		"defaults",
+		DEFAULTS_HELP,
+	);
+	if (invocationErr !== null) return invocationErr;
 
 	const sub = rest[1] ?? "show";
 	switch (sub) {

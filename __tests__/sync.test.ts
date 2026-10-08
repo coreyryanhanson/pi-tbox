@@ -134,10 +134,9 @@ function freshSession(): { mock: MockPI; pi: ExtensionAPI } {
 
 describe("drift warning seam (list | chars | status)", () => {
 	let mock: MockPI;
-	let pi: ExtensionAPI;
 
 	beforeEach(() => {
-		({ mock, pi } = freshSession());
+		({ mock } = freshSession());
 	});
 
 	afterEach(() => {
@@ -199,6 +198,34 @@ describe("drift warning seam (list | chars | status)", () => {
 		expect(mock.getLastStatus(SLOT_NAME)).toBeUndefined();
 		// The help output itself still arrives.
 		expect(mock.getLastNotify()!.level).toBe("info");
+	});
+
+	it("a rejected invocation carries no drift diagnostics", async () => {
+		makeLeak();
+		await mock.dispatchCommand("status foo");
+
+		expect(warningRecords(mock)).toHaveLength(0);
+		// Same seam-skip proof as the --help test above: no repaint at all.
+		expect(mock.getLastStatus(SLOT_NAME)).toBeUndefined();
+		const rejection = mock.getLastNotify()!;
+		expect(rejection.level).toBe("error");
+		expect(rejection.message).toContain('unexpected argument "foo"');
+
+		// Same for the list arm, whose guard runs at dispatch.
+		await mock.dispatchCommand("list foo");
+		expect(warningRecords(mock)).toHaveLength(0);
+		expect(mock.getLastNotify()!.message).toContain('unexpected argument "foo"');
+	});
+
+	it("a list flag-conflict rejection carries no drift diagnostics", async () => {
+		makeLeak();
+		await mock.dispatchCommand("list --active --inactive");
+
+		expect(warningRecords(mock)).toHaveLength(0);
+		expect(mock.getLastStatus(SLOT_NAME)).toBeUndefined();
+		const rejection = mock.getLastNotify()!;
+		expect(rejection.level).toBe("error");
+		expect(rejection.message).toContain("--active");
 	});
 
 	it("never fires per prompt (force-removal survives the turn boundary)", async () => {
@@ -467,7 +494,7 @@ describe("/tbox sync via dispatch", () => {
 
 	it("rejects trailing arguments", async () => {
 		await mock.dispatchCommand("sync extra");
-		expect(mock.getLastNotify()!.message).toContain("Usage: /tbox sync");
+		expect(mock.getLastNotify()!.message).toContain('unexpected argument "extra"');
 	});
 
 	it("rejects unknown flags", async () => {

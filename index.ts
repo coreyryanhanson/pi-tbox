@@ -33,7 +33,9 @@ import {
 	formatList,
 	formatStatus,
 	parseArgs,
-	unknownFlagsError,
+	invocationError,
+	KNOWN_LIST_FLAGS,
+	LIST_HELP,
 } from "./src/list.js";
 import { isReserved } from "./src/reserved.js";
 import { isDeclarableMcpTool } from "./src/mcp.js";
@@ -86,6 +88,9 @@ const DRIFT_SEAM_COMMANDS: ReadonlySet<string> = new Set([
 	"chars",
 	"status",
 ]);
+
+// Commands that accept no flags — passed as the guard's known-flag set.
+const NO_FLAGS: ReadonlySet<string> = new Set();
 
 // Post-session_start MCP connect retry: pi fires no extension event when a
 // server's tools land.
@@ -166,6 +171,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		"Usage: /tbox status — full status: toolsets, groups, focus, char-count split. Takes no arguments.";
 	const CHARS_HELP =
 		"Usage: /tbox chars — per-toolset context char counts. Takes no arguments.";
+	const ALL_USAGE =
+		"Usage: /tbox all on | /tbox all off — enable or disable all toolsets.";
+	const SOLO_USAGE =
+		"Usage: /tbox solo <group> | /tbox solo +<toolset> — everything off, one unit on. Like focus, but no lock.";
+	const FOCUS_USAGE =
+		"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off | /tbox focus release — focus on a group or toolset, or exit focus.";
+	const GROUP_USAGE =
+		"Usage: /tbox group <name> [edit|remove] | /tbox group list — edit or remove a group, or list all groups.";
+	const TOOLSET_USAGE =
+		"Usage: /tbox +<toolset> on | /tbox +<toolset> off — enable or disable a toolset.";
+	const GROUP_TOGGLE_USAGE =
+		"Usage: /tbox <group> on | /tbox <group> off — enable or disable a group.";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -206,29 +223,42 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				return;
 			}
 
+			// Shared invocation guard at dispatch. invocationHandled marks help
+			// or a rejection, so the drift seam below only runs for commands
+			// that actually executed.
+			let invocationHandled = false;
+			const guard = (
+				known: ReadonlySet<string>,
+				maxWords: number,
+				cmd: string,
+				help: string,
+			): boolean => {
+				const err = invocationError(flags, known, rest, maxWords, cmd, help);
+				if (err === null) return false;
+				ctx.ui.notify(err.message, err.level);
+				invocationHandled = true;
+				return true;
+			};
+
 			switch (command) {
 				case "list": {
-					const output = formatList(pi, trimmed);
-					ctx.ui.notify(output, "info");
+					// Dispatch is the sole guard; formatList assumes a validated
+					// invocation, so level === "error" past the guard means only the
+					// --active/--inactive conflict.
+					if (guard(KNOWN_LIST_FLAGS, 1, "list", LIST_HELP)) break;
+					const { message, level } = formatList(pi, trimmed);
+					ctx.ui.notify(message, level);
+					if (level === "error") invocationHandled = true;
 					break;
 				}
 				case "status": {
-					// --help handled here so the drift seam's `--help` skip is true
-					// for every stats command: help served, no diagnostics.
-					if (flags.has("help")) {
-						ctx.ui.notify(STATUS_HELP, "info");
-						break;
-					}
-					const statusFlagErr = unknownFlagsError(flags, new Set(["help"]), "status");
-					if (statusFlagErr !== null) {
-						ctx.ui.notify(statusFlagErr, "info");
-						break;
-					}
+					if (guard(NO_FLAGS, 1, "status", STATUS_HELP)) break;
 					const output = formatStatus(pi, branch);
 					ctx.ui.notify(output, "info");
 					break;
 				}
 				case "all": {
+					if (guard(NO_FLAGS, 2, "all", ALL_USAGE)) break;
 					const sub = rest[1];
 					if (sub === "on") {
 						ctx.ui.notify(
@@ -245,21 +275,18 @@ export default function tboxFactory(pi: ExtensionAPI) {
 							"info",
 						);
 					} else {
-						ctx.ui.notify(
-							"Usage: /tbox all on | /tbox all off — enable or disable all toolsets.",
-							"info",
-						);
+						// Bare command = help; a typed-but-invalid operand is a
+						// rejection, like every guard rejection.
+						ctx.ui.notify(ALL_USAGE, sub ? "error" : "info");
 					}
 					break;
 				}
 				case "group": {
 					// /tbox group <name> [edit|remove] | /tbox group list
+					if (guard(NO_FLAGS, 3, "group", GROUP_USAGE)) break;
 					const name = rest[1];
 					if (!name) {
-						ctx.ui.notify(
-							"Usage: /tbox group <name> [edit|remove] | /tbox group list — edit or remove a group, or list all groups.",
-							"info",
-						);
+						ctx.ui.notify(GROUP_USAGE, "info");
 						break;
 					}
 					// /tbox group list — name is "list", no second arg
@@ -278,8 +305,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					if (name === "list" && sub !== "edit" && sub !== "remove") {
 						ctx.ui.notify(
 							'Usage: /tbox group list — list all groups. "list" is a reserved word and cannot be a group name.',
-							"info",
+							"error",
 						);
+						break;
+					}
+					if (sub && sub !== "edit" && sub !== "remove") {
+						ctx.ui.notify(GROUP_USAGE, "error");
 						break;
 					}
 					if (sub === "edit") {
@@ -310,12 +341,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				}
 
 				case "solo": {
+					if (guard(NO_FLAGS, 2, "solo", SOLO_USAGE)) break;
 					const target = rest[1];
 					if (!target) {
-						ctx.ui.notify(
-							"Usage: /tbox solo <group> | /tbox solo +<toolset> — everything off, one unit on. Like focus, but no lock.",
-							"info",
-						);
+						ctx.ui.notify(SOLO_USAGE, "info");
 						break;
 					}
 					ctx.ui.notify(
@@ -327,20 +356,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "chars": {
-					// See the status case: help served means the seam's skip is true.
-					if (flags.has("help")) {
-						ctx.ui.notify(CHARS_HELP, "info");
-						break;
-					}
-					const charsFlagErr = unknownFlagsError(flags, new Set(["help"]), "chars");
-					if (charsFlagErr !== null) {
-						ctx.ui.notify(charsFlagErr, "info");
-						break;
-					}
+					if (guard(NO_FLAGS, 1, "chars", CHARS_HELP)) break;
 					ctx.ui.notify(formatByChars(pi), "info");
 					break;
 				}
 				case "focus": {
+					if (guard(NO_FLAGS, 2, "focus", FOCUS_USAGE)) break;
 					const sub = rest[1];
 					if (sub === "off") {
 						ctx.ui.notify(focusOff(pi, branch), "info");
@@ -357,10 +378,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 							"info",
 						);
 					} else {
-						ctx.ui.notify(
-							"Usage: /tbox focus <group> | /tbox focus +<toolset> | /tbox focus off | /tbox focus release — focus on a group or toolset, or exit focus.",
-							"info",
-						);
+						ctx.ui.notify(FOCUS_USAGE, "info");
 					}
 					break;
 				}
@@ -370,22 +388,9 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "sync": {
-					// Takes no arguments — the validating pair, like list/defaults:
-					// --help first (the shared flag-rejection line's hint must stay
-					// true), trailing words print usage, unknown flags are rejected.
-					if (flags.has("help")) {
-						ctx.ui.notify(SYNC_USAGE, "info");
-						break;
-					}
-					if (rest.length > 1) {
-						ctx.ui.notify(SYNC_USAGE, "info");
-						break;
-					}
-					const flagErr = unknownFlagsError(flags, new Set(), "sync");
-					if (flagErr !== null) {
-						ctx.ui.notify(flagErr, "info");
-						break;
-					}
+					// Takes no arguments — the shared guard, like every subcommand:
+					// --help first, unknown flags and trailing words rejected.
+					if (guard(NO_FLAGS, 1, "sync", SYNC_USAGE)) break;
 					// No checkFocusGuard — sync's desired state is derived from
 					// focus itself (mode-aware effectiveEnabled), the same
 					// principle that exempts focusRelease. Not a toggle flow:
@@ -402,6 +407,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					// `+` prefix → toolset direct toggle
 					if (command.startsWith("+")) {
 						const toolsetId = command.slice(1);
+						if (guard(NO_FLAGS, 2, command, TOOLSET_USAGE)) break;
 						const sub = rest[1];
 						if (sub === "on") {
 							ctx.ui.notify(
@@ -417,8 +423,10 @@ export default function tboxFactory(pi: ExtensionAPI) {
 								),
 								"info",
 							);
-						} else {
+						} else if (!sub) {
 							ctx.ui.notify(describeToolset(toolsetId, branch), "info");
+						} else {
+							ctx.ui.notify(TOOLSET_USAGE, "error");
 						}
 						break;
 					}
@@ -433,6 +441,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						);
 						break;
 					}
+					if (guard(NO_FLAGS, 2, command, GROUP_TOGGLE_USAGE)) break;
 					const sub = rest[1];
 					if (sub === "on") {
 						ctx.ui.notify(
@@ -448,17 +457,19 @@ export default function tboxFactory(pi: ExtensionAPI) {
 							),
 							"info",
 						);
-					} else {
+					} else if (!sub) {
 						ctx.ui.notify(describeGroup(command), "info");
+					} else {
+						ctx.ui.notify(GROUP_TOGGLE_USAGE, "error");
 					}
 				}
 			}
 
 			// Drift seam — stats commands diagnose drift. The predicate runs
 			// twice per invocation (here for the bubble, again inside the
-			// repaint's provider check); help requests skip the seam — not
-			// diagnostic invocations.
-			if (DRIFT_SEAM_COMMANDS.has(command) && !flags.has("help")) {
+			// repaint's provider check); handled invocations (help served or
+			// rejected) skip the seam — not diagnostic invocations.
+			if (DRIFT_SEAM_COMMANDS.has(command) && !invocationHandled) {
 				const facts = computeDrift(pi, branch);
 				if (facts.length > 0) {
 					ctx.ui.notify(driftWarningMessage(facts), "warning");

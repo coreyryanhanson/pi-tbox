@@ -275,7 +275,7 @@ describe("integration — multi-extension registry", () => {
 	// -----------------------------------------------------------------------
 
 	it("list default grouped view shows all tools under correct toolset groups", () => {
-		const output = formatList(pi, "list");
+		const { message: output } = formatList(pi, "list");
 
 		// portal.web shows its tool
 		expect(output).toContain("portal.web");

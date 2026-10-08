@@ -105,15 +105,15 @@ describe("reserved-word dispatch via /tbox", () => {
 		setGroupsOverrideForTests(null);
 	});
 
-	it("/tbox list on (reserved 'list') does NOT actuate a group — dispatches to list", async () => {
+	it("/tbox list on (reserved 'list') does NOT actuate a group — rejects the trailing word", async () => {
 		// Even though "on" is a valid action, "list" is reserved so the
-		// subcommand wins. list ignores the trailing "on" and renders.
+		// subcommand wins. The trailing "on" is rejected, never actuated.
 		await mock.dispatchCommand("list on");
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		// The list output contains the grouped header, not a group-actuation line.
-		expect(notify!.message).toContain("Tools by group");
+		// Rejection, not a group-actuation line.
+		expect(notify!.message).toContain('unexpected argument "on"');
 		expect(notify!.message).not.toContain("Enabled group");
 	});
 

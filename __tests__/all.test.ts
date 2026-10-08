@@ -251,6 +251,7 @@ describe("all via dispatchCommand", () => {
 
 		const notify = mock.getLastNotify();
 		expect(notify).toBeDefined();
-		expect(notify!.message).toContain("Usage");
+		expect(notify!.message).toContain("Usage: /tbox all");
+		expect(notify!.level).toBe("info");
 	});
 });

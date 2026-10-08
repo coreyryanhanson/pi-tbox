@@ -112,7 +112,7 @@ group even if they share a name. Reserved words (`status`, `focus`, `solo`,
 | Command | Effect |
 |---|---|
 | `/tbox` | current state (slot mirror + brief help) |
-| `/tbox list [view] [filter]` | enumerate tools (see views & filters below) |
+| `/tbox list [--flat] [--active|--inactive]` | enumerate tools (see views & filters below) |
 | `/tbox chars` | budget view: toolsets ranked by +chars descending |
 | `/tbox <group> on` / `off` | enable / disable every toolset in a group |
 | `/tbox +<toolset> on` / `off` | enable / disable a single toolset directly |
