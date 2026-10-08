@@ -27,6 +27,7 @@ import {
 	readMergedToolsetDefaults,
 	setDefaultResolutionMode,
 	toggleBatch,
+	type BatchOp,
 	type BranchReader,
 } from "pi-tool-masking";
 import { forwardClosure } from "./requires-graph.js";
@@ -162,6 +163,20 @@ export function focusUnit(pi: ExtensionAPI, input: string): string {
 }
 
 /**
+ * Partition ops for an allowlist-style batch: one op per registered
+ * toolset id, `desired` true for ids in `onIds` and false for the rest.
+ * Unregistered ids in `onIds` produce no op (the batch throws only on an
+ * explicitly named unregistered op). The shared partition builder behind
+ * `soloUnit` and `focusRelease`.
+ */
+function partitionOps(onIds: ReadonlySet<string>): BatchOp[] {
+	return getRegisteredToolsets().map(({ spec }) => ({
+		id: spec.id,
+		desired: onIds.has(spec.id),
+	}));
+}
+
+/**
  * Solo on a single unit — the lockless cousin of focus.
  *
  * One `toggleBatch` over the closure partition: enable ops for every
@@ -190,19 +205,7 @@ export function soloUnit(
 	const resolved = resolveFocusUnit(input);
 	if (!resolved.ok) return resolved.error;
 
-	const registered = new Set(
-		getRegisteredToolsets().map((e) => e.spec.id),
-	);
-	const unitSet = new Set(resolved.toolsetIds);
-	const ops = [
-		...[...unitSet]
-			.filter((id) => registered.has(id))
-			.map((id) => ({ id, desired: true })),
-		...[...registered]
-			.filter((id) => !unitSet.has(id))
-			.map((id) => ({ id, desired: false })),
-	];
-	toggleBatch(pi, sessionManager, ops);
+	toggleBatch(pi, sessionManager, partitionOps(new Set(resolved.toolsetIds)));
 
 	const n = resolved.toolsetIds.length;
 	return `Solo on "${resolved.label}" — ${n} toolset${n === 1 ? "" : "s"} (+ requires deps) on, everything else off.`;
@@ -284,8 +287,8 @@ class CorruptModeStateError extends Error {
  *
  * Switches to exclusion mode first, then flushes the allowlist selection
  * through the library's planner (`toggleBatch`): enable ops for allowlist
- * members, disable ops for every other registered id — the same partition
- * as `soloUnit`. The batch is delta-based: only ids whose pre-call tier
+ * members, disable ops for every other registered id — the shared
+ * {@link partitionOps} builder behind `soloUnit`. The batch is delta-based: only ids whose pre-call tier
  * resolution disagreed with the desired value (or whose tools were
  * force-added within the turn — the repair arm) get per-toolset branch
  * entries; tier-consistent ids keep falling through the tier chain, so a
@@ -348,14 +351,7 @@ export function focusRelease(
 	setFocusUnit(null);
 	persistFocusUnit(pi, null);
 	try {
-		toggleBatch(
-			pi,
-			sessionManager,
-			getRegisteredToolsets().map(({ spec }) => ({
-				id: spec.id,
-				desired: allowSet.has(spec.id),
-			})),
-		);
+		toggleBatch(pi, sessionManager, partitionOps(allowSet));
 	} catch (err) {
 		// Compensate to net-zero, rethrow original (contract in doc);
 		// best-effort — the refusal must win, never a compensation error.

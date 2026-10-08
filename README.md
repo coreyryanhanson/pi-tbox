@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/tbox-dino.svg" alt="pi-tbox logo — a t-rex stuck in a cardboard box" width="180" />
+  <img src="assets/tbox-dino.svg" alt="pi-tbox logo — a t-rex stuck in a cardboard box" width="180" />
 </p>
 
 <h1 align="center">pi-tbox</h1>
@@ -142,10 +142,9 @@ group even if they share a name. Reserved words (`status`, `focus`, `solo`,
   --inactive  show only inactive tools
 ```
 
-The default grouped view resolves overlapping toolsets by
-smallest-toolset-wins: each tool appears once under its most specific
-containing toolset, no duplication. `--active` / `--inactive` narrow the
-list to only the enabled or disabled tools.
+Each tool appears once, under the one toolset that claims it — toolsets
+cannot overlap, so no resolution rule is needed. `--active` /
+`--inactive` narrow the list to only the enabled or disabled tools.
 
 ### `/tbox defaults` — settings-tier pins
 
@@ -183,7 +182,7 @@ builtins, `sdk` tools, and MCP tools tbox can't toggle are excluded (they
 are the non-togglable floor; their chars live in `core`). Toolsets with no
 active members (charging +0 chars) are omitted — they're not consuming
 budget, so there's nothing to save. No flags. Each line reports the
-toolset's active/inactive split and its +chars cost. When codemode is
+toolset's active member count and its +chars cost. When codemode is
 active, a static note replaces the computed estimate, since that overhead
 isn't measured.
 

@@ -423,6 +423,26 @@ describe("integration — multi-extension registry", () => {
 		);
 	});
 
+	it("rejects unknown flags on the stats commands", async () => {
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+		mock.clearUiRecords();
+
+		await mock.dispatchCommand("status --bogus");
+		const statusNotify = mock.getLastNotify();
+		expect(statusNotify).toBeDefined();
+		expect(statusNotify!.message).toContain("unknown flag --bogus");
+		expect(statusNotify!.message).toContain("/tbox status --help");
+
+		mock.clearUiRecords();
+		await mock.dispatchCommand("chars --bogus");
+		const charsNotify = mock.getLastNotify();
+		expect(charsNotify).toBeDefined();
+		expect(charsNotify!.message).toContain("unknown flag --bogus");
+		expect(charsNotify!.message).toContain("/tbox chars --help");
+	});
+
 	it("bare /tbox restore is reserved, not a group lookup", async () => {
 		const mod = await import("../index.js");
 		mod.default(pi);

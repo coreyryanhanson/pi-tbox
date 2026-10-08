@@ -219,6 +219,11 @@ export default function tboxFactory(pi: ExtensionAPI) {
 						ctx.ui.notify(STATUS_HELP, "info");
 						break;
 					}
+					const statusFlagErr = unknownFlagsError(flags, new Set(["help"]), "status");
+					if (statusFlagErr !== null) {
+						ctx.ui.notify(statusFlagErr, "info");
+						break;
+					}
 					const output = formatStatus(pi, branch);
 					ctx.ui.notify(output, "info");
 					break;
@@ -325,6 +330,11 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					// See the status case: help served means the seam's skip is true.
 					if (flags.has("help")) {
 						ctx.ui.notify(CHARS_HELP, "info");
+						break;
+					}
+					const charsFlagErr = unknownFlagsError(flags, new Set(["help"]), "chars");
+					if (charsFlagErr !== null) {
+						ctx.ui.notify(charsFlagErr, "info");
 						break;
 					}
 					ctx.ui.notify(formatByChars(pi), "info");

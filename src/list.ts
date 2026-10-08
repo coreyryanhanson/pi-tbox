@@ -1,8 +1,8 @@
 /**
  * /tbox list, status, and bare help formatters.
  *
- * Provides the grouped view (smallest-toolset-wins), flat view (all
- * tools with sdk read-only rows), status aggregator, and bare help output.
+ * Provides the grouped view (each tool under its owning toolset), flat view
+ * (all tools with sdk read-only rows), status aggregator, and bare help output.
  *
  * @module
  */
@@ -54,22 +54,18 @@ function pushNoMatchFallback(lines: string[]): void {
 }
 
 /**
- * Build a map of tool name → smallest containing toolset entry.
- *
- * "Smallest" is measured by spec.names.size — a toolset with fewer members
- * is more specific/about one thing. Only tools registered in at least one
- * toolset will appear in the map.
+ * Build a map of tool name → owning toolset entry. Overlap is impossible:
+ * defineToolset rejects two toolsets claiming the same tool name, and the
+ * registration scans subtract already-claimed names. Only tools registered
+ * in at least one toolset will appear in the map.
  */
-function smallestToolsetMap(
+function toolOwnerMap(
 	toolsets: readonly RegistryEntry[],
 ): Map<string, RegistryEntry> {
 	const map = new Map<string, RegistryEntry>();
 	for (const entry of toolsets) {
 		for (const name of entry.spec.names) {
-			const existing = map.get(name);
-			if (!existing || entry.spec.names.size < existing.spec.names.size) {
-				map.set(name, entry);
-			}
+			map.set(name, entry);
 		}
 	}
 	return map;
@@ -224,7 +220,7 @@ function renderTable(
 /**
  * Format the grouped list view (default).
  *
- * Each tool appears exactly once under its smallest containing toolset.
+ * Each tool appears exactly once, under the toolset that claims it.
  * SDK tools are excluded from the grouped view entirely. Tools tbox
  * cannot toggle (see isPiManagedTool) render under a separate
  * `pi-managed` group.
@@ -239,7 +235,7 @@ export function formatGroupedList(
 	const allTools = pi.getAllTools();
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
-	const toolToToolset = smallestToolsetMap(toolsets);
+	const toolToToolset = toolOwnerMap(toolsets);
 	const allToolsMap = new Map(allTools.map((t) => [t.name, t]));
 
 	// Filter: exclude sdk + apply active/inactive
@@ -251,7 +247,7 @@ export function formatGroupedList(
 		filtered = filtered.filter((t) => !activeSet.has(t.name));
 	}
 
-	// Group filtered tools by their smallest toolset id. Unmanageable tools
+	// Group filtered tools by their owning toolset id. Unmanageable tools
 	// route to the pi-managed group first, so they never fall through to
 	// the builtin branch via the source fallback.
 	const groups = new Map<string, ToolInfo[]>();
@@ -489,7 +485,7 @@ export function formatFlatList(
 	const allTools = pi.getAllTools();
 	const toolsets = getRegisteredToolsets();
 	const activeSet = new Set(pi.getActiveTools());
-	const toolToToolset = smallestToolsetMap(toolsets);
+	const toolToToolset = toolOwnerMap(toolsets);
 
 	// Apply filters
 	let filtered = allTools;

@@ -165,9 +165,9 @@ describe("formatGroupedList", () => {
 		setFocusUnit(null);
 	});
 
-	it("shows smallest-toolset-wins with no duplication", () => {
-		// big = {a, b, c} (size 3), small = {d} (size 1) — disjoint names per
-		// pi-tool-masking@1.1.0 name-overlap guard
+	it("shows each tool once under its owning toolset, with no duplication", () => {
+		// big = {a, b, c} (size 3), small = {d} (size 1) — disjoint names, as
+		// pi-tool-masking's name-overlap guard requires
 		for (const name of ["a", "b", "c", "d"]) {
 			mock.registerTool({
 				name,
