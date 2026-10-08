@@ -323,6 +323,7 @@ export function formatGroupedList(
 						charCount += serializeToolDef(t).length;
 					}
 					totalActive += activeCount;
+					totalInactive += builtins.length - activeCount;
 					totalCoreChars += charCount;
 					lines.push(
 						`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,

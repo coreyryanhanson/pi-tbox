@@ -373,6 +373,38 @@ describe("formatGroupedList", () => {
 		expect(output).toContain("tool-b");
 		expect(output).not.toContain("tool-a");
 	});
+
+	it("counts inactive builtins in the footer totals", () => {
+		mock.registerTool({
+			name: "read",
+			description: "Read files",
+			sourceInfo: {
+				path: "builtin.ts",
+				source: "builtin",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+		mock.registerTool({
+			name: "tool-a",
+			description: "Orphan tool",
+			sourceInfo: {
+				path: "ext.ts",
+				source: "extension",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		autoRegisterBuiltinAndOrphans(pi);
+		mock.setActiveTools([]);
+
+		const output = formatGroupedList(pi, { inactive: true });
+
+		expect(output).toContain("read (inactive)");
+		expect(output).toContain("tool-a (inactive)");
+		expect(output).toContain("Total: 0 active, 2 inactive");
+	});
 });
 
 describe("formatFlatList", () => {

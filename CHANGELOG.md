@@ -43,6 +43,11 @@
 
 ### Fixed
 
+- **Grouped-list footer now counts inactive builtins.** The
+  `Total: N active, M inactive` line under `/tbox list` skipped inactive
+  `pi.builtin` tools while the section itself rendered an `(inactive)`
+  row for each — two visible rows could report `1 inactive`.
+
 - **Orphan toolsets no longer claim non-declarable extension tools.**
   The orphan scan swept every unclaimed extension tool into a
   `tbox.tool@<source>` toolset and actuated it at session start — for
