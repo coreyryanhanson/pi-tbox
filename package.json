@@ -1,12 +1,13 @@
 {
 	"name": "pi-tbox",
 	"version": "0.9.1",
-	"description": "List, toggle, group, and focus tools from any Pi extension in one place. Choices persist in chat state, and you can see the context cost of what's active.",
+	"description": "Unified surface to list, toggle, group, and focus tools from any Pi extension (including MCP), with active context-cost tracking. State persists in chat branches or as pinned baselines in settings.",
 	"keywords": [
 		"pi-package",
 		"pi-extension",
 		"tool-manager",
-		"tbox"
+		"tbox",
+		"mcp"
 	],
 	"license": "AGPL-3.0-or-later",
 	"author": "Corey Ryan Hanson",
