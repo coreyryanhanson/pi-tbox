@@ -18,7 +18,7 @@ try {
 			`\nRelease aborted: dependencies["pi-tool-masking"] is ${JSON.stringify(spec) ?? "missing"}, not a semver range.\n` +
 				"The development `file:` spec must never be published. Restore the\n" +
 				"semver range and regenerate package-lock.json before publishing:\n" +
-				"  npm i pi-tool-masking@^2.0.0\n",
+				"  npm i pi-tool-masking@^2.1.0\n",
 		);
 		process.exit(1);
 	}

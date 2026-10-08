@@ -17,9 +17,82 @@ import {
 	type KeybindingsManager,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { PickerUnit } from "./groups.js";
-import { buildPickerUnits, toggleToolsetUnit } from "./groups.js";
+import { getRegisteredToolsets } from "pi-tool-masking";
 import { forwardClosure, reverseClosure } from "./requires-graph.js";
+
+// ---------------------------------------------------------------------------
+// Picker units
+// ---------------------------------------------------------------------------
+
+/** An addressable unit shown in the picker checklist. */
+export interface PickerUnit {
+	id: string;
+	label: string;
+}
+
+/**
+ * Build the list of addressable units for the picker.
+ *
+ * One row per registered toolset.
+ */
+export function buildPickerUnits(): PickerUnit[] {
+	const registry = getRegisteredToolsets();
+	const units: PickerUnit[] = [];
+
+	for (const entry of registry) {
+		const label = entry.spec.label ?? entry.spec.id;
+		units.push({
+			id: entry.spec.id,
+			label: `${label} (${entry.spec.names.size} tools)`,
+		});
+	}
+
+	return units;
+}
+
+/**
+ * Toggle one unit in the picker selection, cascading through the `requires`
+ * graph. Closures are computed before mutation so a cycle refusal leaves the
+ * selection intact.
+ */
+export function toggleToolsetUnit(
+	unit: PickerUnit,
+	checkedToolsets: Set<string>,
+): { cue: string } {
+	const wasChecked = checkedToolsets.has(unit.id);
+	let cue = "";
+
+	if (wasChecked) {
+		// --- Unchecking ---
+		// Reverse closure: find dependents and uncheck them too. Computed
+		// before any mutation so a cycle refusal leaves the selection intact.
+		const revClosure = reverseClosure([unit.id]);
+		const uncheckDeps = [...revClosure].filter((id) => id !== unit.id);
+		checkedToolsets.delete(unit.id);
+		if (uncheckDeps.length > 0) {
+			for (const depId of uncheckDeps) {
+				checkedToolsets.delete(depId);
+			}
+			cue = `auto-unchecked: ${uncheckDeps.join(", ")} (they depend on ${unit.id})`;
+		}
+	} else {
+		// --- Checking ---
+		// Forward closure runs on a candidate copy: ensure transitive deps are
+		// checked, and a cycle refusal leaves the selection intact.
+		const candidate = new Set(checkedToolsets);
+		candidate.add(unit.id);
+		const closure = forwardClosure(candidate);
+		checkedToolsets.add(unit.id);
+		const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
+		for (const depId of newDeps) {
+			checkedToolsets.add(depId);
+		}
+		if (newDeps.length > 0) {
+			cue = `auto-checked: ${newDeps.join(", ")} (required by selection)`;
+		}
+	}
+	return { cue };
+}
 
 // ---------------------------------------------------------------------------
 // Types

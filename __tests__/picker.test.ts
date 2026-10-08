@@ -17,7 +17,7 @@ import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { GroupEditorComponent } from "../src/group-editor.js";
 import type { GroupEditorConfig } from "../src/group-editor.js";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { buildPickerUnits } from "../src/groups.js";
+import { buildPickerUnits } from "../src/group-editor.js";
 
 // ---------------------------------------------------------------------------
 // Theme stub

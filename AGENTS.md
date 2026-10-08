@@ -52,7 +52,9 @@ explicitly. Respect this — typecheck will fail otherwise.
   `session_tree` / `session_shutdown` handlers. The only entrypoint; everything
   else is imported by it.
 - **`src/`** — domain modules: `registry` (auto-register builtin + orphan
-  toolsets; the MCP re-scan), `groups` (actuate/describe/edit/list + focus
+  toolsets — id is the version-normalized `npm:` source, or the raw source
+  string for git/local installs, so non-npm orphan ids are machine-local and
+  not portable across machines; the MCP re-scan), `groups` (actuate/describe/edit/list + focus
   guard), `group-editor` (TUI picker), `focus` (allowlist-mode entry/exit),
   `defaults` (settings-tier pin save/show/clear/restore), `list` (parse +
   format output), `status-slot` (bar slot render/wire), `chars` (context

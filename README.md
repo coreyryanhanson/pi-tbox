@@ -184,8 +184,8 @@ are the non-togglable floor; their chars live in `core`). Toolsets with no
 active members (charging +0 chars) are omitted — they're not consuming
 budget, so there's nothing to save. No flags. Each line reports the
 toolset's active member count and its +chars cost. When codemode is
-active, a static note replaces the computed estimate, since that overhead
-isn't measured.
+active, a static note is appended after the computed estimate, since that
+overhead isn't measured.
 
 ## Concepts
 
@@ -193,7 +193,11 @@ isn't measured.
 for plugins that only register tools). A toolset is the addressability
 boundary — tbox toggles whole toolsets, not individual members, because
 that's the granularity at which state persists. Toolsets from any installed
-extension are visible to tbox automatically.
+extension are visible to tbox automatically. Auto-registered (orphan) toolset
+ids embed the extension's source: stable and version-normalized for `npm:`
+installs, but for git or local-path installs the raw source string is used, so
+such ids are machine-local — groups and pins referencing them don't transfer
+when the extension is installed from a different path or machine.
 
 **Groups** are *your* named collections of toolsets, stored in tbox's own
 config (`{ toolsets: string[] }` — whole toolsets only). The library never

@@ -16,6 +16,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
 	MockPI,
 	branchOf,
@@ -457,6 +459,36 @@ describe("integration — multi-extension registry", () => {
 		expect(notify!.message).toContain('Unknown subcommand: "restore"');
 		expect(notify!.message).not.toContain("No group");
 		expect(new Set(pi.getActiveTools())).toEqual(activeBefore);
+	});
+
+	it("/tbox group <name> remove refuses loudly on a corrupt groups file", async () => {
+		// Regression: the dispatch catch must surface the store's refusal as a
+		// visible error and never rewrite the file (a rewrite would silently
+		// destroy every user-defined group). Drives the real on-disk store
+		// under the temp agent dir, bypassing the in-memory override.
+		const mod = await import("../index.js");
+		mod.default(pi);
+		mock.fireLifecycleEvent("session_start");
+
+		setGroupsOverrideForTests(null);
+		const file = join(
+			process.env.PI_CODING_AGENT_DIR!,
+			"pi-tbox",
+			"groups.json",
+		);
+		mkdirSync(dirname(file), { recursive: true });
+		const corrupt = '[{"nope"}]'; // valid JSON, wrong shape
+		writeFileSync(file, corrupt);
+
+		mock.clearUiRecords();
+		await mock.dispatchCommand("group host remove");
+
+		const notify = mock.getLastNotify();
+		expect(notify).toBeDefined();
+		expect(notify!.level).toBe("error");
+		expect(notify!.message).toContain("refusing to overwrite");
+		// The original (corrupt) bytes are untouched — no silent wipe.
+		expect(readFileSync(file, "utf-8")).toBe(corrupt);
 	});
 
 	it("/tbox group <reserved> edit refuses early without opening the picker", async () => {
