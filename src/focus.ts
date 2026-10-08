@@ -199,7 +199,7 @@ export function soloUnit(
 	input: string,
 	sessionManager: BranchReader,
 ): string {
-	const guard = checkFocusGuard(true, "solo");
+	const guard = checkFocusGuard(true, "solo", sessionManager);
 	if (guard !== null) return guard;
 
 	const resolved = resolveFocusUnit(input);

@@ -24,6 +24,7 @@ import type {
 import {
 	effectiveEnabled,
 	getRegisteredToolsets,
+	readBranchModeState,
 	readMergedToolsetDefaults,
 	toggleBatch,
 	type BranchReader,
@@ -258,10 +259,25 @@ export function describeToolset(
 	return `Toolset "${id}" — ${entry.spec.names.size} tool${entry.spec.names.size === 1 ? "" : "s"} (${toolList}). State: ${state}.`;
 }
 
-/** Return an error when focus mode is active, or null if safe to proceed. */
-export function checkFocusGuard(enable: boolean, noun: string): string | null {
+/**
+ * Return an error when focus mode is active, or null if safe to proceed.
+ *
+ * The unit mirror is process-local; the branch mode is the authority. If a
+ * foreign extension flips the resolution mode behind our back, a stale
+ * mirror unit no longer means focus is active — the guard and
+ * `focusRelease` (which reads the branch) must agree, so the mirror unit
+ * alone is not enough to refuse.
+ */
+export function checkFocusGuard(
+	enable: boolean,
+	noun: string,
+	sessionManager: BranchReader,
+): string | null {
 	const fu = getFocusUnit();
 	if (fu === null) return null;
+	if (readBranchModeState(sessionManager.getBranch()).mode !== "allowlist") {
+		return null;
+	}
 	return `Cannot ${enable ? "enable" : "disable"} ${noun} while in focus mode (${fu}). Run /tbox focus off, focus release, or defaults restore first.`;
 }
 
@@ -284,7 +300,7 @@ export function toggleAll(
 	enable: boolean,
 	sessionManager: BranchReader,
 ): string {
-	const guard = checkFocusGuard(enable, "all toolsets");
+	const guard = checkFocusGuard(enable, "all toolsets", sessionManager);
 	if (guard !== null) return guard;
 
 	const ops = getRegisteredToolsets().map((entry) => ({
@@ -317,7 +333,7 @@ export function actuateToolset(
 	enable: boolean,
 	sessionManager: BranchReader,
 ): string {
-	const guard = checkFocusGuard(enable, "a toolset");
+	const guard = checkFocusGuard(enable, "a toolset", sessionManager);
 	if (guard !== null) return guard;
 
 	const registry = getRegisteredToolsets();
@@ -362,7 +378,7 @@ export function actuateGroup(
 	enable: boolean,
 	sessionManager: BranchReader,
 ): string {
-	const guard = checkFocusGuard(enable, "a group");
+	const guard = checkFocusGuard(enable, "a group", sessionManager);
 	if (guard !== null) return guard;
 
 	const resolved = resolveGroup(name);
