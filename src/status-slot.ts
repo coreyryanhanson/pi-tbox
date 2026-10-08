@@ -23,7 +23,11 @@ import type {
 	ExtensionAPI,
 	SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { lastCustomEntry, TOOLSET_EVENTS } from "pi-tool-masking";
+import {
+	lastCustomEntry,
+	readBranchModeState,
+	TOOLSET_EVENTS,
+} from "pi-tool-masking";
 import { extensionToolCounts } from "./chars.js";
 
 // ---------------------------------------------------------------------------
@@ -60,8 +64,9 @@ let _focusUnit: string | null = null;
  * carries drift data, so a repair command's own `changed` repaint re-runs the
  * check and clears the marker in the same breath that reported "aligned".
  * Null (or a false return) renders no marker — unset means "not checked
- * here". Presentation-only: this module never imports masking; index.ts
- * builds the closure.
+ * here". Presentation-only: the render path reads its verdict through this
+ * injected provider, so `render` never imports masking directly
+ * (`restoreFocusUnit` and `wireSlot` do).
  */
 let _driftProvider: (() => boolean) | null = null;
 
@@ -71,8 +76,9 @@ let _driftProvider: (() => boolean) | null = null;
  * object does not carry). Returns true while the branch is in allowlist mode,
  * regardless of who entered it. Consulted fresh on every render; null (or a
  * false return) means "no foreign governance observed" — the mirror alone
- * still drives the focus display. Presentation-only: this module never
- * imports masking; index.ts builds the closure.
+ * still drives the focus display. Presentation-only: the render path reads
+ * its verdict through this injected provider, so `render` never imports
+ * masking directly (`restoreFocusUnit` and `wireSlot` do).
  */
 let _focusModeProvider: (() => boolean) | null = null;
 
@@ -223,15 +229,27 @@ export function persistFocusUnit(pi: ExtensionAPI, unit: string | null): void {
  * a focus fact: a branch with no entry resets the label, so navigating
  * /tree to a leaf created before focus (in-process session_tree) clears
  * the stale glyph and lifts the guard instead of leaving focus half-on.
+ *
+ * So is exclusion mode: a foreign masking consumer can flip the resolution
+ * mode under a persisted entry, and the guard and focus release read the
+ * branch — a label restored regardless would show focus the enforcement
+ * no longer honors. Restore is gated on the branch's last mode entry being
+ * "allowlist", so a foreign mode flip suppresses the label regardless of
+ * write order.
  */
 export function restoreFocusUnit(ctx: {
 	sessionManager: { getBranch: () => SessionEntry[] };
 }): void {
+	const branch = ctx.sessionManager.getBranch();
 	const last = lastCustomEntry<{ unit: string | null }>(
-		ctx.sessionManager.getBranch(),
+		branch,
 		FOCUS_PERSIST_KEY,
 	);
-	if (last?.data && "unit" in last.data) {
+	if (
+		last?.data &&
+		"unit" in last.data &&
+		readBranchModeState(branch).mode === "allowlist"
+	) {
 		_focusUnit = last.data.unit;
 	} else {
 		_focusUnit = null;
@@ -249,16 +267,6 @@ export function getFocusUnit(): string | null {
 // Slot wiring
 // ---------------------------------------------------------------------------
 
-/**
- * Wire the status slot to lifecycle events and toolset changes.
- *
- * Call this from the factory's session_start handler.
- * The render() call is at the END of the capture handler.
- *
- * Guard: the onChange handler checks that the context is captured before
- * rendering — during session_start the library's restore handler fires
- * TOOLSET_EVENTS before the tbox handler sets lastCtx.
- */
 /** Module-level ref to the wired getCtx so non-event callers can repaint. */
 let _getCtx: (() => SlotCtx | null) | null = null;
 
@@ -273,6 +281,15 @@ export function rerenderSlot(pi: ExtensionAPI): void {
 	if (ctx) render(pi, ctx);
 }
 
+/**
+ * Wire the status slot to lifecycle events and toolset changes. Call this
+ * from the factory body (not a session handler) so rerenderSlot has a wired
+ * getCtx from startup.
+ *
+ * Guard: the onChange handler checks that the context is captured before
+ * rendering — during session_start the library's restore handler fires
+ * TOOLSET_EVENTS before the tbox handler sets lastCtx.
+ */
 export function wireSlot(pi: ExtensionAPI, getCtx: () => SlotCtx | null): void {
 	_getCtx = getCtx;
 	// Re-render on toolset changes

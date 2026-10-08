@@ -15,7 +15,11 @@ import {
 	FOCUS_PERSIST_KEY,
 	SLOT_NAME,
 } from "../src/status-slot.js";
-import { getRegisteredToolsets, type RegistryEntry } from "pi-tool-masking";
+import {
+	getRegisteredToolsets,
+	setDefaultResolutionMode,
+	type RegistryEntry,
+} from "pi-tool-masking";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 
 describe("status-slot", () => {
@@ -446,8 +450,10 @@ describe("status-slot", () => {
 		});
 
 		it("restoreFocusUnit replays the last focus-state entry before render", () => {
-			// Simulate a resumed process: branch seeded with a focus entry.
+			// Simulate a resumed process: branch seeded as focusUnit leaves it —
+			// the allowlist-enter mode entry first, then the focus label.
 			expect(getFocusUnit()).toBeNull();
+			setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
 			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: "portal.web" });
 
 			restoreFocusUnit(mock.createContext());
@@ -455,6 +461,17 @@ describe("status-slot", () => {
 
 			// A later focus-off entry supersedes an earlier focus-on entry
 			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: null });
+			restoreFocusUnit(mock.createContext());
+			expect(getFocusUnit()).toBeNull();
+		});
+
+		it("a persisted focus label under an exclusion-mode branch does not restore", () => {
+			// A foreign masking consumer flipped the resolution mode without
+			// clearing tbox's entry: the guard and focus release read the
+			// branch, so the mirror must agree with them, not the stale label.
+			setDefaultResolutionMode(pi, "exclusion");
+			mock.appendEntry(FOCUS_PERSIST_KEY, { unit: "portal.web" });
+
 			restoreFocusUnit(mock.createContext());
 			expect(getFocusUnit()).toBeNull();
 		});
@@ -470,18 +487,21 @@ describe("status-slot", () => {
 			// (In-process session_tree fires restoreFocusUnit with the new branch;
 			// the library's doRestore has already lifted the allowlist there.)
 			mock.clearEntries();
+			setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
 			restoreFocusUnit(mock.createContext());
 
 			expect(getFocusUnit()).toBeNull();
 		});
 
 		it("a focused session resumed against a fresh process paints the focus glyph", () => {
-			// Process 1: focus writes the durable label entry.
+			// Process 1: focus writes the durable mode + label entries, in the
+			// order focusUnit produces them (allowlist enter first).
 			const mock1 = new MockPI();
 			const pi1 = mock1 as unknown as ExtensionAPI;
+			setDefaultResolutionMode(pi1, "allowlist", ["portal.web"]);
 			persistFocusUnit(pi1, "portal.web");
-			const branch = mock1.getEntries(FOCUS_PERSIST_KEY);
-			expect(branch).toHaveLength(1);
+			const branch = mock1.getEntries();
+			expect(branch).toHaveLength(2);
 
 			// Simulate quit + resume: fresh process, branch replayed from disk.
 			// _focusUnit is process-local so it starts null on the new process.

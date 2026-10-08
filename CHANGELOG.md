@@ -47,6 +47,11 @@
 - **`pi-tool-masking` dependency updated from 2.0.1 to 2.1.0** for the
   drift predicate (`computeDrift`, `getActuatableNames`).
 
+- **`/tbox list` footer char totals now always show the full active
+  context** (same numbers as `/tbox status` and `/tbox chars`), instead
+  of only the visible subset when `--active`/`--inactive` filtering is
+  in effect. Row counts per group are unchanged.
+
 ### Fixed
 
 - **Focus display reads the branch, not just the mirror.** A foreign

@@ -77,29 +77,24 @@ const PI_MANAGED_GID = "pi-managed";
 
 /** Count active togglable tools and their serialized char total. Active
  * non-togglable members (e.g. an inert member lingering in spec.names after
- * an exposure change) are counted and returned separately so callers can
- * book them to the core bucket — computeCharCount books them to core, so
- * the grouped list's footer must too or the two surfaces disagree. */
+ * an exposure change) are skipped: computeCharCount books them to the core
+ * bucket, so no view needs a per-toolset core total. */
 function activeTogglableChars(
 	names: Iterable<string>,
 	activeSet: Set<string>,
 	allToolsMap: Map<string, ToolInfo>,
-): { activeCount: number; charCount: number; coreCharCount: number } {
+): { activeCount: number; charCount: number } {
 	let activeCount = 0;
 	let charCount = 0;
-	let coreCharCount = 0;
 	for (const name of names) {
 		if (!activeSet.has(name)) continue;
 		activeCount++;
 		const tool = allToolsMap.get(name);
 		if (!tool) continue;
-		if (!isTogglableTool(tool)) {
-			coreCharCount += serializeToolDef(tool).length;
-			continue;
-		}
+		if (!isTogglableTool(tool)) continue;
 		charCount += serializeToolDef(tool).length;
 	}
-	return { activeCount, charCount, coreCharCount };
+	return { activeCount, charCount };
 }
 
 /** Glyphs for the enabled/active table column (✓ = on, ✗ = off). */
@@ -264,11 +259,11 @@ export function formatGroupedList(
 	// Build lines
 	const lines: string[] = ["Tools by group:\n"];
 
-	// Accumulators for footer summary
+	// Accumulators for footer summary (char totals come from
+	// computeCharCount so this footer and /tbox status, /tbox chars
+	// cannot diverge)
 	let totalActive = 0;
 	let totalInactive = 0;
-	let totalCoreChars = 0;
-	let totalExtChars = 0;
 
 	for (const [gid, tools] of groups) {
 		const entry = toolsets.find((e: RegistryEntry) => e.spec.id === gid);
@@ -283,14 +278,7 @@ export function formatGroupedList(
 						continue;
 					}
 					activeCount++;
-					const len = serializeToolDef(t).length;
-					charCount += len;
-					// Togglability is the core/extension axis, same as
-					// computeCharCount: a declarable-but-unclaimed tool goes
-					// to extension; resource and non-declarable tools stay
-					// core.
-					if (isTogglableTool(t)) totalExtChars += len;
-					else totalCoreChars += len;
+					charCount += serializeToolDef(t).length;
 				}
 				totalActive += activeCount;
 				totalInactive += inactiveCount;
@@ -325,7 +313,6 @@ export function formatGroupedList(
 					}
 					totalActive += activeCount;
 					totalInactive += builtins.length - activeCount;
-					totalCoreChars += charCount;
 					lines.push(
 						`  pi.builtin (${activeCount} active, +${charCount} chars, core)`,
 					);
@@ -340,7 +327,7 @@ export function formatGroupedList(
 		}
 
 		// header reflects full toolset state; filter controls row visibility only
-		const { activeCount, charCount, coreCharCount } = activeTogglableChars(
+		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,
 			allToolsMap,
@@ -348,8 +335,6 @@ export function formatGroupedList(
 		const inactiveCount = entry.spec.names.size - activeCount;
 		totalActive += activeCount;
 		totalInactive += inactiveCount;
-		totalExtChars += charCount;
-		totalCoreChars += coreCharCount;
 
 		lines.push(
 			`  ${gid} (${activeCount} active, ${inactiveCount} inactive, +${charCount} chars)`,
@@ -361,17 +346,12 @@ export function formatGroupedList(
 		lines.push("");
 	}
 
-	// Active sdk tools are kept out of the rows but not out of the core
-	// bucket: computeCharCount (/tbox status, /tbox chars) books every
-	// active non-togglable tool into core, and sdk is non-togglable, so
-	// the footer's core: must include them to agree with status.
-	for (const t of allTools) {
-		if (t.sourceInfo.source === "sdk" && activeSet.has(t.name))
-			totalCoreChars += serializeToolDef(t).length;
-	}
-
 	// Footer summary line
 	if (lines.length > 1) {
+		// Char totals come from computeCharCount so this footer and
+		// /tbox status, /tbox chars cannot diverge.
+		const { core: totalCoreChars, extension: totalExtChars } =
+			computeCharCount(pi);
 		lines.push(
 			`Total: ${totalActive} active, ${totalInactive} inactive, +${totalCoreChars + totalExtChars} chars (core: ${totalCoreChars} | extension: ${totalExtChars})`,
 		);
@@ -413,8 +393,8 @@ export function formatByChars(pi: ExtensionAPI): string {
 	const stats: ToolsetStats[] = [];
 
 	for (const entry of toolsets) {
-		// coreCharCount deliberately ignored: this view measures the togglable
-		// budget only; /tbox status's core: covers non-togglable members.
+		// This view measures the togglable budget only; /tbox status's core:
+		// covers non-togglable members.
 		const { activeCount, charCount } = activeTogglableChars(
 			entry.spec.names,
 			activeSet,

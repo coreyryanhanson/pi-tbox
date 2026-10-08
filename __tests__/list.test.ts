@@ -11,6 +11,7 @@ import {
 } from "../src/list.js";
 import { autoRegisterBuiltinAndOrphans } from "../src/registry.js";
 import { setFocusUnit } from "../src/status-slot.js";
+import { computeCharCount } from "../src/chars.js";
 import { setGroupsOverrideForTests } from "../config/settings-reader.js";
 import {
 	getRegisteredToolsets,
@@ -274,6 +275,38 @@ describe("formatGroupedList", () => {
 
 		expect(output).toContain("portal.learn");
 		expect(output).toContain("web-learn");
+	});
+
+	it("footer char totals agree with computeCharCount", () => {
+		mock.registerTool({
+			name: "web-learn",
+			description: "Web learn",
+			sourceInfo: {
+				path: "portal.ts",
+				source: "extension",
+				scope: "user",
+				origin: "top-level",
+			},
+		});
+
+		mock.defineFakeToolset({
+			id: "portal.learn",
+			label: "Portal Learn",
+			names: new Set(["web-learn"]),
+			persistKey: "toolset-state:portal.learn",
+			defaultEnabled: true,
+		});
+
+		autoRegisterBuiltinAndOrphans(pi);
+
+		const { core, extension } = computeCharCount(pi);
+		// Pin the toolset tool active: otherwise a footer that dropped the
+		// extension bucket entirely would also satisfy the assertion below.
+		expect(extension).toBeGreaterThan(0);
+		const output = formatGroupedList(pi);
+		expect(output).toContain(
+			`(core: ${core} | extension: ${extension})`,
+		);
 	});
 
 	it("never claims a non-declarable orphan; active one renders under pi-managed", () => {
