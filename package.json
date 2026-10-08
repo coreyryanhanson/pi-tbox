@@ -1,6 +1,6 @@
 {
 	"name": "pi-tbox",
-	"version": "0.9.1",
+	"version": "1.0.0",
 	"description": "Unified surface to list, toggle, group, and focus tools from any Pi extension (including MCP), with active context-cost tracking. State persists in chat branches or as pinned baselines in settings.",
 	"keywords": [
 		"pi-package",
