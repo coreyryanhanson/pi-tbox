@@ -29,6 +29,7 @@ const RESERVED_WORDS: readonly string[] = [
 	"defaults",
 	"release",
 	"restore",
+	"sync",
 ];
 
 const RESERVED_SET: ReadonlySet<string> = new Set(RESERVED_WORDS);

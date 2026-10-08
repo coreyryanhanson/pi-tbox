@@ -231,7 +231,7 @@ function buildMcpToolsetSpec(server: string, names: Set<string>): ToolsetSpec {
 	};
 }
 
-function setsEqual(a: Set<string>, b: Set<string>): boolean {
+export function setsEqual(a: Set<string>, b: Set<string>): boolean {
 	if (a.size !== b.size) return false;
 	for (const name of a) {
 		if (!b.has(name)) return false;

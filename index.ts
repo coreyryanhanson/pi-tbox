@@ -15,6 +15,7 @@ import {
 	autoRegisterBuiltinAndOrphans,
 	actuateNewToolsets,
 	syncMcpToolsets,
+	setsEqual,
 } from "./src/registry.js";
 import {
 	wireSlot,
@@ -22,6 +23,7 @@ import {
 	clearSlot,
 	rerenderSlot,
 	setFocusUnit,
+	setDriftProvider,
 	restoreFocusUnit,
 	type SlotCtx,
 } from "./src/status-slot.js";
@@ -31,9 +33,16 @@ import {
 	formatList,
 	formatStatus,
 	parseArgs,
+	unknownFlagsError,
 } from "./src/list.js";
 import { isReserved } from "./src/reserved.js";
-import { isDeferredChild } from "pi-tool-masking";
+import { isDeclarableMcpTool } from "./src/mcp.js";
+import { syncToolsets } from "./src/sync.js";
+import {
+	computeDrift,
+	isDeferredChild,
+	type DriftFact,
+} from "pi-tool-masking";
 import {
 	actuateGroup,
 	describeGroup,
@@ -49,6 +58,39 @@ import {
 } from "./config/settings-reader.js";
 import { focusUnit, focusOff, focusRelease, soloUnit } from "./src/focus.js";
 import { handleDefaults } from "./src/defaults.js";
+
+// ---------------------------------------------------------------------------
+// Drift warning — stats-command seam copy
+// ---------------------------------------------------------------------------
+
+/** Filter clause + durability suffix: one static body regardless of drift
+ *  class or branch mode. The filter clause explains the permanent-drift class
+ *  on first sight (a member no write can activate); the suffix states only
+ *  what the design guarantees — no cause, since a single-shot check cannot
+ *  observe one. */
+function driftWarningMessage(facts: readonly DriftFact[]): string {
+	return (
+		`intent mismatch: ${facts.map((f) => f.fact).join(", ")} — run /tbox sync ` +
+		"to align now; if sync reports members still inactive after the write, " +
+		"your session's --tools filter may be excluding them — if you do " +
+		"nothing, leaks and allowlist drift re-heal at the next turn and " +
+		"force-removal at the next session start; either way, sync's " +
+		"alignment holds only until the next foreign write."
+	);
+}
+
+/** Stats commands that diagnose drift at the dispatch seam. Every other
+ *  subcommand dispatches without the predicate run. */
+const DRIFT_SEAM_COMMANDS: ReadonlySet<string> = new Set([
+	"list",
+	"chars",
+	"status",
+]);
+
+// Post-session_start MCP connect retry: pi fires no extension event when a
+// server's tools land.
+const MCP_RESCAN_INTERVAL_MS = 500;
+const MCP_RESCAN_BUDGET_MS = 10_000;
 
 // ---------------------------------------------------------------------------
 // Toggle-refusal seam
@@ -108,10 +150,22 @@ const runToggle = (context: string, flow: () => string): string => {
 export default function tboxFactory(pi: ExtensionAPI) {
 	// --- Capture the session context so TOOLSET_EVENTS can re-render ---
 	let lastCtx: SlotCtx | null = null;
+	let mcpRescanTimer: ReturnType<typeof setTimeout> | undefined;
+	// Parallel raw capture (the _getCtx/setFocusUnit pattern): the drift
+	// predicate resolves intent through masking's effectiveEnabled, which
+	// needs a branch snapshot — pi's API object carries no branch accessor,
+	// and lastCtx stays typed SlotCtx ({ui} only) and is not widened.
+	let rawCtx: ExtensionContext | null = null;
 	let rerenderWired = false;
 
 	const USAGE =
-		"/tbox [list|status|all|focus|solo|group|chars|defaults] | /tbox <group> on|off | /tbox +<toolset> on|off";
+		"/tbox [list|status|all|focus|solo|group|chars|defaults|sync] | /tbox <group> on|off | /tbox +<toolset> on|off";
+	const SYNC_USAGE =
+		"Usage: /tbox sync — align the live tool set with declared toolset state.";
+	const STATUS_HELP =
+		"Usage: /tbox status — full status: toolsets, groups, focus, char-count split. Takes no arguments.";
+	const CHARS_HELP =
+		"Usage: /tbox chars — per-toolset context char counts. Takes no arguments.";
 
 	// --- Register /tbox command handler ---
 	pi.registerCommand("tbox", {
@@ -145,7 +199,7 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				return;
 			}
 
-			const { command, rest } = parseArgs(trimmed);
+			const { command, rest, flags } = parseArgs(trimmed);
 
 			if (!command) {
 				ctx.ui.notify("Usage: " + USAGE, "info");
@@ -159,6 +213,12 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "status": {
+					// --help handled here so the drift seam's `--help` skip is true
+					// for every stats command: help served, no diagnostics.
+					if (flags.has("help")) {
+						ctx.ui.notify(STATUS_HELP, "info");
+						break;
+					}
 					const output = formatStatus(pi, branch);
 					ctx.ui.notify(output, "info");
 					break;
@@ -262,6 +322,11 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					break;
 				}
 				case "chars": {
+					// See the status case: help served means the seam's skip is true.
+					if (flags.has("help")) {
+						ctx.ui.notify(CHARS_HELP, "info");
+						break;
+					}
 					ctx.ui.notify(formatByChars(pi), "info");
 					break;
 				}
@@ -292,6 +357,35 @@ export default function tboxFactory(pi: ExtensionAPI) {
 				case "defaults": {
 					const result = handleDefaults(pi, ctx, trimmed);
 					ctx.ui.notify(result.message, result.level);
+					break;
+				}
+				case "sync": {
+					// Takes no arguments — the validating pair, like list/defaults:
+					// --help first (the shared flag-rejection line's hint must stay
+					// true), trailing words print usage, unknown flags are rejected.
+					if (flags.has("help")) {
+						ctx.ui.notify(SYNC_USAGE, "info");
+						break;
+					}
+					if (rest.length > 1) {
+						ctx.ui.notify(SYNC_USAGE, "info");
+						break;
+					}
+					const flagErr = unknownFlagsError(flags, new Set(), "sync");
+					if (flagErr !== null) {
+						ctx.ui.notify(flagErr, "info");
+						break;
+					}
+					// No checkFocusGuard — sync's desired state is derived from
+					// focus itself (mode-aware effectiveEnabled), the same
+					// principle that exempts focusRelease. Not a toggle flow:
+					// no refusal surface, so no runToggle seam.
+					const result = syncToolsets(pi, branch);
+					ctx.ui.notify(result.message, result.level);
+					// The no-op path writes nothing, so no changed event fires —
+					// repaint here for a stale drift marker to clear, like the
+					// stats seam does.
+					rerenderSlot(pi);
 					break;
 				}
 				default: {
@@ -349,10 +443,64 @@ export default function tboxFactory(pi: ExtensionAPI) {
 					}
 				}
 			}
+
+			// Drift seam — stats commands diagnose drift. The predicate runs
+			// twice per invocation (here for the bubble, again inside the
+			// repaint's provider check); help requests skip the seam — not
+			// diagnostic invocations.
+			if (DRIFT_SEAM_COMMANDS.has(command) && !flags.has("help")) {
+				const facts = computeDrift(pi, branch);
+				if (facts.length > 0) {
+					ctx.ui.notify(driftWarningMessage(facts), "warning");
+				}
+				rerenderSlot(pi);
+			}
 		},
 	});
 
 	// --- Session handlers ---
+
+	/**
+	 * Bounded post-start MCP re-scan. Polls until the budget expires, re-syncing only when the
+	 * declarable MCP tool-name set changed since the last sync — a name-set
+	 * diff, so later-connecting servers stay covered within the window. Spawned
+	 * by captureAndRender (beneath its defer gate); reuses syncMcpToolsets.
+	 */
+	const scheduleMcpConnectRescan = (ctx: ExtensionContext) => {
+		clearTimeout(mcpRescanTimer);
+		mcpRescanTimer = undefined;
+		const declarableMcpNames = () => {
+			const names = new Set<string>();
+			for (const tool of pi.getAllTools())
+				if (isDeclarableMcpTool(tool)) names.add(tool.name);
+			return names;
+		};
+		let syncedNames = declarableMcpNames();
+		const deadline = Date.now() + MCP_RESCAN_BUDGET_MS;
+		const tick = () => {
+			mcpRescanTimer = undefined;
+			// Bare setTimeout callback — outside pi's handler error containment
+			// (syncMcpToolsets rethrows raw), so swallow and keep the reschedule
+			// unconditional rather than let a tick kill the poll or the process.
+			try {
+				const names = declarableMcpNames();
+				// Change check first: an idle tick must not pay syncMcpToolsets'
+				// settings-file reads — poll cost is then one getAllTools pass.
+				// Baseline updates only after a successful sync, so a tick that
+				// throws (before or mid-scan) is retried, not skipped, next tick.
+				if (!setsEqual(names, syncedNames)) {
+					syncMcpToolsets(pi, ctx.sessionManager.getBranch(), ctx.ui.notify);
+					rerenderSlot(pi);
+					syncedNames = names;
+				}
+			} catch {
+				// Contained; the next tick retries (or the budget expires).
+			}
+			if (Date.now() < deadline)
+				mcpRescanTimer = setTimeout(tick, MCP_RESCAN_INTERVAL_MS);
+		};
+		mcpRescanTimer = setTimeout(tick, MCP_RESCAN_INTERVAL_MS);
+	};
 
 	const captureAndRender = (ctx: ExtensionContext) => {
 		// Defer gate — silent: a deferring child gets no tbox surface at all
@@ -368,9 +516,11 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		// unconditional defineToolset inside reinstalls masking's restore/re-
 		// assert handlers on a fresh pi for a registry holding only MCP toolsets.
 		syncMcpToolsets(pi, branch, ctx.ui.notify);
+		scheduleMcpConnectRescan(ctx);
 		// SAFETY: SlotCtx is a structural subset of ExtensionContext (ui + sessionManager);
 		// every field SlotCtx reads exists on the real context.
 		lastCtx = ctx as unknown as SlotCtx;
+		rawCtx = ctx;
 		restoreFocusUnit(ctx);
 		render(pi, lastCtx);
 
@@ -399,17 +549,33 @@ export default function tboxFactory(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => captureAndRender(ctx));
 	pi.on("session_tree", (_event, ctx) => captureAndRender(ctx));
 
-	pi.on("session_shutdown", async (_event, ctx: ExtensionContext) => {
-		// SAFETY: clearSlot only touches ctx.ui.setStatus, guaranteed on ExtensionContext.
+	pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
+		clearTimeout(mcpRescanTimer);
+		mcpRescanTimer = undefined;
 		clearSlot(
+			// SAFETY: clearSlot only touches ctx.ui.setStatus, guaranteed on ExtensionContext.
 			ctx as unknown as {
 				ui: { setStatus: (slot: string, text: string) => void };
 			},
 		);
 		setFocusUnit(null);
 		lastCtx = null;
+		rawCtx = null;
 	});
 
 	// --- Wire slot to toolset events ---
 	wireSlot(pi, () => lastCtx);
+
+	// --- Install the slot's drift provider (the warning glyph) ---
+	// Contract (freshness, totality, diagnostic-only): status-slot.ts. Site facts:
+	// false before capture; each render pays one getAllTools pass + branch walk
+	// (+ merged-defaults read in exclusion mode) — accepted, not memoized.
+	setDriftProvider(() => {
+		if (!rawCtx) return false;
+		try {
+			return computeDrift(pi, rawCtx.sessionManager.getBranch()).length > 0;
+		} catch {
+			return false;
+		}
+	});
 }

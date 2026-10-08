@@ -36,9 +36,11 @@ export function isMcpTool(tool: ToolInfo): boolean {
 
 /**
  * True for MCP tools tbox can meaningfully manage: declared to the model on
- * every request, activatable, and deactivatable. This is the single source
- * of truth for MCP membership and classification — every MCP decision site
- * goes through it.
+ * every request, activatable, and deactivatable — except when pi's
+ * --tools allowlist keeps an MCP tool registered but unactivatable
+ * (pi exposes no activatability query, so tbox cannot see that gate).
+ * This is the single source of truth for MCP
+ * membership and classification — every MCP decision site goes through it.
  */
 export function isDeclarableMcpTool(tool: ToolInfo): boolean {
 	if (!isMcpTool(tool)) return false;

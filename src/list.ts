@@ -609,9 +609,8 @@ export function formatList(pi: ExtensionAPI, args: string): string {
  * members cell (`N (M active)`) since they are non-togglable. Trailing
  * User Groups / Focus / Char-count lines are unaffected.
  *
- * The toolset glyph reads intent, not the live observation (see
- * AGENTS.md). Hoists the defaults snapshot — one settings read per
- * command, not per toolset.
+ * The toolset glyph reads intent, not the live observation. Hoists the
+ * defaults snapshot — one settings read per command, not per toolset.
  *
  * @param pi - The extension API
  * @param branch - Chat branch, for the intent read
@@ -707,9 +706,10 @@ export function formatStatus(
  */
 export function formatBareHelp(): string {
 	return (
-		"Subcommands: list, status, all, focus, solo, group, chars, defaults\n" +
+		"Subcommands: list, status, all, focus, solo, group, chars, defaults, sync\n" +
 		"  /tbox solo <group>|+<toolset> \u2014 everything off, one unit on (focus without the lock)\n" +
 		"  /tbox list [view] [filter] \u2014 run /tbox list --help for views and filters\n" +
-		"  /tbox defaults [save|show|clear|restore] \u2014 run /tbox defaults --help for details"
+		"  /tbox defaults [save|show|clear|restore] \u2014 run /tbox defaults --help for details\n" +
+		"  /tbox sync \u2014 align the live tool set with declared toolset state (repair drift)"
 	);
 }

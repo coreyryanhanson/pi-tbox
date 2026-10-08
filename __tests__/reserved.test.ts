@@ -32,8 +32,8 @@ describe("reserved wordlist", () => {
 		}
 	});
 
-	it("defaults, release, restore are reserved", () => {
-		for (const w of ["defaults", "release", "restore"]) {
+	it("defaults, release, restore, sync are reserved", () => {
+		for (const w of ["defaults", "release", "restore", "sync"]) {
 			expect(isReserved(w)).toBe(true);
 		}
 	});

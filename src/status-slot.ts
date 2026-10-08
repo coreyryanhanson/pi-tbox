@@ -7,6 +7,12 @@
  *   - Focus: `● focus:<unit> (n)` (green) — focused on a unit, n active extension tools
  *   - Focus empty: `● focus:∅` (red) — focused on an empty allowlist
  *
+ * On top of the four states, intent-vs-live drift (masking's computeDrift
+ * via an injected provider — see `setDriftProvider`) recolors the leading
+ * glyph in the `warning` theme color: the glyph shape still carries the
+ * state, the color carries the drift signal. Focus-empty keeps its `error`
+ * red — error outranks warning — the bubble still reports the drift.
+ *
  * @module
  */
 
@@ -42,6 +48,18 @@ type SlotState =
 
 /** The current focus unit (null = not in focus). */
 let _focusUnit: string | null = null;
+
+/**
+ * The drift provider — installed by index.ts over the captured extension
+ * context (the predicate needs a branch snapshot, which pi's API object does
+ * not carry). Consulted fresh on every render: no render path computes or
+ * carries drift data, so a repair command's own `changed` repaint re-runs the
+ * check and clears the marker in the same breath that reported "aligned".
+ * Null (or a false return) renders no marker — unset means "not checked
+ * here". Presentation-only: this module never imports masking; index.ts
+ * builds the closure.
+ */
+let _driftProvider: (() => boolean) | null = null;
 
 /** The slot name used for tbox's status bar entry. */
 export const SLOT_NAME = "tbox";
@@ -79,22 +97,45 @@ export function computeSlotState(pi: ExtensionAPI): SlotState {
 }
 
 /**
+ * The leading glyph and trailing text of a slot state, separated so drift
+ * can recolor the glyph without touching the state text.
+ */
+function baseSlotParts(state: SlotState): {
+	glyph: string;
+	glyphColor: string;
+	rest: string;
+} {
+	switch (state.kind) {
+		case "pristine":
+			return { glyph: "○", glyphColor: "dim", rest: " tbox" };
+		case "count":
+			return { glyph: "●", glyphColor: "accent", rest: ` tbox ${state.n} masked` };
+		case "focus":
+			return { glyph: "●", glyphColor: "success", rest: ` focus:${state.unit} (${state.count})` };
+		case "focus-empty":
+			return { glyph: "●", glyphColor: "error", rest: " focus:∅" };
+		default:
+			// Unreachable — SlotState is an exhaustive union; satisfies the
+			// switch-without-default rule.
+			throw new Error(`unhandled slot state: ${JSON.stringify(state)}`);
+	}
+}
+
+/**
  * Render the slot text and color for a given state.
+ * @param drift - recolors the leading glyph in the warning color on top of
+ *   whatever state is active (see the module header); focus-empty keeps its
+ *   `error` red — error outranks warning, and the stats commands' warning
+ *   bubble still reports the drift for that state.
  */
 export function renderSlotText(
 	state: SlotState,
 	fg: (color: string, text: string) => string,
+	drift = false,
 ): string {
-	switch (state.kind) {
-		case "pristine":
-			return `${fg("dim", "○")} tbox`;
-		case "count":
-			return `${fg("accent", "●")} tbox ${state.n} masked`;
-		case "focus":
-			return `${fg("success", "●")} focus:${state.unit} (${state.count})`;
-		case "focus-empty":
-			return `${fg("error", "●")} focus:∅`;
-	}
+	const { glyph, glyphColor, rest } = baseSlotParts(state);
+	const color = drift && glyphColor !== "error" ? "warning" : glyphColor;
+	return `${fg(color, glyph)}${rest}`;
 }
 
 /**
@@ -102,9 +143,23 @@ export function renderSlotText(
  */
 export function render(pi: ExtensionAPI, ctx: SlotCtx): void {
 	const state = computeSlotState(pi);
+	// Fresh check per render — the provider is re-invoked, never cached, so
+	// every render path (hook 1, event fanout, rerenderSlot) gets a current
+	// verdict by construction. No provider installed = no marker.
+	const drift = _driftProvider?.() ?? false;
 	// Bind: Theme.fg reads `this.fgColors`; passing it unbound loses `this`.
-	const text = renderSlotText(state, ctx.ui.theme.fg.bind(ctx.ui.theme));
+	const text = renderSlotText(state, ctx.ui.theme.fg.bind(ctx.ui.theme), drift);
 	ctx.ui.setStatus(SLOT_NAME, text);
+}
+
+/**
+ * Install the drift provider (or `null` to unset — renders no marker).
+ * Called once from the factory body, like `wireSlot`. The provider itself
+ * must be total (never throw) — a diagnostic that crashes the status bar is
+ * worse than none.
+ */
+export function setDriftProvider(provider: (() => boolean) | null): void {
+	_driftProvider = provider;
 }
 
 // ---------------------------------------------------------------------------

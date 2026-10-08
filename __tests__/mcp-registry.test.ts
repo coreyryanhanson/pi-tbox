@@ -293,6 +293,10 @@ describe("syncMcpToolsets — idempotency", () => {
 		expect([...findEntry("tbox.mcp@siyuan")!.spec.names]).toEqual([
 			"mcp__siyuan__t1",
 		]);
+
+		// Stop the session-start MCP poll's real timers: a stale tick could
+		// syncMcpToolsets on this mock mid-test and race the global registry.
+		mock.fireLifecycleEvent("session_shutdown");
 	});
 
 	it("resolves toolsets and toggles from the command path with no prompt", () => {
@@ -313,6 +317,9 @@ describe("syncMcpToolsets — idempotency", () => {
 			readerOf(mock),
 		);
 		expect(output).toContain("tbox.mcp@siyuan");
+
+		// Stop the session-start MCP poll's real timers (see above).
+		mock.fireLifecycleEvent("session_shutdown");
 	});
 });
 

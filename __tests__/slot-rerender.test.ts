@@ -43,9 +43,12 @@ describe("slot re-render on before_agent_start", () => {
 		// The orphan toolset is ENABLED, so pi-tool-masking's before_agent_start
 		// re-assert (leak-direction only) does NOT restore the removed tool —
 		// only tbox's turn-boundary re-render reflects the live active set.
+		// That re-render consults the drift provider (installed by the factory
+		// over the session_start context): an intent-on toolset with a missing
+		// member is force-removal, so the drift marker rides on the count.
 		mock.fireLifecycleEvent("before_agent_start");
 		expect(mock.getLastStatus(SLOT_NAME)!.text).toBe(
-			"<accent>●</accent> tbox 1 masked",
+			"<warning>●</warning> tbox 1 masked",
 		);
 	});
 });

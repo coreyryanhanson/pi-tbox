@@ -294,8 +294,7 @@ class CorruptModeStateError extends Error {
  * already matches), so what you see is what you keep — a later /reload
  * re-resolves the same selection.
  *
- * Refusal contract (canonical statement; the AGENTS.md focus bullets are
- * summaries pointing here). The mode flip and focus-unit clear precede
+ * Refusal contract. The mode flip and focus-unit clear precede
  * the batch because `toggleBatch` refuses under allowlist governance, so
  * a planner refusal — `ContradictionError` for a non-closure-complete
  * allowlist, `CycleError` for a dormant `requires` cycle — is caught and

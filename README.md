@@ -46,12 +46,10 @@ have the one before it:
    restricts the model to Pi's builtins plus that one unit, and the choice
    *persists in chat state* — it survives reloads and resume, and survives
    installing new extensions without drifting. `focus off` restores
-   defaults; `focus release` exits focus but keeps the live selection,
-   routing it through the library's planner — only drifted toolsets get
-   per-toolset entries, so a `/reload` replays what you see. Release can
-   refuse (a non-closure-complete allowlist or a `requires` cycle is
-   rejected by the planner, leaving your tool state untouched), unlike
-   `focus off`.
+   defaults; `focus release` exits focus but keeps the live selection, so a
+   `/reload` replays what you see. Release can refuse (if the selection
+   can't be expressed as toolset state, e.g. a dependency cycle, nothing
+   changes), unlike `focus off`.
    Want focus's shape without its lock? `/tbox solo <group>` (or
    `solo +<toolset>`) is equivalent to `all off` + the unit `on` — plain
    per-toolset state, no allowlist, nothing refused afterward.
@@ -68,8 +66,8 @@ have the one before it:
    into a `core` floor (pi-core builtins, host `sdk` tools, and non-declarable
    MCP tools — the overhead you can't move with `/tbox`) and an `extension`
    budget (declarable MCP tools plus everything else you can actually move).
-   When codemode is active, the count carries a static note: codemode rewrites
-   declarations at request time, and that overhead is not measured.
+   When codemode is active, the count carries a static note instead, since
+   that overhead isn't measured.
 
 ## Quick start
 
@@ -96,6 +94,11 @@ doesn't move the slot. Four states:
 | `● focus:<unit> (n)` | focus | deliberately constrained to one group/toolset; `n` active extension tools |
 | `● focus:∅` | focus-empty | focus is on but the allowlist left nothing active — broken |
 
+On top of any state, drift (see **Intent vs. the live set** below) renders
+the slot's leading glyph in the warning color: the glyph shape still tells
+you which state you're in, the color tells you the live set disagrees with
+your declared state; it clears as soon as the two match again.
+
 ## Commands
 
 All commands live under the `/tbox` shortcut. Two addressability rules keep
@@ -103,7 +106,7 @@ the surface unambiguous: a **`+` prefix means a toolset**, a **bare name
 means a group**, so `+find` is always the toolset and `find` is always the
 group even if they share a name. Reserved words (`status`, `focus`, `solo`,
 `all`, `list`, `group`, `on`, `off`, `edit`, `remove`, `chars`, `defaults`,
-`release`, `restore`) are rejected at group creation, so bare
+`release`, `restore`, `sync`) are rejected at group creation, so bare
 `/tbox <group> on|off` always works.
 
 | Command | Effect |
@@ -120,13 +123,14 @@ group even if they share a name. Reserved words (`status`, `focus`, `solo`,
 | `/tbox group list` | list every group with its toolsets |
 | `/tbox focus <group>` / `focus +<toolset>` | enter focus on a group or toolset |
 | `/tbox focus off` | exit focus → restore effective defaults |
-| `/tbox focus release` | exit focus → keep the live selection (planner flush; refuses on an inconsistent allowlist) |
+| `/tbox focus release` | exit focus → keep the live selection (may refuse, leaving state untouched) |
 | `/tbox solo <group>` / `solo +<toolset>` | everything off, one unit on (focus without the lock) |
 | `/tbox defaults [show]` | list settings-tier pins, annotated by scope |
 | `/tbox defaults save [--global]` | snapshot live state into settings (project: full; `--global`: diff vs packaged default) |
 | `/tbox defaults clear [--global]` | remove a scope's `toolsetDefaults` block |
 | `/tbox defaults restore` | apply settings defaults to live state now (lifts focus) |
 | `/tbox all on` / `off` | enable all / disable all registered toolsets (extension and MCP alike) |
+| `/tbox sync` | align the live tool set with declared toolset state (see Intent vs. the live set below) |
 | `/tbox status` | full status: toolsets, groups, focus, char-count split |
 
 ### `/tbox list` views and filters
@@ -180,8 +184,8 @@ are the non-togglable floor; their chars live in `core`). Toolsets with no
 active members (charging +0 chars) are omitted — they're not consuming
 budget, so there's nothing to save. No flags. Each line reports the
 toolset's active/inactive split and its +chars cost. When codemode is
-active, a static note states codemode's request-time overhead (budgeted
-catalog + per-tool signature lines) instead of a computed estimate.
+active, a static note replaces the computed estimate, since that overhead
+isn't measured.
 
 ## Concepts
 
@@ -204,6 +208,25 @@ moment it runs, so editing a group later doesn't retroactively change
 stored state — only the resulting per-toolset state was stored, and you
 re-adjust with `/tbox` commands.
 
+**Intent vs. the live set.** What you've declared with `/tbox` (toggles,
+pins, focus) and what's actually active can drift apart: another extension
+can leak tools back in at a turn boundary, a foreign write can strip a
+toolset, or a narrowed `--tools` session can leave members of a toolset
+you enabled permanently un-activatable. When they disagree:
+
+- `/tbox list`, `/tbox chars`, and `/tbox status` show a warning bubble
+  naming the mismatched toolsets, e.g. `intent mismatch: web (intent
+  off, 3 active) — run /tbox sync to align now; ...`.
+- The status slot's leading glyph turns warning-colored until declared
+  and live match again (focus-empty keeps its error red). The check
+  re-runs on every render, so a repair clears it immediately.
+- `/tbox sync` aligns the live set with your declared state (under focus,
+  with the focus list). It verifies its own write: anything pi
+  refuses to activate (e.g. excluded by your session's `--tools` filter)
+  is reported back instead of claimed as success. It fixes alignment
+  only: if the declared state itself is wrong, change it with toggles
+  or `defaults`, not sync.
+
 **Focus** is the exception to that, and a stronger constraint than
 toggling: it flips the underlying library into **allowlist mode** so that
 only the focused unit's allowlist (plus Pi's builtins) is active, and
@@ -214,10 +237,8 @@ new-extension installs without re-applying. While focus is active, the
 actuation commands (`all on|off`, `<group> on|off`, `+<toolset> on|off`)
 are refused — the slot advertises a known working set, and toggling
 underneath it would make that promise a lie. Use `focus off` (restore
-effective defaults), `focus release` (keep the live selection), or
-`defaults restore` first; `focus release` is the one escape that routes
-through the planner and can refuse (see above), while the other two
-bypass the planner and always work.
+effective defaults), `focus release` (keep the live selection; may
+refuse, see above), or `defaults restore` first.
 `focus off` also tombstones stale per-toolset branch entries from before
 the focus, so a `/reload` after `off` falls through to settings →
 exclusion floor → `defaultEnabled` matching the live state `off` just
@@ -231,15 +252,13 @@ holds — drift-free, survives new installs — use `focus`. For a baseline
 that holds across machines and checkouts, pin it with
 `/tbox defaults save`.
 
-**What tbox won't touch — the refined rule is *non-declarable ⇒ read-only*.**
-Pi-core builtins and host `sdk` tools (`customTools`) stay read-only because
-pi does not expose their activation through the loadout. MCP tools are the
-exception: they are ordinary declarable tools with a real `exposure`, so tbox
-manages them (see below). Everything else without a toggle address — the
-three shared MCP resource tools, `codemode`/`deferred` MCP tools that
-`tool_search` loads mid-session — appears read-only under the `pi-managed`
-group in `/tbox list` and `/tbox status`, its chars booked to `core`:
-visible, not togglable. Persistent control for those is the server's
+**What tbox won't touch.** Pi-core builtins and host `sdk` tools
+(`customTools`) stay read-only: pi doesn't expose their activation. MCP
+tools are the exception: tbox manages them (see below). Everything else
+without a toggle address (the three shared MCP resource tools,
+`codemode`/`deferred` MCP tools that `tool_search` loads mid-session)
+appears read-only under the `pi-managed` group in `/tbox list` and
+`/tbox status`, its chars booked to `core`: visible, not togglable. Persistent control for those is the server's
 `toolExposure` config, not a runtime toggle.
 
 ### Picker keyboard shortcuts
@@ -247,33 +266,6 @@ visible, not togglable. Persistent control for those is the server's
 `/tbox group <name> edit` requires interactive (`tui`) mode. All keys are
 remappable through your user keybindings:
 
-## MCP servers
-
-Each MCP server gets one toolset, id `tbox.mcp@<server>` (the picker label
-is `mcp__<server>`), covering the server's **declarable** (`direct`-exposure)
-tools only — the tools pi declares to the model on every request. Toggling
-it off means those tools are *not declared and not counted*; it is context
-hygiene, **not a security boundary**: `codemode`/`deferred`-exposure MCP
-tools stay script-callable while off, and their reachability is managed by
-pi's `/mcp` surface, never by tbox. Persistent control over which tools are
-declarable is the server's `toolExposure` config.
-
-Known edges (accepted residuals, not bugs):
-
-- A declarable MCP tool registered while a dispatch is in flight — a server
-  still connecting at the first prompt, a lazy `tool_call`-triggered connect,
-  an OAuth reconnect — is declared despite intent-off until the next prompt
-  boundary, then removed by tbox's reconcile. At most one prompt of display
-  lag on the status bar; command surfaces (`/tbox list` etc.) re-scan on
-  every invocation and are not prompt-timing dependent.
-- A tool whose exposure changes in place `direct` → `codemode`/`deferred` is
-  dropped from its toolset but not deactivated — it stays callable (declared
-  only once `tool_search` loads it) until the session reloads. While active
-  it renders read-only under `pi-managed` and its chars are booked to
-  `core`, not the extension budget.
-- `focus off` and `/tbox defaults restore` turn MCP toolsets ON at their
-  packaged default when no branch entry or settings pin exists — the same
-  behavior as any other toolset added after those were captured.
 | Key | Action |
 |---|---|
 | `↑` / `↓` | navigate |
@@ -287,6 +279,30 @@ The list is windowed (8 rows) with a fuzzy search input, so it never
 exceeds the viewport regardless of how many toolsets exist. Inline footer
 cues report auto-checked dependencies (`auto-checked: portal.web (required
 by selection)`) and auto-unchecked dependents as you toggle.
+
+## MCP servers
+
+Each MCP server gets one toolset, id `tbox.mcp@<server>` (the picker label
+is `mcp__<server>`), covering the server's **declarable** (`direct`-exposure)
+tools only: the tools pi declares to the model on every request. Toggling
+it off means those tools are *not declared and not counted*; it is context
+hygiene, **not a security boundary**: `codemode`/`deferred`-exposure MCP
+tools stay script-callable while off, and their reachability is managed by
+pi's `/mcp` surface, never by tbox. Persistent control over which tools are
+declarable is the server's `toolExposure` config.
+
+Known edges:
+
+- A server connecting mid-session (after startup, a lazy connect, an OAuth
+  reconnect) can leave its tools declared for one prompt despite being
+  toggled off; tbox removes them at the next prompt. `/tbox list` and the
+  other command surfaces always re-scan, so they're never stale.
+- A tool whose exposure changes `direct` → `codemode`/`deferred` mid-session
+  is dropped from its toolset but stays callable until reload; while active
+  it shows read-only under `pi-managed`, its chars booked to `core`.
+- `focus off` and `/tbox defaults restore` turn MCP toolsets on at their
+  packaged default when no branch entry or settings pin exists, the same
+  behavior as any other toolset added after those were captured.
 
 ## How state persists
 

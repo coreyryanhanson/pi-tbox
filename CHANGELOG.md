@@ -2,6 +2,45 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Post-start MCP connect poll.** MCP servers connect asynchronously
+  after `session_start`; tbox now polls for the first 10s so a server
+  landing in that window registers its `tbox.mcp@<server>` toolset and
+  repaints the status slot within ~500ms of its connect, instead of
+  waiting for the next prompt or `/tbox` command.
+
+- **Drift warnings.** If a foreign `pi.setActiveTools` write leaves the
+  live tool set disagreeing with declared toolset state, `/tbox list`,
+  `/tbox chars`, and `/tbox status` now show a warning bubble naming the
+  mismatched toolsets, the `/tbox sync` remedy, and when each drift class
+  self-heals; the status bar shows a warning-colored glyph. Diagnostic
+  only — fires on user-invoked stats commands, never per prompt.
+
+- **`/tbox sync` — align the live tool set with declared toolset state.**
+  One write per mismatched toolset with the tier-resolved desired state
+  (mode-aware, so it acts under focus). Success is claimed only from
+  post-apply observation: a member pi refuses to activate is reported as
+  a residual instead of a false "aligned". Sync persists nothing —
+  incoherent declared state is a toggle or `defaults` fix, and a corrupt
+  focus entry (empty allowlist) is reported with its repair path
+  (`focus off` or `defaults restore`, then re-run sync). Takes no
+  arguments.
+
+  **`sync` is now a reserved word** and rejected as a group name. A
+  pre-existing group named `sync` becomes unreachable while still listed
+  (`/tbox sync on` now parses as the subcommand) — re-create it under
+  another name.
+
+### Changed
+
+- **`/tbox status --help` and `/tbox chars --help` now print a one-line
+  usage reply** instead of falling through to the full output, like
+  `list --help` and `sync --help` do.
+
+- **`pi-tool-masking` dependency updated from 2.0.1 to 2.1.0** for the
+  drift predicate (`computeDrift`, `getActuatableNames`).
+
 ## [0.9.1] - 2026-10-07
 
 ### Fixed
