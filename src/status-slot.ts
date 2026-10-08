@@ -7,7 +7,10 @@
  *   - Focus: `● focus:<unit> (n)` (green) — focused on a unit, n active extension tools
  *   - Focus empty: `● focus:∅` (red) — focused on an empty allowlist
  *
- * On top of the four states, intent-vs-live drift (masking's computeDrift
+ * A fifth state covers foreign allowlist governance (branch in allowlist
+ * mode without tbox's mirror — see `setFocusModeProvider`).
+ *
+ * On top of these states, intent-vs-live drift (masking's computeDrift
  * via an injected provider — see `setDriftProvider`) recolors the leading
  * glyph in the `warning` theme color: the glyph shape still carries the
  * state, the color carries the drift signal. Focus-empty keeps its `error`
@@ -40,6 +43,7 @@ type SlotState =
 	| { kind: "pristine" }
 	| { kind: "count"; n: number }
 	| { kind: "focus"; unit: string; count: number }
+	| { kind: "focus-unlabeled"; count: number }
 	| { kind: "focus-empty" };
 
 // ---------------------------------------------------------------------------
@@ -61,6 +65,17 @@ let _focusUnit: string | null = null;
  */
 let _driftProvider: (() => boolean) | null = null;
 
+/**
+ * The focus-mode provider — installed by index.ts over the captured extension
+ * context (the branch mode read needs a branch snapshot, which pi's API
+ * object does not carry). Returns true while the branch is in allowlist mode,
+ * regardless of who entered it. Consulted fresh on every render; null (or a
+ * false return) means "no foreign governance observed" — the mirror alone
+ * still drives the focus display. Presentation-only: this module never
+ * imports masking; index.ts builds the closure.
+ */
+let _focusModeProvider: (() => boolean) | null = null;
+
 /** The slot name used for tbox's status bar entry. */
 export const SLOT_NAME = "tbox";
 
@@ -73,19 +88,27 @@ export const FOCUS_PERSIST_KEY = "tbox-focus-state";
 
 /**
  * Compute the current slot state based on focus and excluded count.
+ *
+ * Focus is displayed when either signal says so: the mirror (the unit label
+ * for every tbox-driven flow) or the branch mode (a foreign masking consumer
+ * can enter allowlist mode without ever touching the mirror — the guard
+ * refuses on the branch, so the display must not claim "no governance").
  */
 export function computeSlotState(pi: ExtensionAPI): SlotState {
 	const { active, total } = extensionToolCounts(pi);
 
-	if (_focusUnit !== null) {
+	if (_focusUnit !== null || (_focusModeProvider?.() ?? false)) {
 		if (active === 0) {
 			return { kind: "focus-empty" };
 		}
-		return {
-			kind: "focus",
-			unit: _focusUnit,
-			count: active,
-		};
+		if (_focusUnit !== null) {
+			return {
+				kind: "focus",
+				unit: _focusUnit,
+				count: active,
+			};
+		}
+		return { kind: "focus-unlabeled", count: active };
 	}
 
 	// Excluded = all extension tools minus active extension tools.
@@ -112,6 +135,8 @@ function baseSlotParts(state: SlotState): {
 			return { glyph: "●", glyphColor: "accent", rest: ` tbox ${state.n} masked` };
 		case "focus":
 			return { glyph: "●", glyphColor: "success", rest: ` focus:${state.unit} (${state.count})` };
+		case "focus-unlabeled":
+			return { glyph: "●", glyphColor: "success", rest: ` focus (${state.count})` };
 		case "focus-empty":
 			return { glyph: "●", glyphColor: "error", rest: " focus:∅" };
 		default:
@@ -160,6 +185,15 @@ export function render(pi: ExtensionAPI, ctx: SlotCtx): void {
  */
 export function setDriftProvider(provider: (() => boolean) | null): void {
 	_driftProvider = provider;
+}
+
+/**
+ * Install the focus-mode provider (or `null` to unset — display ignores
+ * branch mode). Called once from the factory body, like `setDriftProvider`.
+ * The provider itself must be total (never throw).
+ */
+export function setFocusModeProvider(provider: (() => boolean) | null): void {
+	_focusModeProvider = provider;
 }
 
 // ---------------------------------------------------------------------------

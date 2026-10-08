@@ -7,6 +7,7 @@ import {
 	renderSlotText,
 	setFocusUnit,
 	getFocusUnit,
+	setFocusModeProvider,
 	clearSlot,
 	wireSlot,
 	persistFocusUnit,
@@ -26,6 +27,7 @@ describe("status-slot", () => {
 		mock = new MockPI();
 		pi = mock as unknown as ExtensionAPI;
 		setFocusUnit(null);
+		setFocusModeProvider(null);
 	});
 
 	describe("computeSlotState", () => {
@@ -162,6 +164,45 @@ describe("status-slot", () => {
 
 			const state = computeSlotState(pi);
 			expect(state).toEqual({ kind: "focus-empty" });
+		});
+
+		it("shows focus for a foreign allowlist mode without a mirror unit", () => {
+			// A foreign masking consumer holds the branch in allowlist mode
+			// without touching tbox's mirror: the guard refuses on the branch,
+			// so the slot must not claim pristine/count.
+			setFocusModeProvider(() => true);
+			mock.registerTool({
+				name: "web-fetch",
+				description: "Web fetch tool",
+				sourceInfo: {
+					path: "portal.ts",
+					source: "extension",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.setActiveTools(["web-fetch"]);
+
+			const state = computeSlotState(pi);
+			expect(state).toEqual({ kind: "focus-unlabeled", count: 1 });
+		});
+
+		it("ignores the focus-mode provider when unset or false", () => {
+			mock.registerTool({
+				name: "web-fetch",
+				description: "Web fetch tool",
+				sourceInfo: {
+					path: "portal.ts",
+					source: "extension",
+					scope: "user",
+					origin: "top-level",
+				},
+			});
+			mock.setActiveTools([]);
+
+			expect(computeSlotState(pi)).toEqual({ kind: "count", n: 1 });
+			setFocusModeProvider(() => false);
+			expect(computeSlotState(pi)).toEqual({ kind: "count", n: 1 });
 		});
 	});
 

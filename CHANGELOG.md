@@ -49,6 +49,14 @@
 
 ### Fixed
 
+- **Focus display reads the branch, not just the mirror.** A foreign
+  masking consumer can hold the branch in allowlist mode without ever
+  touching tbox's focus mirror; `/tbox status` showed `Focus: off` and
+  the slot showed a plain count while every toggle was refused by the
+  guard. Both displays now also treat the branch mode as a focus signal:
+  the status line shows `Focus: on (allowlist)` and the slot renders a
+  focus state when the branch is governed but the mirror is unset.
+
 - **Picker refusals are atomic.** When a toggle or enable-all is refused
   by a `requires` cycle, the selection is now left untouched — previously
   the checkboxes flipped even though the cue reported the refusal, and

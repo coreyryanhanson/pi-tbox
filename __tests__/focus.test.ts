@@ -1021,5 +1021,17 @@ describe("/tbox focus", () => {
 			const output = formatStatus(pi, branchOf(mock));
 			expect(output).toContain("Focus: off");
 		});
+
+		it("/tbox status shows focus for a foreign allowlist mode (mirror unset)", () => {
+			// A foreign masking consumer enters allowlist mode without touching
+			// tbox's mirror. The guard refuses on the branch, so the status line
+			// must agree with the guard instead of claiming Focus: off.
+			setup(pi, mock);
+			setDefaultResolutionMode(pi, "allowlist", ["portal.web"]);
+			expect(getFocusUnit()).toBeNull();
+
+			const output = formatStatus(pi, branchOf(mock));
+			expect(output).toContain("Focus: on (allowlist)");
+		});
 	});
 });

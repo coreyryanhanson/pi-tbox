@@ -15,6 +15,7 @@ import type {
 import {
 	effectiveEnabled,
 	getRegisteredToolsets,
+	readBranchModeState,
 	readMergedToolsetDefaults,
 	type RegistryEntry,
 } from "pi-tool-masking";
@@ -723,7 +724,15 @@ export function formatStatus(
 			? `User Groups: ${groupNames.join(", ")}`
 			: "User Groups: no groups defined";
 	const focusUnit = getFocusUnit();
-	const focusLine = focusUnit ? `Focus: on (${focusUnit})` : "Focus: off";
+	// Same dual signal as the slot (computeSlotState): the branch mode is
+	// what the guard trusts — a foreign masking consumer can hold allowlist
+	// mode without tbox's mirror, and the display must not claim otherwise.
+	const focusActive =
+		readBranchModeState(branch).mode === "allowlist" || focusUnit !== null;
+	const focusLabel = focusUnit
+		? `Focus: on (${focusUnit})`
+		: "Focus: on (allowlist)";
+	const focusLine = focusActive ? focusLabel : "Focus: off";
 
 	const charLine = formatCharSplit(computeCharCount(pi));
 	const lines = [table, "", groupLine, focusLine, charLine];

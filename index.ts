@@ -24,6 +24,7 @@ import {
 	rerenderSlot,
 	setFocusUnit,
 	setDriftProvider,
+	setFocusModeProvider,
 	restoreFocusUnit,
 	type SlotCtx,
 } from "./src/status-slot.js";
@@ -43,6 +44,7 @@ import { syncToolsets } from "./src/sync.js";
 import {
 	computeDrift,
 	isDeferredChild,
+	readBranchModeState,
 	type DriftFact,
 } from "pi-tool-masking";
 import {
@@ -595,6 +597,23 @@ export default function tboxFactory(pi: ExtensionAPI) {
 		if (!rawCtx) return false;
 		try {
 			return computeDrift(pi, rawCtx.sessionManager.getBranch()).length > 0;
+		} catch {
+			return false;
+		}
+	});
+
+	// --- Install the slot's focus-mode provider (the branch read) ---
+	// Contract: status-slot.ts (same freshness/totality/diagnostic-only shape
+	// as the drift provider). The guard reads the branch; the display must
+	// agree with it even when a foreign consumer entered allowlist mode
+	// without tbox's mirror.
+	setFocusModeProvider(() => {
+		if (!rawCtx) return false;
+		try {
+			return (
+				readBranchModeState(rawCtx.sessionManager.getBranch()).mode ===
+				"allowlist"
+			);
 		} catch {
 			return false;
 		}

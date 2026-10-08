@@ -85,13 +85,14 @@ Then in any Pi session:
 
 The status slot appears in your bar automatically and updates live as you
 toggle. It reflects chat state only: `defaults` writes to settings, so it
-doesn't move the slot. Four states:
+doesn't move the slot. Five states:
 
 | Glyph | State | Meaning |
 |---|---|---|
 | `○ tbox` | pristine | all defaults — nothing toggled, nothing masked |
 | `● tbox n masked` | count | exclusion mode, `n` togglable tools turned off |
 | `● focus:<unit> (n)` | focus | deliberately constrained to one group/toolset; `n` active extension tools |
+| `● focus (n)` | focus-unlabeled | allowlist mode held by another extension (tbox mirror unset); `n` active extension tools |
 | `● focus:∅` | focus-empty | focus is on but the allowlist left nothing active — broken |
 
 On top of any state, drift (see **Intent vs. the live set** below) renders
