@@ -721,9 +721,35 @@ describe("picker — requires cycle surfaces as cue instead of crashing", () => 
 		comp.render(120); // cue paints on the next render pass
 		expect(comp.lastCue).toMatch(/Cycle detected/);
 
+		// The refusal is atomic: the checkbox state is untouched, so the cue
+		// and the rendered selection agree, and Ctrl+S cannot persist a
+		// selection the user did not confirm.
+		expect(comp.checkedToolsets.has("cyc.a")).toBe(false);
+		expect(comp.checkedToolsets.has("cyc.b")).toBe(false);
+		expect(comp.isDirty).toBe(false);
+
 		// The picker stays interactive: navigating still works.
 		comp.handleInput(KEY.down);
 		expect(comp.selectedIndex).toBe(idx + 1);
+	});
+
+	it("uncheck on a requires cycle leaves the selection unchanged", () => {
+		setupCyclicRegistry();
+
+		const comp = createComp();
+		// Pre-check cyc.a directly (bypassing the picker's toggle path, which
+		// would refuse) so the confirm keystroke exercises the uncheck path.
+		comp.checkedToolsets.add("cyc.a");
+		comp.isDirty = false;
+		const idx = comp.filteredItems.findIndex((u) => u.id === "cyc.a");
+		comp.selectedIndex = idx;
+
+		// Reverse closure hits the cycle; the pre-existing check survives.
+		expect(() => comp.handleInput(KEY.enter)).not.toThrow();
+		comp.render(120);
+		expect(comp.lastCue).toMatch(/Cycle detected/);
+		expect(comp.checkedToolsets.has("cyc.a")).toBe(true);
+		expect(comp.isDirty).toBe(false);
 	});
 
 	it("Ctrl+A on a cyclic registry shows the cue instead of crashing", () => {
@@ -735,5 +761,8 @@ describe("picker — requires cycle surfaces as cue instead of crashing", () => 
 		expect(() => comp.handleInput(KEY.enableAll)).not.toThrow();
 		comp.render(120);
 		expect(comp.lastCue).toMatch(/Cycle detected/);
+		// Atomic refusal: nothing got checked, nothing marked unsaved.
+		expect(comp.checkedToolsets.size).toBe(0);
+		expect(comp.isDirty).toBe(false);
 	});
 });

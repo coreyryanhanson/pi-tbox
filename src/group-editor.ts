@@ -193,10 +193,16 @@ export class GroupEditorComponent {
 	private enableAll(): void {
 		this.lastCue = ""; // previous per-toggle cascade cue is stale after bulk op
 		const targets = this.filteredItems;
+		// Forward closure runs on a candidate copy so a cycle refusal leaves
+		// the selection intact.
+		const candidate = new Set(this.checkedToolsets);
+		for (const u of targets) {
+			candidate.add(u.id);
+		}
+		const closure = forwardClosure(candidate);
 		for (const u of targets) {
 			this.checkedToolsets.add(u.id);
 		}
-		const closure = forwardClosure(this.checkedToolsets);
 		for (const id of closure) {
 			this.checkedToolsets.add(id);
 		}

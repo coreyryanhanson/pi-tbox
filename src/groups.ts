@@ -176,10 +176,11 @@ export function toggleToolsetUnit(
 
 	if (wasChecked) {
 		// --- Unchecking ---
-		checkedToolsets.delete(unit.id);
-		// Reverse closure: find dependents and uncheck them too
+		// Reverse closure: find dependents and uncheck them too. Computed
+		// before any mutation so a cycle refusal leaves the selection intact.
 		const revClosure = reverseClosure([unit.id]);
 		const uncheckDeps = [...revClosure].filter((id) => id !== unit.id);
+		checkedToolsets.delete(unit.id);
 		if (uncheckDeps.length > 0) {
 			for (const depId of uncheckDeps) {
 				checkedToolsets.delete(depId);
@@ -188,9 +189,12 @@ export function toggleToolsetUnit(
 		}
 	} else {
 		// --- Checking ---
+		// Forward closure runs on a candidate copy: ensure transitive deps are
+		// checked, and a cycle refusal leaves the selection intact.
+		const candidate = new Set(checkedToolsets);
+		candidate.add(unit.id);
+		const closure = forwardClosure(candidate);
 		checkedToolsets.add(unit.id);
-		// Forward closure: ensure transitive deps are checked
-		const closure = forwardClosure(checkedToolsets);
 		const newDeps = [...closure].filter((id) => !checkedToolsets.has(id));
 		for (const depId of newDeps) {
 			checkedToolsets.add(depId);

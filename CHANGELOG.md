@@ -49,6 +49,12 @@
 
 ### Fixed
 
+- **Picker refusals are atomic.** When a toggle or enable-all is refused
+  by a `requires` cycle, the selection is now left untouched — previously
+  the checkboxes flipped even though the cue reported the refusal, and
+  Ctrl+S could persist a group that is not a closed set under the
+  dependency graph. Clear-all was already atomic.
+
 - **Grouped-list footer now counts inactive builtins.** The
   `Total: N active, M inactive` line under `/tbox list` skipped inactive
   `pi.builtin` tools while the section itself rendered an `(inactive)`
